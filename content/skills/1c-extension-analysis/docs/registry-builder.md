@@ -1,0 +1,52 @@
+# 1c-registry-builder
+
+Builds the change registry required by `../SKILL.md` workflow step 1 — one row per atomic own change (own attribute, own tabular section, own interceptor, own form module) — generated directly from the extension source tree instead of from a search for an already-known pattern name.
+
+## Why this exists
+
+Every prior methodology in this skill grouped objects into functional blocks by finding a *known* pattern first (an interceptor name already seen on a sibling object, a query already read for one report) and then checking which objects matched it. That direction of search structurally cannot find a second, differently-named mechanism on an object that has already been "explained" by the first mechanism found — there is no reason to go looking for it. Confirmed in practice on a real extension: a document had two independent own interceptors — one matching the well-known "auto-create a registry entry" pattern shared by ten siblings, and a second, differently-named one registering unrelated data into a completely different typical register. Every analysis pass that searched by the first (already-known) name alone missed the second entirely; a sibling document's *own* copy of the same second mechanism was missed too, for the same reason. `cfe-diff -Mode A` already reads every own attribute/interceptor per object directly from the XML/BSL — the gap was never missing data, it was that step 3's grouping never walked that already-available list to completion.
+
+This tool inverts the search direction: enumerate everything a given object actually owns first, then classify each row — instead of finding a pattern and asking who else has it.
+
+## What it does
+
+For every object in the extension tree (walking `<TypeDir>/*.xml`, the same type→directory map used elsewhere in this project's tooling):
+
+1. Determines whether the object itself is `Adopted` (borrowed) via `ObjectBelonging` on its own top-level XML — same check as `cfe-diff -Mode A`, done independently here (this skill's tools are self-contained; see `AGENTS.md → Surgical Changes`).
+2. Lists every own top-level attribute / tabular section (children whose `ObjectBelonging` is not `Adopted`).
+3. Scans every own BSL file (`ObjectModule.bsl`, `ManagerModule.bsl`, any other `Ext/*.bsl`, every form's `Module.bsl`) for interceptor annotations (`&Перед`/`&После`/`&ИзменениеИКонтроль`/`&Вместо`).
+4. For every interceptor found, counts occurrences of `ОбъектМетаданных = Метаданные.X` / `ТипЗнч(...) = Тип(...)` inside that routine's own body. More than one such comparison flags the row as `DISPATCHER` instead of emitting a normal row — `SKILL.md` step 1 requires decomposing a dispatcher by unique branch shape, which needs a human to read and group the branches; the tool only reports where to look and how many comparisons it found.
+5. For form modules with no interceptor annotations at all (the common shape of a wholly-new form on an otherwise adopted object — nothing typical to intercept, the whole form is own), lists every routine name found in that file as one informational row instead of silently skipping the file.
+
+Every generated row has an empty `Блок` column — filling it in is step 3's job, not this tool's. The tool's contract stops at "here is everything this object owns"; classification is a domain judgment call, not something a script can do.
+
+## Usage
+
+```
+python3 registry-builder.py -ExtensionPath <path> [-Object "Type.Name"] [-CompareAgainst <report.md>]
+```
+
+- No `-Object` — walks the whole extension tree.
+- `-Object "Document.ПереносОтпуска"` — scopes to one object (fast, targeted re-check of a single object mid-analysis).
+- `-CompareAgainst <path>` — switches to coverage-check mode: generates the same rows, then checks whether the object name appears anywhere (plain substring search) in the given file, and prints only the ones that do **not** appear at all.
+
+## Known gaps — read before trusting the output as complete
+
+- **`-CompareAgainst` is a coverage check, not a structural diff.** It only proves an object's name is entirely absent from the report text; an object name appearing somewhere does **not** prove every one of its own mechanisms was individually addressed in the surrounding text — a report can mention an object once in a summary table and still have silently dropped one of its three own interceptors. Treat a `[NOT IN REPORT]` hit as authoritative (the object really was not discussed); treat the absence of a hit as "not yet disproven", not as "fully verified".
+- **Substring matching against bare object names is naive.** If a report writes an object without its type prefix (`ИмяОбъекта` instead of `Document.ИмяОбъекта`), the current substring check (`row["Object"] not in report_text`, using the full `Type.Name` form) will still flag it as missing even though a human reader would recognize the object is discussed. Confirmed in practice: running `-CompareAgainst` against an already-thorough report produced several such false positives alongside genuine gaps — read every hit, do not treat the count as an error tally to drive to zero mechanically.
+- **Dispatcher detection is a textual heuristic, not a control-flow parser.** It counts comparisons anywhere inside the routine's line range, not truly "on the top-level branch path" — a comparison inside a deeply nested helper call within the same routine would still count. This has not produced a false positive in practice (dispatcher-shaped routines tend to have the comparisons directly in `Если`/`ИначеЕсли` conditions at shallow nesting), but treat a `DISPATCHER` flag on an unusually-structured routine as a prompt to read it, not as a guaranteed classification.
+- **Own-form routine enumeration does not distinguish real logic from trivial boilerplate**, and does not cross-reference the matching `Form.xml`'s event bindings to say which routine is bound to which element — it is a flat name list, meant to stop a reader from skipping the file entirely, not a substitute for reading it.
+- **Does not resolve `Adopted`-object staleness** the way `1c-enum-value-checker`/`1c-defined-type-dispatch-checker` do via `-ConfigPath` — this tool only reads the extension's own snapshot. Not a concern for interceptor/attribute enumeration (those are read from the extension's own files, which is exactly what "own" means here), but keep in mind if extending this tool to reason about typical-side composition later.
+
+## Relationship to other tools in this skill
+
+Complementary to, not a replacement for:
+
+- `cfe-diff -Mode A` — the authoritative borrowed/own classification and the original source of the same per-object interceptor idea; this tool re-derives the same facts independently (skill self-containment) and adds the dispatcher-branch-count flag and the coverage-check mode, neither of which `cfe-diff` does.
+- `1c-reference-finder` — answers *why* a zero-content adopted object was brought in at all; this tool only concerns objects/routines that already have own content, it does not explain zero-content adoptions.
+- `1c-dead-code-after-insert-checker` — finds unreachable code inside a routine; this tool finds the routine itself as a unit of the registry, regardless of whether any part of it is dead.
+- `1c-defined-type-dispatch-checker` — a different dispatch shape (`ТипЗнч(Параметр) = Тип(...)` over a `DefinedType`'s declared members); this tool's `DISPATCHER` flag is a coarser, faster textual signal for *any* metadata-identity dispatch (including the `ОбъектМетаданных = Метаданные.X` shape that dominates exchange-plan registration code), not a substitute for that tool's stricter, `DefinedType`-aware completeness check.
+
+## Provenance
+
+Built after two independent analysis passes on the same real extension both missed a document's second, differently-named own interceptor (registering data into an unrelated typical register) — found only once the object's own body was read line-by-line by hand, well after both passes had already declared the object "explained" by its first-found interceptor. A third, independently-produced report on the same extension (running a structural symbol search for the *already-known* interceptor name across the whole codebase) also missed the same second interceptor on a *sibling* document, for the identical reason: the search only ever looked for the name it already expected to find. Running this tool's generation mode directly against the real extension surfaced both missed interceptors, plus the object's two own attributes, plus a `DISPATCHER` flag on the extension's central RIB-registration dispatcher (which the same two prior passes had each collapsed into a single functional-block assignment, despite it containing branches for a different block with their own justifying code comment) — all without prior knowledge of any of these specific findings, purely from walking the source tree.
