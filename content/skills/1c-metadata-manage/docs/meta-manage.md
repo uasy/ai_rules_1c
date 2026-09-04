@@ -36,7 +36,9 @@ Constant, DefinedType, CommonModule, ScheduledJob, EventSubscription, DocumentJo
 
 ## JSON DSL — Quick Reference
 
-Full specification is split across three reference files in `tools/1c-meta-edit/`: [`json-dsl.md`](../tools/1c-meta-edit/json-dsl.md) (combined operations, key/type synonyms, supported object table), [`properties-reference.md`](../tools/1c-meta-edit/properties-reference.md) (object property operations), and [`child-operations.md`](../tools/1c-meta-edit/child-operations.md) (child-element operations).
+Full `meta-edit` operation reference is split across three files in `tools/1c-meta-edit/`: [`json-dsl.md`](../tools/1c-meta-edit/json-dsl.md) (combined operations, key/type synonyms, supported object table), [`properties-reference.md`](../tools/1c-meta-edit/properties-reference.md) (object property operations), and [`child-operations.md`](../tools/1c-meta-edit/child-operations.md) (child-element operations).
+
+The **complete `meta-compile` DSL grammar** — every object type with its type-specific keys, all property spellings, version-dependent properties (format 2.20 / platform 8.3.27 included) — is vendored verbatim as [`meta-dsl-spec.md`](../tools/1c-meta-compile/meta-dsl-spec.md) (Russian, upstream original). The quick reference below covers the common cases; read the spec when a key is missing here or the compiler rejects a construct.
 
 ### Root Structure
 
@@ -174,6 +176,17 @@ Context shortcuts: `"server"` → Server+ServerCall, `"client"` → ClientManage
 - `{OutputDir}/{TypePlural}/{Name}/Ext/Content.xml` — exchange plan content (ExchangePlan)
 - `{OutputDir}/{TypePlural}/{Name}/Ext/Flowchart.xml` — route map (BusinessProcess)
 - `Configuration.xml` — automatic registration in `<ChildObjects>`
+
+## Placement in `Configuration.xml`
+
+Registration adds exactly one `<Kind>Name</Kind>` line; the rest of the file is kept byte-for-byte (BOM, EOL, declaration case, `<Tag/>` form, indentation). Where the line goes inside its own kind group is `NEW_OBJECT_POSITION` in `.dev.env`:
+
+| Value | Placement |
+|-------|-----------|
+| `end` (default / empty) | After the last object of the same kind — what Configurator does |
+| `byName` | Alphabetically inside the kind group, by the deterministic 1C-tree comparator (standard АПК:1108) |
+
+Regardless of the value: a group of a kind **not yet present** in the file is inserted in canonical kind order rather than appended to the end of the block, and the order-sensitive kinds (`Subsystem`, `CommandGroup`, `CommonAttribute`, `Language`) are never sorted by name. Objects already registered are never moved. Parameter reference — `content/rules/dev-standards-env.md → NEW_OBJECT_POSITION`.
 
 ## Verification
 
@@ -490,7 +503,17 @@ Exit code: 0 = all checks passed, 1 = errors found.
 ```
 
 ---
-## Recent Additions (upstream `w-2026-05-17`)
+## Upstream sync `2026-07-30`
+
+Scripts refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills): `meta-compile` v1.12 → **v1.68**, `meta-edit` v1.6 → **v1.23**, `meta-validate` v1.3 → **v1.12**, `meta-info` v1.2 → **v1.4**, `meta-remove` v1.1 → **v1.5**.
+
+- **Support gate** — `meta-edit` / `meta-compile` refuse to touch an object of a typical configuration that is locked ("на замке"); `meta-remove` refuses to delete an object still on support. See [support-manage.md](support-manage.md).
+- **`meta-compile`** — many more object types authorable from the DSL (`CommonPicture`, `CommonTemplate`, `SessionParameter`, `CommonCommand`, `CommandGroup`, `CommonAttribute`, `FunctionalOptionsParameter`, `WSReference`), format 2.20 properties (platform 8.3.27), command-group validation, better auto-synonym derivation. Full grammar: [`meta-dsl-spec.md`](../tools/1c-meta-compile/meta-dsl-spec.md).
+- **`meta-edit`** — structural attribute properties are now editable point-wise: `Format` / `EditFormat` / `ToolTip` / `ChoiceForm`, `MinValue` / `MaxValue`, `LinkByType` / `ChoiceParameterLinks`, `ChoiceParameters`, `FillValue`; list properties `DataLockFields` / `RegisteredDocuments`; `add-predefined` for predefined items; create-if-missing for properties with a type guard.
+- **`meta-validate`** — checks that referenced types exist, validates object commands (group + parameter rule), version-dependent properties and the `LineNumberLength` range, `MDObjectRef` reference shape, and rejects reserved attribute names in a type-aware way.
+- **`meta-info`** — prints the object's support state and the type presentation for reference objects.
+
+## Earlier Additions (upstream `w-2026-05-17`)
 
 The PowerShell scripts under `tools/1c-meta-{compile,edit,info,remove,validate}/scripts/` were refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills). Highlights:
 

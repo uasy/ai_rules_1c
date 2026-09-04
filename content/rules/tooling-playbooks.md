@@ -8,6 +8,8 @@ category: tooling
 
 The MCP server catalog, fallback order (`graph → code-metadata → grep=true retry → Grep` for project-source search), and per-server tool descriptors live in the `mcp-1c-tools` skill (`content/skills/mcp-1c-tools/SKILL.md`, `docs/<server>.md`). `AGENTS.md` only defines the short obligation rules and points here.
 
+**EDT projects.** When `.dev.env` `USE_EDT=true`, these playbooks still apply — the additions (source-format check before metadata steps, EDT validation markers alongside the BSL validators, EDT-side DB update, form snapshots) live in `content/rules/edt-workflow.md`. Load it together with the playbook for the task.
+
 ## Minimum Evidence Matrix
 
 Use the smallest set that closes the real context gaps. Do not promote a task to a heavier path just to satisfy a generic checklist.
@@ -15,8 +17,8 @@ Use the smallest set that closes the real context gaps. Do not promote a task to
 | Task shape | Required before edit | Required after edit |
 |---|---|---|
 | **Quick-fix BSL** (one logical change in one module, no metadata / transaction / public-contract impact) | Read the target module / procedure and any directly referenced helper needed to understand the bug | `syntaxcheck` → `check_1c_code` → `review_1c_code` on the touched module; quick-fix reduces process overhead, not verification depth |
-| **Full-cycle BSL** | `templatesearch` when a reusable pattern may exist; `search_code` / `codesearch` for local patterns; `get_object_dossier` / `metadatasearch` when metadata shape affects the code; platform / БСП / ITS docs only when versioned API or standard behaviour matters | `syntaxcheck` → `check_1c_code` → `review_1c_code`; impact analysis when public surface or metadata usage changed |
-| **Metadata XML / forms** | Similar object/form examples, metadata lookup, `get_xsd_schema`; prefer `1c-metadata-manage` over hand edits | `verify_xml`; metadata validation / form compilation where applicable |
+| **Full-cycle BSL** | `templatesearch` when a reusable pattern may exist; `search_code` / `codesearch` for local patterns; `get_object_dossier` / `metadatasearch` when metadata shape affects the code; platform / БСП / ITS docs only when versioned API or standard behaviour matters; **platform-capability check** (`docsearch` → `docinfo`, + `ssl_search`) whenever the task enters a specialized domain — cryptography, СЛАУ / numerical methods, data analysis, collaboration system / bots, integration bus / queues, full-text search, regex (`AGENTS.md → MCP Tool Calling → A.7`) | `syntaxcheck` → `check_1c_code` → `review_1c_code`; impact analysis when public surface or metadata usage changed |
+| **Metadata XML / forms** | Similar object/form examples, metadata lookup, `get_xsd_schema`; **mutations go through the `1c-metadata-manage` skill** — hard gate, exceptions only per `SKILL.md → Hard rule` | `verify_xml`; metadata validation / form compilation where applicable |
 | **Integrations / platform APIs** | Existing integrations, templates, relevant БСП APIs, platform docs for exact API names / version availability, security requirements | `syntaxcheck` → `check_1c_code` → `review_1c_code`; ITS check when relying on an ITS standard |
 | **Markdown / rules / docs** | Read affected docs and referenced files needed for consistency | Structural checks only: paths, links, anchors, duplicate / conflicting wording |
 
@@ -24,8 +26,9 @@ Use the smallest set that closes the real context gaps. Do not promote a task to
 
 Load `content/rules/coding-standards.md` first; for forms use `forms.md`, for non-trivial queries use `query-design.md`.
 
+0. **Platform-capability check** — mandatory when the task requires a specialized capability (cryptography / digital signatures, СЛАУ / numerical methods, data analysis / ML, collaboration system / bots, integration bus / message queues, full-text search, regular expressions, and similar): `docsearch` by capability description → `docinfo` for exact names found, plus `ssl_search` where a БСП solution is plausible — **before** designing a custom implementation. **If found and usable — build on the platform / БСП mechanism** (`AGENTS.md → A.7`, `1C-docs-mcp.md → Using a found platform mechanism`); do not hand-roll a parallel equivalent.
 1. **recall** (`1c-templates-mcp`) — project-memory lookup with the task's key terms (object name, subsystem, error text) at the start of any non-trivial task, per `AGENTS.md → Project memory`. Skip for genuinely greenfield topics the project has never touched.
-2. **templatesearch** — find similar implementations.
+2. **templatesearch** — **`templatesearch` only** (`AGENTS.md → A.8`): pre-flight in `1c-templates-mcp.md → Query formulation (templatesearch only)`; pass user's task verbatim; keyword salad is a defect. **If a matching template is returned — use it as the base** (`AGENTS.md → A.9`, `1c-templates-mcp.md → Using a found template`); adapt only what the task requires; do not rewrite from scratch.
 3. **get_object_dossier** — full passport of the target metadata object (structure, forms, dependencies, code, roles) in a single call.
 4. **search_code** → **codesearch** — review existing patterns in the configuration.
 5. **search_function** — find an existing procedure/function by name for reuse.
@@ -34,7 +37,7 @@ Load `content/rules/coding-standards.md` first; for forms use `forms.md`, for no
 8. **bsl_scope_members** — discover available methods/properties of a context.
 9. **docinfo** — verify built-in functions by exact name; **docsearch** — search by description.
 10. **ssl_search** — find reusable БСП functions.
-11. **syntaxcheck** — verify syntax after writing.
+11. **syntaxcheck** — verify syntax after writing. Save the module and check it by path with **`syntaxcheck_file`** — that is the default form of this step; code text is for a fragment that has no file yet or a session without the file tool (`content/skills/mcp-1c-tools/docs/1c-syntax-checker-mcp.md → Choosing the tool`).
 12. **check_1c_code** — find logic and performance defects.
 13. **review_1c_code** — verify style and ITS standards compliance.
 14. **validatequery** (`1c-data-mcp`, if available) — when the change introduces a new / non-trivial query string (module code, DCS data set, dynamic list), parse-check it against the live IB before delivery. Especially important after non-deterministic AI generation (`rewrite_1c_code` / `modify_1c_code` / `ask_1c_ai`).
@@ -46,13 +49,14 @@ Load `content/rules/coding-standards.md` first; for forms use `forms.md`, for no
 3. **trace_call_chain** → **get_method_call_hierarchy** — routine-level BSL call chains, callers/callees.
 4. **metadatasearch** / **get_metadata_details** — correct metadata usage.
 5. **docinfo** — verify method/property existence; **docsearch** — search by description.
-6. **syntaxcheck** — reject syntax-broken input before AI review.
+6. **syntaxcheck** — reject syntax-broken input before AI review; by path (`syntaxcheck_file`) for a module that is on disk.
 7. **check_1c_code** — bugs and performance issues.
 8. **review_1c_code** — style and ITS compliance.
 9. **its_help** → **fetch_its** — cross-check against ITS standards.
 
 ## Architecture Design
 
+0. **Platform-capability check** — when the designed solution involves a specialized domain (cryptography, СЛАУ / numerical methods, data analysis, collaboration system / bots, integration bus / queues, full-text search, regex), verify via `docsearch` → `docinfo` (+ `ssl_search`) whether the platform / БСП already provides the mechanism before designing a custom one — `AGENTS.md → MCP Tool Calling → A.7`.
 1. **get_object_dossier** — passport of key metadata objects.
 2. **metadatasearch** / **get_metadata_details** — existing metadata structure.
 3. **trace_impact** → **graph_dependencies** — dependency map across USED_IN, DO_MOVEMENTS_IN, CALLS.
@@ -67,7 +71,7 @@ Load `content/rules/coding-standards.md` first; for forms use `forms.md`, for no
 
 1. **recall** (`1c-templates-mcp`) — check project memory for the error text / object name first: recurring errors and their fixes are stored there per `AGENTS.md → Project memory`.
 2. **vcloggetlasterror** (`1c-data-mcp`, if available) — fetch the exact text, timestamp and affected metadata of the last error from the live IB before forming hypotheses. Avoids guessing what the user "probably saw". Skip when the failing scenario is not yet reproduced in the connected IB.
-3. **syntaxcheck** — syntax errors.
+3. **syntaxcheck** — syntax errors; by path (`syntaxcheck_file`) for a module that is on disk.
 4. **check_1c_code** — logic and performance issues.
 5. **search_function** — locate the failing procedure/function.
 6. **search_code** → **codesearch** — related patterns (`detail_level="L0"` for the full body of a specific routine).
@@ -82,6 +86,7 @@ Load `content/rules/coding-standards.md` first; for forms use `forms.md`, for no
 
 ## Performance Optimization
 
+0. **Query tuning?** If the slow artifact is (or contains) a query — load `query-design.md` (router) and `content/skills/1c-metadata-manage/docs/query-optimization.md`, and walk its *Mandatory Optimization Checklist* item by item (temp-table indexing, redundant `РАЗЛИЧНЫЕ`, correlated subqueries, virtual-table parameters / periodicity, join-before-grouping). This applies to every «оптимизируй запрос» task even when no MCP server is exposed.
 1. **search_code** → **codesearch** — locate slow patterns (`semantic` mode: "медленный запрос", "цикл по выборке").
 2. **trace_call_chain** → **get_method_call_hierarchy** — identify hot call chains.
 3. **trace_impact** → **graph_dependencies** — objects that cause cascading issues (`relationship_types=["CALLS"]` for pure code paths).
@@ -118,21 +123,25 @@ If the refactor is large enough to enter the subagent pipeline — delegate per
 
 ## Generating / Modifying Metadata XML
 
-1. **metadatasearch** (`names_only=true`) — similar objects as examples.
-2. **get_xsd_schema** — XSD schema for the target metadata type.
-3. Write/modify XML against the schema and examples.
-4. **verify_xml** — validate against XSD; fix errors.
-5. Use the **1c-metadata-manage** skill for compilation and deployment.
+**Step 0 is the execution decision, not a formality.** Load the **`1c-metadata-manage`** skill (`SKILL.md` → domain doc, e.g. `content/skills/1c-metadata-manage/docs/meta-manage.md`) **before** writing or modifying any XML — the mutation itself is driven by the skill's tools (hard gate: `AGENTS.md → Skills and Subagents`, exceptions in `SKILL.md → Hard rule`). MCP calls below gather evidence around the skill run, they do not replace it.
+
+1. **1c-metadata-manage skill** — read `SKILL.md`, dispatch to the domain doc; decide direct execution vs. `1c-metadata-manager` subagent per its Dispatch Strategy.
+2. **metadatasearch** (`names_only=true`) — similar objects as examples.
+3. **get_xsd_schema** — XSD schema for the target metadata type.
+4. Execute the mutation via the skill's tools (scaffold / edit / compile scripts) against the schema and examples.
+5. **verify_xml** + the skill's validation scripts — validate; fix errors and re-validate.
 
 ## Form Analysis and Generation
 
-1. **search_forms** — similar existing forms in the configuration.
-2. **inspect_form_layout** — structure of the found form (elements, bindings, commands, events).
-3. **metadatasearch** (`names_only=true`) — metadata objects for XML references.
-4. **get_xsd_schema** (`"Форма"`) — XSD schema of `Form.xml`.
-5. Generate `Form.xml` based on examples and schema.
-6. **verify_xml** — validate `Form.xml` against XSD.
-7. **1c-metadata-manage** skill (form-manage) — compilation and validation.
+**Step 0 — same hard gate as above.** Creating or structurally modifying `Form.xml` / layouts goes through the **`1c-metadata-manage`** skill (`content/skills/1c-metadata-manage/docs/form-manage.md`, form-compile DSL) or the `1c-metadata-manager` subagent; load `forms.md` (router) for the design rules. Hand-writing `Form.xml` while the skill is available is a defect (`SKILL.md → Hard rule`).
+
+1. **1c-metadata-manage skill** — `SKILL.md` → `content/skills/1c-metadata-manage/docs/form-manage.md` (+ `content/skills/1c-metadata-manage/docs/form-compile-dsl.md` for generation); direct execution vs. subagent per Dispatch Strategy.
+2. **search_forms** — similar existing forms in the configuration.
+3. **inspect_form_layout** — structure of the found form (elements, bindings, commands, events).
+4. **metadatasearch** (`names_only=true`) — metadata objects for XML references.
+5. **get_xsd_schema** (`"Форма"`) — XSD schema of `Form.xml`.
+6. Generate / modify the form via the skill's tools (form-scaffold / form-edit / form-compile), based on the examples and schema.
+7. **verify_xml** + form validation (`form-validate`) — validate; fix errors and re-validate.
 
 ## Integrations
 

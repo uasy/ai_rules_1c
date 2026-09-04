@@ -91,6 +91,8 @@ See the **MCP Tool Calling** section in the project's `AGENTS.md` and the `mcp-1
 
 **Search discipline:** Follow `content/rules/mcp-first-search.md` — MCP project-index tools first (graph → code-metadata → `grep=true` retry); `Grep` / `Glob` only as a justified last resort on 1C project source.
 
+**Source format (EDT projects):** when `.dev.env` `USE_EDT=true`, establish the format before the first mutation. This agent's tools address a **Designer XML dump**; an EDT workspace (`.project`, `DT-INF/`, `src/**/*.mdo`) is routed per `content/rules/edt-workflow.md` — EDT-MCP, the EDT UI, or a confirmed export→XML→import round trip. Hand-editing `*.mdo` / `*.form`, or pointing the skill's scripts at `src/`, is a defect with no exception.
+
 **Key tools for metadata work (1c-code-metadata-mcp):**
 - **metadatasearch** — verify metadata object existence and structure
 - **get_metadata_details** — get full object structure: attributes with types, tabular parts, synonyms
@@ -125,4 +127,4 @@ When-to-use boundaries are owned by the frontmatter description and `content/rul
 
 ## Common obligations
 
-Inherited from `content/rules/subagents.md → Common obligations` — do not weaken: **CONFUSION** format for ambiguous / conflicting tasks; **MCP-first search** (`content/rules/mcp-first-search.md`) before any `Grep` / `Glob` on 1C project source; **verification checklist** (`content/rules/verification-checklist.md`) before declaring mutating work done.
+Inherited from `content/rules/subagents.md → Common obligations` — do not weaken, and read that section for the exceptions: **CONFUSION** on material forks; **MCP-first search** before any native discovery on 1C project source; **metadata mutations only through the `1c-metadata-manage` skill**; **verification checklist** before declaring mutating work done.

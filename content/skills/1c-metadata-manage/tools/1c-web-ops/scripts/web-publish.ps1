@@ -87,9 +87,35 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- Resolve V8Path ---
-# -V8Path is normally supplied explicitly by the calling agent, populated from
-# .dev.env's PLATFORM_PATH (see AGENTS.md / dev-standards-core.md §1). The
-# scan below is only a fallback for when it isn't passed.
+function Find-ProjectV8Path {
+    # 1c-rules: .dev.env is this project's single source of truth — it wins over
+    # .v8-project.json, which stays supported as the upstream fallback below.
+    $__devEnvHelper = Join-Path $PSScriptRoot '../../_common/DevEnv.ps1'
+    if (Test-Path $__devEnvHelper) {
+        . $__devEnvHelper
+        $__devEnvV8 = Get-1CDevEnvValue 'PLATFORM_PATH'
+        if ($__devEnvV8) { return $__devEnvV8 }
+    }
+    $dir = (Get-Location).Path
+    while ($dir) {
+        $pf = Join-Path $dir ".v8-project.json"
+        if (Test-Path $pf) {
+            try {
+                $j = Get-Content $pf -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($j.v8path) { return [string]$j.v8path }
+            } catch {}
+            return $null
+        }
+        $parent = Split-Path $dir -Parent
+        if (-not $parent -or $parent -eq $dir) { break }
+        $dir = $parent
+    }
+    return $null
+}
+
+if (-not $V8Path) {
+    $V8Path = Find-ProjectV8Path
+}
 if (-not $V8Path) {
     $found = Get-ChildItem @("C:\Program Files\1cv8\*\bin\1cv8.exe", "C:\Program Files (x86)\1cv8\*\bin\1cv8.exe") -ErrorAction SilentlyContinue |
         Sort-Object { try { [version]$_.Directory.Parent.Name } catch { [version]"0.0" } } -Descending |
@@ -103,6 +129,12 @@ if (-not $V8Path) {
     }
 } elseif (Test-Path $V8Path -PathType Leaf) {
     $V8Path = Split-Path $V8Path -Parent
+} elseif ((Test-Path $V8Path -PathType Container) -and
+          -not (Test-Path (Join-Path $V8Path "wsap24.dll")) -and
+          (Test-Path (Join-Path $V8Path "bin\wsap24.dll"))) {
+    # PLATFORM_PATH (.dev.env) may point at the platform install dir — the web
+    # module lives in bin\, same shape the db-* tools accept.
+    $V8Path = Join-Path $V8Path "bin"
 }
 
 # Validate wsap24.dll

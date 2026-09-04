@@ -1,5 +1,6 @@
-﻿# form-remove v1.3 — Remove form from 1C object
+﻿# form-remove v1.4 — Remove form from 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: preflight parse + -DryRun / -Force safety gate on top of upstream v1.4.
 param(
 	[Parameter(Mandatory)]
 	[Alias("ProcessorName")]
@@ -68,15 +69,16 @@ if (-not $formNodeFound) {
 	exit 1
 }
 
-# Clear any Default*/Auxiliary* form slot pointing at the removed form
-# (form-add writes the property by purpose: DefaultObjectForm/DefaultListForm/
-#  DefaultChoiceForm/DefaultRecordForm/DefaultForm - not only generic DefaultForm).
+# Clear every Default*/Auxiliary* form slot that points to this form. form-add writes
+# the slot matching the form purpose (DefaultObjectForm / DefaultListForm /
+# DefaultChoiceForm / DefaultRecordForm / DefaultForm), so matching on the generic
+# DefaultForm alone would leave a dangling reference to a deleted form.
 $clearedDefaultProperties = @()
 $formRefRe = "Form\.$([regex]::Escape($FormName))$"
 foreach ($node in $xmlDoc.SelectNodes("//md:*", $nsMgr)) {
 	if ($node.LocalName -like "*Form" -and $node.InnerText -and $node.InnerText -match $formRefRe) {
-		$clearedDefaultProperties += $node.LocalName
 		$node.InnerText = ""
+		$clearedDefaultProperties += $node.LocalName
 	}
 }
 

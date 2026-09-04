@@ -75,18 +75,23 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/sc
 
 ## 4. Patch — Generate Method Interceptor
 
+Reads the original method **from the source configuration** and generates the `.bsl` interceptor of the borrowed object: correct context directive, full signature, framing preprocessor instructions and regions. For `ModificationAndControl` it copies the whole original body. Creates the module file, appends to an existing one, or re-syncs an already intercepted method.
+
 ```powershell
-powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/scripts/cfe-patch-method.ps1 -ExtensionPath src -ModulePath "Catalog.Контрагенты.ObjectModule" -MethodName "ПриЗаписи" -InterceptorType Before
+powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/scripts/cfe-patch-method.ps1 -ExtensionPath src\cfe\ИмяРасширения -ConfigPath src\cf -ModulePath "Catalog.Контрагенты.ObjectModule" -MethodName "ПриЗаписи" -InterceptorType Before
 ```
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `ExtensionPath` | Path to extension (required) | — |
-| `ModulePath` | Module path (required) | — |
-| `MethodName` | Method to intercept (required) | — |
-| `InterceptorType` | `Before` / `After` / `ModificationAndControl` (required) | — |
-| `Context` | Context directive | `НаСервере` |
-| `IsFunction` | Method is a function (adds `Return`) | false |
+| `ConfigPath` | Source configuration sources — the original method is read from there | required, unless `ModulePath` is a file path |
+| `ModulePath` | Logical name (`Type.Name.Module`) **or** a path to a source `.bsl` module | required for generation |
+| `MethodName` | Method to intercept | required for generation |
+| `InterceptorType` | `Before` / `After` / `Instead` / `ModificationAndControl` | required for generation |
+| `Check` | Report drift of controlled methods (report only) | — |
+| `Actualize` | Re-sync drifted controlled methods | — |
+
+`NamePrefix` is taken from the extension's `Configuration.xml`. **Auto-detecting `ConfigPath`**: take `EXPORT_PATH` from `.dev.env` — the configuration XML export directory of this project (empty = repository root); ask the user only when it is not set and no source dump is discoverable. When `ModulePath` is a path to the source `.bsl`, `-ConfigPath` is unnecessary — the original is read from that file and the extension module path is derived automatically.
 
 ### ModulePath Format
 
@@ -97,15 +102,51 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/sc
 | `Catalog.X.Form.Y` | `Catalogs/X/Forms/Y/Ext/Form/Module.bsl` |
 | `CommonModule.X` | `CommonModules/X/Ext/Module.bsl` |
 
+Same shape for `Document`, `Report`, `DataProcessor`, `InformationRegister` and other types.
+
 ### Interceptor Types
 
-| Type | Decorator | Purpose |
-|------|-----------|---------|
-| `Before` | `&Перед` | Code before the original method call |
-| `After` | `&После` | Code after the original method call |
-| `ModificationAndControl` | `&ИзменениеИКонтроль` | Copy of method body with `#Вставка`/`#Удаление` markers |
+| Type | Decorator | Purpose | Applies to |
+|------|-----------|---------|------------|
+| `Before` | `&Перед` | Code before the original method call | procedures |
+| `After` | `&После` | Code after the original method call | procedures |
+| `Instead` | `&Вместо` | Replaces the method; body scaffolds `ПродолжитьВызов(...)` | procedures and functions |
+| `ModificationAndControl` | `&ИзменениеИКонтроль` | Copy of the original body, edited with `#Вставка` / `#Удаление` markers | procedures and functions |
 
-**Prerequisite**: Object must be borrowed first (`cfe-borrow`).
+Re-running `Before` / `After` / `Instead` on an already intercepted method does not create a duplicate (`[ПРОПУЩЕН]`).
+
+### `#Вставка` / `#Удаление` markers (ModificationAndControl)
+
+`&ИзменениеИКонтроль` inserts a **copy of the original body**; every change you make must be marked, because that is how the platform tells your edit from the untouched original:
+
+- **Adding code** → wrap it in `#Вставка` … `#КонецВставки`.
+- **Removing original code** → wrap the lines in `#Удаление` … `#КонецУдаления` **and keep the lines between the markers** — the platform compares them against the original.
+- **Replacing** → `#Удаление` old `#КонецУдаления` immediately followed by `#Вставка` new `#КонецВставки`.
+
+Rules: markers go on their **own line at column 0** (no indentation), even inside indented code or query text (`|…`); **unmarked lines must match the original verbatim** — that is the "control" part; touch only your own inserts and deletions.
+
+### Drift control — `-Check` / `-Actualize`
+
+When the vendor changes the original, an `&ИзменениеИКонтроль` interceptor silently desynchronizes — the unmarked context no longer matches. The platform says nothing about it on load, so check it yourself, **routinely after every vendor update**:
+
+```powershell
+# Report drift across all controlled methods of the extension (exit 1 on drift/conflict)
+... cfe-patch-method.ps1 -ExtensionPath src\cfe\ИмяРасширения -ConfigPath src\cf -Check
+
+# Re-apply the edits onto the new original, extension-wide
+... cfe-patch-method.ps1 -ExtensionPath src\cfe\ИмяРасширения -ConfigPath src\cf -Actualize
+```
+
+Narrow the scope with `-ModulePath` (one module) or `-ModulePath` + `-MethodName` (one method).
+
+| Status | Meaning |
+|--------|---------|
+| `[АКТУАЛЕН]` | Original unchanged, nothing to do |
+| `[АКТУАЛИЗИРОВАН]` | Body updated against the new original, edits preserved |
+| `[АКТУАЛИЗИРОВАН-ЧАСТИЧНО]` | Some edits could not be placed (anchor changed). They are **not lost** — marked `// [РЕСИНК-КОНФЛИКТ]` in the module; the output gives the merge workspace path (start at `index.md`, then each `conflict.md`, place the blocks manually) |
+| `[ПЕРЕНЕСЕНО В ОСНОВНУЮ]` | The edit is already in the new original (vendor adopted it) — removed from the body as obsolete. If that happens to every edit of a method, the interceptor can be deleted. Does not fail `-Check` |
+
+**Prerequisite**: Object must be borrowed first (`cfe-borrow`); the source configuration must be reachable via `-ConfigPath`.
 
 ---
 
@@ -130,6 +171,26 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/sc
 | 9 | Borrowed objects: ObjectBelonging=Adopted, ExtendedConfigurationObject UUID | ERROR/WARN |
 
 Exit code: 0 = OK, 1 = errors.
+
+### What `cfe-validate` cannot see — the platform check is a separate step
+
+All nine checks read **source**: XML shape, ClassIds, ChildObjects ordering, adopted-object markers. They are silent about the one failure mode that actually breaks a base — an interceptor whose target method no longer exists in the main configuration. `&Вместо ПриЗаписи` against a method the vendor renamed is perfectly valid XML and perfectly valid BSL; the platform rejects it only at apply time, and an `&После` in the same position may just stop firing with no error at all.
+
+Before loading an extension into any infobase, run the platform's own ladder — canon `content/rules/designer-batch-checks.md`:
+
+```
+/CheckModules -ThinClient -Server -ExternalConnection -Extension <Name>
+/CheckCanApplyConfigurationExtensions -Extension <Name>
+/CheckConfig -ConfigLogIntegrity -IncorrectReferences ... -Extension <Name>
+```
+
+Read the verdict from three signals (process exit code, `/DumpResult`, `/Out` diagnostics) and classify the platform's success phrases before its error stems — `Ошибок не обнаружено` contains the word `ошибок`. `Не найден метод` in the log is a failure even at exit code 0.
+
+For a `&ИзменениеИКонтроль`-heavy extension, `-Check` (section 4) and the applicability check answer related questions from opposite ends: drift detection names the *method* whose original moved, the platform names the *error*. Run `-Check` first — it is cheaper and its output is more actionable.
+
+### Backup and rollback before replacing an existing extension
+
+Loading over an existing extension is a replacement with no platform-side undo. Dump both forms first — `/DumpCfg -Extension <Name>` (editable) and `/DumpDBCfg -Extension <Name>` (database, what running sessions execute) — and recover with `/RollbackCfg -Extension <Name>` before the DB update, or by reloading the saved `.cfe` after it. **Never delete a pre-existing extension as a rollback**: deletion drops its own objects and every mapping along with your change. Details — `content/rules/designer-batch-checks.md → Extension apply and rollback`.
 
 ---
 
@@ -181,15 +242,27 @@ Each step reuses the corresponding `1c-db-ops` script — `cfe-build` is a thin 
 1c-cfe-manage init                  — create extension scaffold
 1c-cfe-manage borrow               — borrow objects to modify
 1c-cfe-manage patch                 — generate interceptors
-1c-cfe-manage validate              — check correctness
+1c-cfe-manage validate              — check correctness (source-level)
 1c-cfe-manage diff -Mode A          — review changes overview
 1c-cfe-manage diff -Mode B          — check transfer status
-1c-cfe-manage build                 — compile to a deliverable .cfe
+1c-cfe-manage patch -Check          — drift against the vendor original
+   ↓ before loading into any infobase
+/CheckModules → /CheckCanApplyConfigurationExtensions → /CheckConfig
+                                    — platform-level ladder, designer-batch-checks.md
 ```
 
-## Recent Additions (upstream `w-2026-05-17`)
+## Recent Additions (upstream sync `2026-07-30`)
 
-The PowerShell scripts under `tools/1c-cfe-manage/scripts/` were refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills). Highlights:
+The PowerShell scripts under `tools/1c-cfe-manage/scripts/` were refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills). Highlights of this sync (previous base: late May 2026):
+
+### `cfe-patch-method` — v1.1 → v2.5, the biggest change in this group
+
+- **Source-aware generation**: the original method is read from the source configuration (`-ConfigPath`, auto-detectable via `.dev.env` `EXPORT_PATH`), so the interceptor gets the real signature, context directive and — for `ModificationAndControl` — the full original body. `ModulePath` may now be a path to the source `.bsl` instead of a logical name.
+- **`Instead` (`&Вместо`)** interceptor type with a `ПродолжитьВызов(...)` scaffold; works for functions too.
+- **Drift control** — `-Check` / `-Actualize` over controlled (`&ИзменениеИКонтроль`) methods, extension-wide or narrowed to a module / method. Re-applies your `#Вставка` / `#Удаление` edits onto a changed vendor original, reports what moved, what conflicted and what the vendor has already adopted. Conflicts land in a merge workspace with anchored `conflict.md` files instead of being lost. **Run `-Check` after every vendor update** — the platform never reports this drift itself.
+- Repeated interception of an already patched method is skipped instead of duplicated.
+
+Full description in section 4 above.
 
 ### `cfe-borrow` — borrowing forms now matches Configurator output
 
@@ -208,10 +281,9 @@ The PowerShell scripts under `tools/1c-cfe-manage/scripts/` were refreshed from 
 
 - Interface mode and compatibility mode are inherited from the base configuration (resolved via `-ConfigPath`). The extension matches the base's behaviour by default.
 
-### `cfe-patch-method`
+### Vendor support
 
-- Accepts plural type names (`Catalogs` → `Catalog`).
-- Python port: no extra blank lines in generated modules.
+An extension is the **default answer** when a typical object on vendor support needs a change: support state stays untouched and vendor updates keep flowing. The mutating tools of this skill now enforce that — they refuse to edit a locked object directly and point here. See [support-manage.md](support-manage.md).
 
 ## MCP Integration
 
