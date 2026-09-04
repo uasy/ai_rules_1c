@@ -6,7 +6,7 @@
 #
 # Deviation from upstream (https://github.com/Nikolay-Shirokov/cc-1c-skills): upstream
 # resolves the guard policy from .v8-project.json's editingAllowedCheck. Here the policy
-# comes from .dev.env's SUPPORT_EDIT_POLICY instead — .dev.env is this project's single
+# comes from .dev.env's SUPPORT_GUARD instead (legacy SUPPORT_EDIT_POLICY still read) — .dev.env is this project's single
 # source of truth for operational parameters (see AGENTS.md / dev-standards-core.md §1).
 # .v8-project.json in this project is documentation-only for the guard (no script reads
 # it for this purpose — see docs/db-manage.md; it remains in legitimate use as the
@@ -27,6 +27,10 @@ import re
 import sys
 
 from lxml import etree
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "_common"))
+import dev_env  # noqa: E402
 
 
 def get_root_uuid(xml_path):
@@ -58,16 +62,23 @@ def find_dev_env(start_dir):
 
 
 def get_edit_mode(cfg_dir):
+    """Guard policy: deny | warn | off. Default 'deny' when unset.
+
+    Upstream renamed the .dev.env key SUPPORT_EDIT_POLICY -> SUPPORT_GUARD
+    (DevEnv.ps1, 2026-08); the old name stays supported so a project that still
+    carries it is not silently switched back to 'deny'.
+    """
     try:
-        env_file = find_dev_env(os.getcwd()) or find_dev_env(cfg_dir)
-        if not env_file:
-            return "deny"
-        with open(env_file, encoding="utf-8-sig") as f:
-            for line in f:
-                m = re.match(r"\s*SUPPORT_EDIT_POLICY\s*=\s*(\S+)", line)
-                if m:
-                    val = m.group(1).strip().lower()
+        for start in (os.getcwd(), cfg_dir):
+            if not start:
+                continue
+            for key in ("SUPPORT_GUARD", "SUPPORT_EDIT_POLICY"):
+                val = dev_env.get_value(key, start).strip().lower()
+                if val:
                     return val if val in ("deny", "warn", "off") else "deny"
+        # No .dev.env, or the key is absent / empty in every candidate -> the
+        # documented default. (The .ps1 falls through to .v8-project.json here;
+        # in this project that file is documentation-only for the guard.)
         return "deny"
     except Exception:
         return "deny"
@@ -146,7 +157,7 @@ def assert_edit_allowed(target_path, require):
             return
         head = "[support-guard] Редактирование отклонено: это объект типовой конфигурации на поддержке поставщика, прямое редактирование молча сломает будущие обновления."
         cfe = "Рекомендуемый путь: внести доработку в расширение (навыки cfe-borrow / cfe-patch-method) — состояние поддержки менять не нужно, обновления вендора сохраняются."
-        off_note = "Снять проверку для этой базы: SUPPORT_EDIT_POLICY=warn|off в .dev.env."
+        off_note = "Снять проверку для этой базы: SUPPORT_GUARD=warn|off в .dev.env."
         if code == "capability-off":
             state = f"Состояние: у всей конфигурации выключена возможность изменения (режим read-only «из коробки») — поэтому объект «{rp}» редактировать нельзя."
             fix = (

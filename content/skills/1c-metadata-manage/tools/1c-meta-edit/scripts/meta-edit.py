@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-edit v1.9 — Edit existing 1C metadata object XML (inline mode + complex properties + TS attribute ops + modify-ts)
+# meta-edit v1.23 — Edit existing 1C metadata object XML
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -21,6 +21,16 @@ from lxml import etree
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
 import support_guard  # noqa: E402
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "..", "_common"))
+import meta_dsl  # noqa: E402
+from meta_dsl import (  # noqa: E402
+    RESERVED_ATTR_EN_RU, RESERVED_BY_CONTEXT,
+    normalize_md_object_ref, expand_data_path, esc_xml_text, get_ch_el_prop,
+    build_min_max_value_xml, build_link_by_type_xml, build_choice_parameter_links_xml,
+    build_choice_parameters_xml, build_fill_value_explicit_xml,
+)
+
 
 # ============================================================
 # Namespaces
@@ -32,6 +42,8 @@ V8_NS = "http://v8.1c.ru/8.1/data/core"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 XS_NS = "http://www.w3.org/2001/XMLSchema"
 CFG_NS = "http://v8.1c.ru/8.1/data/enterprise/current-config"
+APP_NS = "http://v8.1c.ru/8.2/managed-application/core"
+ENT_NS = "http://v8.1c.ru/8.1/data/enterprise"
 
 NSMAP_WRAPPER = {
     None: MD_NS,
@@ -54,6 +66,7 @@ md_ns = ""
 properties_el = None
 child_objects_el = None
 obj_name = ""
+resolved_path = ""
 
 add_count = 0
 remove_count = 0
@@ -136,7 +149,7 @@ valid_enum_values = {
     'Posting': ['Allow', 'Deny'],
     'RealTimePosting': ['Allow', 'Deny'],
     'EditType': ['InDialog', 'InList', 'BothWays'],
-    'HierarchyType': ['HierarchyFoldersAndItems', 'HierarchyItemsOnly'],
+    'HierarchyType': ['HierarchyFoldersAndItems', 'HierarchyOfItems'],
     'CodeType': ['String', 'Number'],
     'CodeAllowedLength': ['Variable', 'Fixed'],
     'NumberType': ['String', 'Number'],
@@ -418,6 +431,8 @@ def import_fragment(xml_string):
         f' xmlns:v8="{V8_NS}"'
         f' xmlns:xr="{XR_NS}"'
         f' xmlns:cfg="{CFG_NS}"'
+        f' xmlns:app="{APP_NS}"'
+        f' xmlns:ent="{ENT_NS}"'
         f' xmlns:xs="{XS_NS}">'
         f"{xml_string}</_W>"
     )
@@ -461,7 +476,7 @@ def insert_before_element(container, new_node, ref_node, child_indent):
     if ref_node is not None:
         # Insert before ref_node
         idx = list(container).index(ref_node)
-        new_node.tail = "\r\n" + child_indent
+        new_node.tail = "\n" + child_indent
         container.insert(idx, new_node)
     else:
         # Append: insert before closing tag
@@ -471,13 +486,13 @@ def insert_before_element(container, new_node, ref_node, child_indent):
             # The last element's tail is the whitespace before </Container>
             # We set new_node.tail to what last.tail was (newline + parent indent)
             new_node.tail = last.tail
-            last.tail = "\r\n" + child_indent
+            last.tail = "\n" + child_indent
             container.append(new_node)
         else:
             # Container is empty (possibly self-closing)
             parent_indent = child_indent[:-1] if len(child_indent) > 0 else ""
-            container.text = "\r\n" + child_indent
-            new_node.tail = "\r\n" + parent_indent
+            container.text = "\n" + child_indent
+            new_node.tail = "\n" + parent_indent
             container.append(new_node)
 
 
@@ -541,14 +556,14 @@ def ensure_child_objects_open():
         if not has_elements:
             # It's empty - add whitespace for proper formatting
             indent = get_child_indent(obj_element)
-            child_objects_el.text = "\r\n" + indent
+            child_objects_el.text = "\n" + indent
         return
 
     # No ChildObjects at all - create one after Properties
     indent = get_child_indent(obj_element)
 
     co_el = etree.Element(f"{{{md_ns}}}ChildObjects")
-    co_el.text = "\r\n" + indent
+    co_el.text = "\n" + indent
 
     # Find where to insert: after Properties
     ref_node = None
@@ -564,7 +579,7 @@ def ensure_child_objects_open():
     if ref_node is not None:
         # Insert before ref_node
         idx = list(obj_element).index(ref_node)
-        co_el.tail = "\r\n" + indent
+        co_el.tail = "\n" + indent
         obj_element.insert(idx, co_el)
     else:
         # Append
@@ -572,12 +587,12 @@ def ensure_child_objects_open():
         if len(children) > 0:
             last = children[-1]
             co_el.tail = last.tail
-            last.tail = "\r\n" + indent
+            last.tail = "\n" + indent
             obj_element.append(co_el)
         else:
             parent_indent = indent[:-1] if len(indent) > 0 else ""
-            obj_element.text = "\r\n" + indent
-            co_el.tail = "\r\n" + parent_indent
+            obj_element.text = "\n" + indent
+            co_el.tail = "\n" + parent_indent
             obj_element.append(co_el)
 
     child_objects_el = co_el
@@ -717,10 +732,20 @@ def build_attribute_fragment(parsed, context, indent):
     if not context:
         context = get_attribute_context()
 
-    # Check reserved attribute names
+    # Reserved attribute names — type-aware: catalog/document is a hard refusal,
+    # anything else is a warning.
     attr_name = parsed['name']
-    if attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU:
-        print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
+    ctx_reserved = RESERVED_BY_CONTEXT.get(context)
+    if ctx_reserved:
+        for en in ctx_reserved:
+            ru = RESERVED_ATTR_EN_RU.get(en)
+            if attr_name.lower() == en.lower() or (ru and attr_name.lower() == ru.lower()):
+                die(f"Имя реквизита '{attr_name}' зарезервировано стандартным реквизитом "
+                    f"({en}/{ru}) объекта '{context}'. Выберите другое имя.")
+    elif context not in ("tabular", "processor-tabular") and (
+            attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
+        print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. "
+              f"This may cause errors when loading into 1C.", file=sys.stderr)
 
     uid = new_uuid()
     lines = []
@@ -1090,7 +1115,8 @@ def build_column_fragment(col_def, indent):
     if references:
         lines.append(f"{indent}\t\t<References>")
         for ref in references:
-            lines.append(f'{indent}\t\t\t<xr:Item xsi:type="xr:MDObjectRef">{ref}</xr:Item>')
+            lines.append(f'{indent}\t\t\t<xr:Item xsi:type="xr:MDObjectRef">'
+                         f'{esc_xml(normalize_md_object_ref(str(ref)))}</xr:Item>')
         lines.append(f"{indent}\t\t</References>")
     else:
         lines.append(f"{indent}\t\t<References/>")
@@ -1250,6 +1276,8 @@ def convert_inline_to_definition(operation, value):
         "registerRecord": "RegisterRecords", "registerRecords": "RegisterRecords",
         "basedOn": "BasedOn",
         "inputByString": "InputByString",
+        "dataLockField": "DataLockFields", "dataLockFields": "DataLockFields",
+        "registeredDocument": "RegisteredDocuments", "registeredDocuments": "RegisteredDocuments",
     }
 
     if target in complex_target_map:
@@ -1275,6 +1303,12 @@ def convert_inline_to_definition(operation, value):
             values = new_values
         complex_action = "set" if op == "set" else op
         return {"_complex": [{"action": complex_action, "property": prop_name, "values": values}]}
+
+    # Predefined data (Ext/Predefined.xml) lives in its own file — build
+    # { <op>: { predefined: [...] } }.
+    if target == "predefined":
+        items = [v.strip() for v in value.split(";;") if v.strip()]
+        return {op: {"predefined": items}}
 
     # TS attribute operations: dot notation "TSName.AttrDef"
     if target == "ts-attribute":
@@ -1485,6 +1519,10 @@ def process_add(add_def):
     global add_count
 
     for raw_key, items in add_def.items():
+        if raw_key in ('predefined', 'предопределенные', 'предопределённые'):
+            add_predefined_items(items)
+            continue
+
         child_type = resolve_child_type_key(raw_key)
 
         if not child_type:
@@ -1680,8 +1718,17 @@ def modify_properties(props_def):
                 break
 
         if prop_el is None:
-            warn(f"Property '{prop_name}' not found in Properties")
-            continue
+            # create-if-missing: a known property is created (1C tolerates the
+            # order, so append); an unknown one is a typo -> error.
+            if prop_name not in KNOWN_OBJECT_PROPS:
+                die(f"modify-property: неизвестное свойство '{prop_name}' - "
+                    f"нет такого свойства объекта (опечатка?)")
+            new_nodes = import_fragment(f"<{prop_name}/>")
+            if not new_nodes:
+                warn(f"Property '{prop_name}': could not create element")
+                continue
+            insert_property_in_order(properties_el, new_nodes[0], None, prop_name)
+            prop_el = new_nodes[0]
 
         # Complex property: Owners, RegisterRecords, BasedOn, InputByString
         if prop_name in complex_property_map:
@@ -1697,6 +1744,28 @@ def modify_properties(props_def):
         value_str = str(prop_value)
         if isinstance(prop_value, bool):
             value_str = "true" if prop_value else "false"
+
+        # Structural value-type property (the root <Type> of a Constant or a
+        # ChartOfCharacteristicTypes) — rebuild the type descriptor rather than
+        # flattening it into a scalar.
+        if prop_name == "Type":
+            type_indent = get_child_indent(properties_el)
+            new_type_nodes = import_fragment(build_value_type_xml(type_indent, value_str))
+            if new_type_nodes:
+                idx = list(properties_el).index(prop_el)
+                new_type_nodes[0].tail = prop_el.tail
+                properties_el.insert(idx, new_type_nodes[0])
+                properties_el.remove(prop_el)
+                info(f"Modified property: Type = {value_str}")
+                modify_count += 1
+            continue
+
+        # Guard: never flatten a structural property (one that has child
+        # elements) into scalar text — that silently corrupts the XML. Fail
+        # BEFORE the file is written.
+        if len(prop_el) > 0:
+            die(f"modify-property: свойство '{prop_name}' структурное (содержит дочерние узлы) - "
+                f"установка скалярного текста повредит XML; не поддерживается")
 
         # Set inner text — clear children first, set text
         for ch in list(prop_el):
@@ -1748,7 +1817,7 @@ def modify_child_elements(modify_def, child_type):
                     has_ts_child_elements = any(True for _ in ts_child_obj_el)
                     if not has_ts_child_elements:
                         ts_co_indent = get_child_indent(el)
-                        ts_child_obj_el.text = "\r\n" + ts_co_indent
+                        ts_child_obj_el.text = "\n" + ts_co_indent
                     attr_defs = change_value if isinstance(change_value, list) else [change_value]
                     for attr_def in attr_defs:
                         parsed = parse_attribute_shorthand(attr_def)
@@ -1902,6 +1971,55 @@ def modify_child_elements(modify_def, child_type):
                 info(f"Changed synonym of {xml_tag} '{elem_name}': {change_value}")
                 modify_count += 1
 
+            elif change_prop in ("Format", "EditFormat", "ToolTip"):
+                if set_attr_property_element(
+                        props_el, change_prop,
+                        build_mltext_xml(get_child_indent(props_el), change_prop, str(change_value))):
+                    info(f"Set {xml_tag} '{elem_name}'.{change_prop}")
+                    modify_count += 1
+
+            elif change_prop == "ChoiceForm":
+                if set_attr_property_element(
+                        props_el, "ChoiceForm",
+                        f"<ChoiceForm>{esc_xml(str(change_value))}</ChoiceForm>"):
+                    info(f"Set {xml_tag} '{elem_name}'.ChoiceForm")
+                    modify_count += 1
+
+            elif change_prop in ("MinValue", "MaxValue"):
+                if set_attr_property_element(
+                        props_el, change_prop,
+                        build_min_max_value_xml(change_prop, change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.{change_prop}")
+                    modify_count += 1
+
+            elif change_prop == "LinkByType":
+                if set_attr_property_element(
+                        props_el, "LinkByType",
+                        build_link_by_type_xml(get_child_indent(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.LinkByType")
+                    modify_count += 1
+
+            elif change_prop == "ChoiceParameterLinks":
+                if set_attr_property_element(
+                        props_el, "ChoiceParameterLinks",
+                        build_choice_parameter_links_xml(get_child_indent(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.ChoiceParameterLinks")
+                    modify_count += 1
+
+            elif change_prop == "ChoiceParameters":
+                if set_attr_property_element(
+                        props_el, "ChoiceParameters",
+                        build_choice_parameters_xml(get_child_indent(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.ChoiceParameters")
+                    modify_count += 1
+
+            elif change_prop == "FillValue":
+                if set_attr_property_element(
+                        props_el, "FillValue",
+                        build_fill_value_explicit_xml(get_attr_type_str_from_xml(props_el), change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.FillValue")
+                    modify_count += 1
+
             else:
                 # Scalar property change (Indexing, FillChecking, Use, etc.)
                 scalar_el = None
@@ -1922,7 +2040,22 @@ def modify_child_elements(modify_def, child_type):
                     info(f"Modified {xml_tag} '{elem_name}'.{change_prop} = {value_str}")
                     modify_count += 1
                 else:
-                    warn(f"{xml_tag} '{elem_name}': property '{change_prop}' not found")
+                    # create-if-missing: a known property is created in position;
+                    # an unknown one is a typo -> error.
+                    if change_prop not in KNOWN_CHILD_PROPS:
+                        die(f"modify: неизвестное свойство '{change_prop}' у {xml_tag} "
+                            f"'{elem_name}' (опечатка?)")
+                    value_str = str(change_value)
+                    if isinstance(change_value, bool):
+                        value_str = "true" if change_value else "false"
+                    else:
+                        value_str = normalize_enum_value(change_prop, value_str)
+                    new_nodes = import_fragment(
+                        f"<{change_prop}>{esc_xml(value_str)}</{change_prop}>")
+                    if new_nodes:
+                        insert_property_in_order(props_el, new_nodes[0], ATTR_PROP_ORDER, change_prop)
+                        info(f"Created {xml_tag} '{elem_name}'.{change_prop} = {value_str}")
+                        modify_count += 1
 
 
 def process_modify(modify_def):
@@ -1943,12 +2076,157 @@ def process_modify(modify_def):
 # Complex property helpers
 # ============================================================
 
-complex_property_map = {
-    "Owners": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"'},
-    "RegisterRecords": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"'},
-    "BasedOn": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"'},
-    "InputByString": {"tag": "xr:Field", "attr": None},
+# ============================================================
+# Section 12.4: DOM-bound property helpers.
+# The forgiving-input helpers they build on (MDObjectRef / data-path
+# normalisation, choice links and parameters, fill values) live in
+# _common/meta_dsl.py — one implementation shared with meta-compile.
+# ============================================================
+
+KNOWN_OBJECT_PROPS = {
+    'ActionPeriod', 'ActionPeriodUse', 'Addressing', 'AutoOrderByCode', 'Autonumbering',
+    'AuxiliaryChoiceForm', 'AuxiliaryFolderChoiceForm', 'AuxiliaryFolderForm', 'AuxiliaryForm',
+    'AuxiliaryListForm', 'AuxiliaryObjectForm', 'AuxiliaryRecordForm', 'AuxiliarySettingsForm',
+    'BaseCalculationTypes', 'BasePeriod', 'BasedOn', 'CharacteristicExtValues', 'Characteristics',
+    'ChartOfAccounts', 'ChartOfCalculationTypes', 'CheckUnique', 'ChoiceDataGetModeOnInputByString',
+    'ChoiceFoldersAndItems', 'ChoiceForm', 'ChoiceHistoryOnInput', 'ChoiceMode', 'ChoiceParameterLinks',
+    'ChoiceParameters', 'CodeAllowedLength', 'CodeLength', 'CodeMask', 'CodeSeries', 'CodeType',
+    'Comment', 'Correspondence', 'CreateOnInput', 'CreateTaskInPrivilegedMode', 'CurrentPerformer',
+    'DataHistory', 'DataLockControlMode', 'DataLockFields', 'DefaultChoiceForm', 'DefaultFolderChoiceForm',
+    'DefaultFolderForm', 'DefaultForm', 'DefaultListForm', 'DefaultObjectForm', 'DefaultPresentation',
+    'DefaultRecordForm', 'DefaultSettingsForm', 'DefaultVariantForm', 'DependenceOnCalculationTypes',
+    'DescriptionLength', 'DistributedInfoBase', 'EditFormat', 'EditType', 'EnableTotalsSliceFirst',
+    'EnableTotalsSliceLast', 'EnableTotalsSplitting', 'ExecuteAfterWriteDataHistoryVersionProcessing',
+    'Explanation', 'ExtDimensionTypes', 'ExtendedEdit', 'ExtendedListPresentation',
+    'ExtendedObjectPresentation', 'ExtendedPresentation', 'ExtendedRecordPresentation', 'FillChecking',
+    'FoldersOnTop', 'Format', 'FullTextSearch', 'FullTextSearchOnInputByString', 'Hierarchical',
+    'HierarchyType', 'IncludeConfigurationExtensions', 'IncludeHelpInContents',
+    'InformationRegisterPeriodicity', 'InputByString', 'LevelCount', 'LimitLevelCount', 'LinkByType',
+    'ListPresentation', 'MainAddressingAttribute', 'MainDataCompositionSchema', 'MainFilterOnPeriod',
+    'MarkNegatives', 'Mask', 'MaxExtDimensionCount', 'MaxValue', 'MinValue', 'MultiLine', 'Name',
+    'NumberAllowedLength', 'NumberLength', 'NumberPeriodicity', 'NumberType', 'Numerator',
+    'ObjectPresentation', 'OrderLength', 'Owners', 'PasswordMode', 'PeriodAdjustmentLength',
+    'Periodicity', 'PostInPrivilegedMode', 'Posting', 'PredefinedDataUpdate', 'QuickChoice',
+    'RealTimePosting', 'RecordPresentation', 'RegisterRecords', 'RegisterRecordsDeletion',
+    'RegisterRecordsWritingOnPost', 'RegisterType', 'RegisteredDocuments', 'Schedule', 'ScheduleDate',
+    'ScheduleValue', 'SearchStringModeOnInputByString', 'SequenceFilling', 'SettingsStorage',
+    'StandardAttributes', 'StandardTabularSections', 'SubordinationUse', 'Synonym', 'Task',
+    'TaskNumberAutoPrefix', 'ToolTip', 'Type', 'UnpostInPrivilegedMode',
+    'UpdateDataHistoryImmediatelyAfterWrite', 'UseStandardCommands', 'VariantsStorage', 'WriteMode',
 }
+
+# Known child-element properties (union of Attribute / Dimension / Resource over the
+# corpus) — the allowlist for the default branch of modify-attribute/-dimension/-resource.
+KNOWN_CHILD_PROPS = {
+    'AccountingFlag', 'Balance', 'BaseDimension', 'ChoiceFoldersAndItems', 'ChoiceForm',
+    'ChoiceHistoryOnInput', 'ChoiceParameterLinks', 'ChoiceParameters', 'Comment', 'CreateOnInput',
+    'DataHistory', 'DenyIncompleteValues', 'DocumentMap', 'EditFormat', 'ExtDimensionAccountingFlag',
+    'ExtendedEdit', 'FillChecking', 'FillFromFillingValue', 'FillValue', 'Format', 'FullTextSearch',
+    'Indexing', 'LinkByType', 'MainFilter', 'MarkNegatives', 'Mask', 'Master', 'MaxValue', 'MinValue',
+    'MultiLine', 'Name', 'PasswordMode', 'QuickChoice', 'RegisterRecordsMap', 'ScheduleLink',
+    'Synonym', 'ToolTip', 'Type', 'Use', 'UseInTotals',
+}
+
+# Canonical attribute-property order (the sequence build_attribute_fragment emits) —
+# used to insert a created property in position. 1C tolerates any order, but we keep
+# the canonical one for consistency with meta-compile.
+ATTR_PROP_ORDER = [
+    'Name', 'Synonym', 'Comment', 'Type', 'PasswordMode', 'Format', 'EditFormat', 'ToolTip',
+    'MarkNegatives', 'Mask', 'MultiLine', 'ExtendedEdit', 'MinValue', 'MaxValue',
+    'FillFromFillingValue', 'FillValue', 'FillChecking', 'ChoiceFoldersAndItems',
+    'ChoiceParameterLinks', 'ChoiceParameters', 'QuickChoice', 'CreateOnInput', 'ChoiceForm',
+    'LinkByType', 'ChoiceHistoryOnInput', 'Use', 'Indexing', 'FullTextSearch', 'DataHistory',
+]
+
+
+def insert_property_in_order(props_el, new_node, order_array, prop_name):
+    """Insert a new property element at its canonical position (per order_array);
+    append when the property is not in the array (or no array is given)."""
+    child_indent = get_child_indent(props_el)
+    ref_node = None
+    idx = order_array.index(prop_name) if (order_array and prop_name in order_array) else -1
+    if idx >= 0:
+        for ch in props_el:
+            ln = localname(ch)
+            if ln in order_array and order_array.index(ln) > idx:
+                ref_node = ch
+                break
+    insert_before_element(props_el, new_node, ref_node, child_indent)
+
+
+def set_attr_property_element(props_el, prop_name, fragment_xml):
+    """Replace an attribute property element with a new fragment, or create it at
+    its canonical position. Returns True on success."""
+    new_nodes = import_fragment(fragment_xml)
+    if not new_nodes:
+        return False
+    existing = None
+    for ch in props_el:
+        if localname(ch) == prop_name:
+            existing = ch
+            break
+    if existing is not None:
+        # insert-then-remove keeps the leading/trailing whitespace of the old
+        # position intact (remove_node_with_whitespace would swallow the indent).
+        idx = list(props_el).index(existing)
+        new_nodes[0].tail = existing.tail
+        props_el.insert(idx, new_nodes[0])
+        props_el.remove(existing)
+    else:
+        insert_property_in_order(props_el, new_nodes[0], ATTR_PROP_ORDER, prop_name)
+    return True
+
+
+def get_attr_type_str_from_xml(props_el):
+    """Read the attribute type out of the XML (<Type>/<v8:Type>) as a DSL type
+    string, so FillValue can be categorised. DOM-bound, hence local rather than
+    in meta_dsl."""
+    type_el = None
+    for ch in props_el:
+        if localname(ch) == 'Type':
+            type_el = ch
+            break
+    if type_el is None:
+        return ""
+    mapped = []
+    for ch in type_el:
+        if localname(ch) != 'Type':
+            continue
+        t = (ch.text or "").strip()
+        colon = t.find(":")
+        if colon >= 0:
+            t = t[colon + 1:]
+        mapped.append({'string': 'String', 'decimal': 'Number',
+                       'boolean': 'Boolean', 'dateTime': 'Date'}.get(t, t))
+    if not mapped:
+        return ""
+    return " + ".join(mapped) if len(mapped) > 1 else mapped[0]
+
+
+# mdref - the list values are MDObjectRef paths -> run through normalize_md_object_ref.
+# root  - the root for a bare name with no dot. expand - values are data paths.
+complex_property_map = {
+    "Owners": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True, "root": "Catalog"},
+    "RegisterRecords": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
+    "BasedOn": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
+    "InputByString": {"tag": "xr:Field", "attr": None},
+    "DataLockFields": {"tag": "xr:Field", "attr": None, "expand": True},
+    "RegisteredDocuments": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
+}
+
+
+def _normalize_complex_values(property_name, values):
+    """Forgiving input for complex-property lists: data paths get expanded,
+    MDObjectRef paths get their Russian / *Ref roots collapsed to the canonical
+    English metadata kind."""
+    entry = complex_property_map.get(property_name)
+    if not entry:
+        return values
+    if entry.get("expand"):
+        values = [expand_data_path(str(v)) for v in values]
+    if entry.get("mdref"):
+        values = [normalize_md_object_ref(str(v), entry.get("root")) for v in values]
+    return values
 
 
 def find_property_element(prop_name):
@@ -1972,6 +2250,7 @@ def add_complex_property_item(property_name, values):
     if not map_entry:
         warn(f"Unknown complex property: {property_name}")
         return
+    values = _normalize_complex_values(property_name, values)
 
     prop_el = find_property_element(property_name)
     if prop_el is None:
@@ -1989,7 +2268,7 @@ def add_complex_property_item(property_name, values):
 
     # If self-closing / empty, add closing whitespace
     if is_empty and not (prop_el.text and prop_el.text.strip()):
-        prop_el.text = "\r\n" + indent
+        prop_el.text = "\n" + indent
 
     for val in values:
         if val in existing:
@@ -2011,6 +2290,7 @@ def add_complex_property_item(property_name, values):
 def remove_complex_property_item(property_name, values):
     global remove_count
 
+    values = _normalize_complex_values(property_name, values)
     prop_el = find_property_element(property_name)
     if prop_el is None:
         warn(f"Property element '{property_name}' not found in Properties")
@@ -2041,6 +2321,7 @@ def set_complex_property(property_name, values):
     if not map_entry:
         warn(f"Unknown complex property: {property_name}")
         return
+    values = _normalize_complex_values(property_name, values)
 
     prop_el = find_property_element(property_name)
     if prop_el is None:
@@ -2062,7 +2343,7 @@ def set_complex_property(property_name, values):
         return
 
     # Add closing whitespace
-    prop_el.text = "\r\n" + indent
+    prop_el.text = "\n" + indent
 
     # Add each value
     for val in values:
@@ -2079,6 +2360,121 @@ def set_complex_property(property_name, values):
     count = len(values)
     info(f"Set {property_name}: {count} items")
     modify_count += 1
+
+
+# ============================================================
+# Predefined data (Ext/Predefined.xml) — add predefined items
+# (Catalog / ChartOfCharacteristicTypes).
+# Existing <Item id=GUID> entries are preserved byte-for-byte (textual append);
+# new ones get a fresh GUID — the "never change the id of an existing entity"
+# invariant.
+# ============================================================
+
+PREDEF_XSI_TYPE_BY_OBJ = {
+    'Catalog': 'CatalogPredefinedItems',
+    'ChartOfCharacteristicTypes': 'PlanOfCharacteristicKindPredefinedItems',
+}
+
+
+def get_predefined_path():
+    obj_dir = os.path.join(os.path.dirname(resolved_path), obj_name)
+    return os.path.join(obj_dir, "Ext", "Predefined.xml")
+
+
+def get_object_code_type():
+    for ch in properties_el:
+        if localname(ch) == 'CodeType':
+            return (ch.text or "").strip()
+    return 'String'
+
+
+def resolve_predef_item(val):
+    """DSL item: the string "(Code) Name [Description]", or an object
+    {name, code, description, isFolder, childItems}."""
+    if isinstance(val, str):
+        s = val
+        desc_raw = None
+        has_desc = False
+        m = re.search(r"\[(.*)\]", s)
+        if m:
+            desc_raw = m.group(1)
+            has_desc = True
+            s = re.sub(r"\s*\[.*\]", "", s)
+        m = re.match(r"^\s*(?:\(([^)]*)\)\s*)?(\S+)\s*$", s.strip())
+        name = m.group(2) if m else s.strip()
+        code = m.group(1) if (m and m.group(1) is not None) else ""
+        desc = desc_raw if has_desc else split_camel_case(name)
+        return {"name": name, "code": code, "desc": desc, "isFolder": False, "children": []}
+
+    name = str(get_ch_el_prop(val, ['name', 'имя']) or "")
+    code_v = get_ch_el_prop(val, ['code', 'код'])
+    code = str(code_v) if code_v is not None else ""
+    has_desc = isinstance(val, dict) and ('description' in val or 'наименование' in val)
+    desc_v = get_ch_el_prop(val, ['description', 'наименование'])
+    desc = str(desc_v) if has_desc else split_camel_case(name)
+    is_folder = get_ch_el_prop(val, ['isFolder', 'группа']) is True
+    subs = get_ch_el_prop(val, ['childItems', 'подчиненные'])
+    return {"name": name, "code": code, "desc": desc, "isFolder": is_folder,
+            "children": list(subs) if subs else []}
+
+
+def build_predef_item_xml(indent, val, code_type):
+    r = resolve_predef_item(val)
+    out = [f'{indent}<Item id="{new_uuid()}">\r\n']
+    out.append(f'{indent}\t<Name>{esc_xml_text(r["name"])}</Name>\r\n')
+    if not r["code"]:
+        out.append(f'{indent}\t<Code/>\r\n')
+    elif code_type == 'Number':
+        out.append(f'{indent}\t<Code xsi:type="xs:decimal">{esc_xml_text(r["code"])}</Code>\r\n')
+    else:
+        out.append(f'{indent}\t<Code>{esc_xml_text(r["code"])}</Code>\r\n')
+    if r["desc"] == "":
+        out.append(f'{indent}\t<Description/>\r\n')
+    else:
+        out.append(f'{indent}\t<Description>{esc_xml_text(r["desc"])}</Description>\r\n')
+    out.append(f'{indent}\t<IsFolder>{"true" if r["isFolder"] else "false"}</IsFolder>\r\n')
+    if r["children"]:
+        out.append(f'{indent}\t<ChildItems>\r\n')
+        for c in r["children"]:
+            out.append(build_predef_item_xml(f"{indent}\t\t", c, code_type))
+        out.append(f'{indent}\t</ChildItems>\r\n')
+    out.append(f'{indent}</Item>\r\n')
+    return "".join(out)
+
+
+def add_predefined_items(items):
+    global add_count
+
+    xsi_type = PREDEF_XSI_TYPE_BY_OBJ.get(obj_type)
+    if not xsi_type:
+        die(f"add-predefined: тип объекта '{obj_type}' не поддержан "
+            f"(только Catalog, ChartOfCharacteristicTypes)")
+    code_type = get_object_code_type()
+    version = xml_root.get("version") or ""
+    path = get_predefined_path()
+    item_list = items if isinstance(items, list) else [items]
+    items_xml = "".join(build_predef_item_xml("\t", it, code_type) for it in item_list)
+
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig") as f:
+            text = f.read()
+        text = text.replace("</PredefinedData>", f"{items_xml}</PredefinedData>")
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        hdr = ('<?xml version="1.0" encoding="UTF-8"?>\r\n<PredefinedData '
+               'xmlns="http://v8.1c.ru/8.3/xcf/predef" '
+               'xmlns:v8="http://v8.1c.ru/8.1/data/core" '
+               'xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" '
+               'xmlns:xs="http://www.w3.org/2001/XMLSchema" '
+               'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+               f'xsi:type="{xsi_type}" version="{version}">\r\n')
+        text = f"{hdr}{items_xml}</PredefinedData>\r\n"
+
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        f.write(text)
+    n = len(item_list)
+    info(f"Added {n} predefined item(s) -> {path}")
+    add_count += n
 
 
 # ============================================================
@@ -2113,21 +2509,24 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
     global xml_tree, xml_root, obj_element, obj_type, md_ns
-    global properties_el, child_objects_el, obj_name
+    global properties_el, child_objects_el, obj_name, resolved_path
     global add_count, remove_count, modify_count, warn_count
 
     valid_operations = [
         "add-attribute", "add-ts", "add-dimension", "add-resource",
         "add-enumValue", "add-column", "add-form", "add-template", "add-command",
         "add-owner", "add-registerRecord", "add-basedOn", "add-inputByString",
+        "add-dataLockField", "add-registeredDocument", "add-predefined",
         "remove-attribute", "remove-ts", "remove-dimension", "remove-resource",
         "remove-enumValue", "remove-column", "remove-form", "remove-template", "remove-command",
         "remove-owner", "remove-registerRecord", "remove-basedOn", "remove-inputByString",
+        "remove-dataLockField", "remove-registeredDocument",
         "add-ts-attribute", "remove-ts-attribute", "modify-ts-attribute", "modify-ts",
         "modify-attribute", "modify-dimension", "modify-resource",
         "modify-enumValue", "modify-column",
         "modify-property",
         "set-owners", "set-registerRecords", "set-basedOn", "set-inputByString",
+        "set-dataLockFields", "set-registeredDocuments",
     ]
 
     parser = argparse.ArgumentParser(description="Edit existing 1C metadata object XML", allow_abbrev=False)
@@ -2221,6 +2620,12 @@ def main():
         if localname(child) == "Name":
             obj_name = (child.text or "").strip()
             break
+
+    # hand the shared DSL helpers this script's primitives and the current object
+    meta_dsl.ctx.esc_xml = esc_xml
+    meta_dsl.ctx.resolve_type_str = resolve_type_str
+    meta_dsl.ctx.obj_type = obj_type
+    meta_dsl.ctx.obj_name = obj_name
 
     info(f"Object: {obj_type}.{obj_name}")
 

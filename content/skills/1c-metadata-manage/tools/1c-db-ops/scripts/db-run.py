@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
-# db-run v1.2 — Launch 1C:Enterprise
+# db-run v1.7 — Launch 1C:Enterprise
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+#
+# Deviation from db-run.ps1 (py twin only): two opt-in flags absent upstream.
+#   -Out <file>  passes /Out. In batch startup mode (/DisableStartupDialogs, always
+#                added below) the platform writes startup errors ONLY to this file —
+#                without it a failed /Execute run is completely silent.
+#   -Wait        waits for the client to exit and propagates its exit code, instead
+#                of the default fire-and-forget Popen. The default (no -Wait) is
+#                unchanged: launch and return 0 immediately.
+# Neither flag changes behaviour unless passed, so existing callers are unaffected.
 
 import argparse
 import glob
@@ -9,6 +18,11 @@ import os
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "..", "_common"))
+import dev_env  # noqa: E402
+import platform_args  # noqa: E402
 
 
 def _find_project_v8path():
@@ -48,7 +62,9 @@ def _version_key(p):
 def resolve_v8path(v8path):
     """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly)."""
     if not v8path:
-        v8path = _find_project_v8path()
+        # 1c-rules: .dev.env is the single source of truth and wins over
+        # .v8-project.json, which stays supported as the upstream fallback.
+        v8path = dev_env.get_value('PLATFORM_PATH') or _find_project_v8path()
     if not v8path:
         if os.name == "nt":
             candidates = (
@@ -93,7 +109,21 @@ def main():
     parser.add_argument("-Execute", default="")
     parser.add_argument("-CParam", default="")
     parser.add_argument("-URL", default="")
+    parser.add_argument("-Out", dest="Out", default="",
+                        help="Service message output file (/Out). In batch startup mode "
+                             "this is the only place startup errors are reported.")
+    parser.add_argument("-Wait", dest="Wait", action="store_true",
+                        help="Wait for the client to exit and return its exit code.")
+    parser.add_argument("-AdditionalV8Arguments", action="append", default=[],
+                        help="Extra 1cv8 arguments (comma-separated or repeated). "
+                             "A value starting with '-' needs the -Flag=value form.")
+    parser.add_argument("-AdditionalIbcmdArguments", action="append", default=[],
+                        help="Extra ibcmd arguments, --key=value form "
+                             "(comma-separated or repeated). Use -Flag=value to pass them.")
     args = parser.parse_args()
+    engine = "1cv8"  # this tool never dispatches to ibcmd
+    extra_args = platform_args.resolve_extra_args(
+        engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
 
     v8path = resolve_v8path(args.V8Path)
 
@@ -132,12 +162,41 @@ def main():
     if args.URL:
         arguments.extend(["/URL", args.URL])
 
+    if args.Out:
+        arguments.extend(["/Out", args.Out])
+
     arguments.append("/DisableStartupDialogs")
 
-    # --- Execute (background, no wait) ---
-    print(f"Running: 1cv8.exe {' '.join(arguments)}")
-    subprocess.Popen([v8path] + arguments)
-    print("1C:Enterprise launched")
+    # --- Execute ---
+    arguments = arguments + extra_args
+    print("Running: 1cv8.exe " + platform_args.protect_secrets(
+        ' '.join(platform_args.format_args_for_display(arguments, engine)),
+        [args.Password, args.UserName]))
+
+    if not args.Wait:
+        subprocess.Popen([v8path] + arguments)
+        print("1C:Enterprise launched")
+        return
+
+    result = subprocess.run([v8path] + arguments)
+    if result.returncode == 0:
+        print("1C:Enterprise finished successfully")
+    else:
+        print(f"1C:Enterprise finished with code {result.returncode}", file=sys.stderr)
+
+    # Пакетный режим пишет ошибки запуска только в /Out — показываем их сразу,
+    # иначе неуспешный прогон выглядит как молчание.
+    if args.Out and os.path.isfile(args.Out):
+        try:
+            with open(args.Out, "r", encoding="utf-8-sig") as f:
+                log = f.read().strip()
+        except Exception:
+            log = ""
+        if log:
+            print("--- Out ---")
+            print(log)
+            print("--- End ---")
+    sys.exit(result.returncode)
 
 
 if __name__ == "__main__":

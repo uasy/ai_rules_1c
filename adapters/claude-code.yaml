@@ -32,10 +32,17 @@ rules:
 agents:
   copyTo: ".claude/agents/{name}.md"
   frontmatter:
-    keep: [name, description, tools, modelHint, isSubagent, allowParallel]
+    # `tools` is dropped: the source arrays use the neutral names `Shell` and
+    # `MCP`, which are not Claude Code tool names (`Bash`, and MCP tools are
+    # addressed individually as `mcp__<server>__<tool>`). Writing them through
+    # verbatim yields a frontmatter Claude Code cannot resolve, so the agent
+    # ends up without the tools its prompt relies on. Dropping the key lets the
+    # agent inherit the parent tool set (equivalent to `tools: "*"`), the same
+    # resolution command-code.yaml uses.
+    keep: [name, description, modelHint, isSubagent, allowParallel]
     rename:
       modelHint: model
-    drop: [reasoningEffort]
+    drop: [tools, reasoningEffort]
 
 commands:
   copyTo: ".claude/commands/{name}.md"

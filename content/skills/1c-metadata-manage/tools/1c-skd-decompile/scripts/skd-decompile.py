@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-decompile v0.90 — Decompile 1C DCS Template.xml to JSON DSL (draft)
+# skd-decompile v0.91 — Decompile 1C DCS Template.xml to JSON DSL (draft)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import os
@@ -2327,16 +2327,23 @@ def build_table_axis_block(node, loc, include_name=False):
         for fc in f_node.select_nodes("dcsset:item"):
             fa.append(build_filter_item(fc, "%s/filter" % loc))
         entry['filter'] = fa
+    # order/selection are ALWAYS explicit ("the decompiler is always explicit"):
+    # [Auto] is preserved as is, an absent or empty one becomes [] — otherwise
+    # compile bakes in a default Auto and the round-trip breaks on axes without a
+    # selection (e.g. use=false branches). [] on input to compile emits nothing,
+    # which reads back as "no selection".
     ord_node = node.select_single_node("dcsset:order")
     if ord_node:
         ord_items = build_order(ord_node, "%s/order" % loc)
-        if len(ord_items) > 0:
-            entry['order'] = ord_items
+        entry['order'] = ord_items if len(ord_items) > 0 else []
+    else:
+        entry['order'] = []
     sel_node = node.select_single_node("dcsset:selection")
     if sel_node:
         sel_items = build_selection(sel_node, "%s/selection" % loc)
-        if len(sel_items) > 0:
-            entry['selection'] = sel_items
+        entry['selection'] = sel_items if len(sel_items) > 0 else []
+    else:
+        entry['selection'] = []
     ca_n = node.select_single_node("dcsset:conditionalAppearance")
     if ca_n:
         ca = build_conditional_appearance(ca_n, "%s/ca" % loc)
@@ -2485,11 +2492,14 @@ def build_structure(node, loc):
                     s_arr.append(build_table_axis_block(s, "%s/%d/series[%d]" % (loc, idx, si)))
                     si += 1
                 entry['series'] = s_arr
+            # chart-level selection — always explicit ([] when absent or empty,
+            # otherwise compile bakes in Auto)
             sel_n = it.select_single_node("dcsset:selection")
             if sel_n:
                 sel_i = build_selection(sel_n, "%s/%d/selection" % (loc, idx))
-                if len(sel_i) > 0:
-                    entry['selection'] = sel_i
+                entry['selection'] = sel_i if len(sel_i) > 0 else []
+            else:
+                entry['selection'] = []
             op_n = it.select_single_node("dcsset:outputParameters")
             op = build_output_parameters(op_n)
             if op and len(op) > 0:
@@ -2532,16 +2542,20 @@ def build_structure(node, loc):
         if len(g_fields) > 0:
             entry['groupFields'] = g_fields
 
+        # Local selection/order — always explicit: [Auto] as is, absent or empty
+        # as [] (otherwise compile bakes in a default Auto and the round-trip
+        # breaks on groups with no selection, e.g. use=false branches). [] is not
+        # Auto-only, so the structure shorthand will not collapse such a group.
         sel_node = it.select_single_node("dcsset:selection")
         if sel_node:
             sel_items = build_selection(sel_node, "%s/selection" % loc)
-            if len(sel_items) > 0:
-                entry['selection'] = sel_items
+            entry['selection'] = sel_items if len(sel_items) > 0 else []
+        else:
+            entry['selection'] = []
         ord_node = it.select_single_node("dcsset:order")
         if ord_node:
             ord_items = build_order(ord_node, "%s/order" % loc)
-            if len(ord_items) > 0:
-                entry['order'] = ord_items
+            entry['order'] = ord_items if len(ord_items) > 0 else []
             for ch in ord_node.child_nodes:
                 if ch.namespace_uri != NS_SET:
                     continue
@@ -2549,6 +2563,8 @@ def build_structure(node, loc):
                     entry['orderViewMode'] = ch.inner_text
                 elif ch.local_name == 'userSettingID':
                     entry['orderUserSettingID'] = 'auto'
+        else:
+            entry['order'] = []
         filter_node = it.select_single_node("dcsset:filter")
         if filter_node and len(filter_node.select_nodes("dcsset:item")) > 0:
             f = []

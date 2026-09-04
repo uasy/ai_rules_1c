@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# db-dump-xml v1.8 — Dump 1C configuration to XML files
+# db-dump-xml v1.14 — Dump 1C configuration to XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -13,6 +13,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "..", "_common"))
+import dev_env  # noqa: E402
+import platform_args  # noqa: E402
 
 
 def _find_project_v8path():
@@ -52,7 +57,9 @@ def _version_key(p):
 def resolve_v8path(v8path):
     """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly)."""
     if not v8path:
-        v8path = _find_project_v8path()
+        # 1c-rules: .dev.env is the single source of truth and wins over
+        # .v8-project.json, which stays supported as the upstream fallback.
+        v8path = dev_env.get_value('PLATFORM_PATH') or _find_project_v8path()
     if not v8path:
         if os.name == "nt":
             candidates = (
@@ -131,11 +138,19 @@ def main():
         choices=["Hierarchical", "Plain"],
         help="Dump format (default: Hierarchical)",
     )
+    parser.add_argument("-AdditionalV8Arguments", action="append", default=[],
+                        help="Extra 1cv8 arguments (comma-separated or repeated). "
+                             "A value starting with '-' needs the -Flag=value form.")
+    parser.add_argument("-AdditionalIbcmdArguments", action="append", default=[],
+                        help="Extra ibcmd arguments, --key=value form "
+                             "(comma-separated or repeated). Use -Flag=value to pass them.")
     args = parser.parse_args()
 
     # --- Resolve V8Path ---
     v8path = resolve_v8path(args.V8Path)
     engine = "ibcmd" if os.path.basename(v8path).lower().startswith("ibcmd") else "1cv8"
+    extra_args = platform_args.resolve_extra_args(
+        engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
 
     # --- Validate connection ---
     if engine == "ibcmd":
@@ -184,7 +199,10 @@ def main():
         if args.Password:
             arguments.append(f"--password={args.Password}")
         arguments.append(f"--data={ib_data}")
-        print(f"Running: ibcmd {' '.join(arguments)}")
+        arguments = arguments + extra_args
+        print("Running: ibcmd " + platform_args.protect_secrets(
+            ' '.join(platform_args.format_args_for_display(arguments, engine)),
+            [args.Password, args.UserName]))
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
         if result.returncode == 0:
             print(f"Configuration exported successfully to: {args.ConfigDir}")
@@ -251,7 +269,10 @@ def main():
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
-        print(f"Running: 1cv8.exe {' '.join(arguments)}")
+        arguments = arguments + extra_args
+        print("Running: 1cv8.exe " + platform_args.protect_secrets(
+            ' '.join(platform_args.format_args_for_display(arguments, engine)),
+            [args.Password, args.UserName]))
         result = subprocess.run(
             [v8path] + arguments,
             capture_output=True,

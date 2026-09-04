@@ -885,6 +885,24 @@ def main():
     elif check13_ok:
         r.ok('13. TypeLink: clean')
 
+    # --- Breadcrumb: drift of controlled methods (&ИзменениеИКонтроль) is NOT checked here ---
+    ext_root_dir = os.path.dirname(resolved_path)
+    ctrl_count = 0
+    ctrl_re = re.compile(r'^\s*&ИзменениеИКонтроль\(', re.M)
+    for dirpath, _dirnames, filenames in os.walk(ext_root_dir):
+        for fn in filenames:
+            if not fn.lower().endswith('.bsl'):
+                continue
+            try:
+                with open(os.path.join(dirpath, fn), encoding='utf-8-sig', errors='replace') as f:
+                    ctrl_count += len(ctrl_re.findall(f.read()))
+            except OSError:
+                pass
+    if ctrl_count > 0:
+        r.out(f'[INFO]  Контролируемых методов (&ИзменениеИКонтроль): {ctrl_count} - их '
+              f'актуальность здесь не проверяется. Сверьте: /cfe-patch-method -Check '
+              f'-ExtensionPath <ext> -ConfigPath <cf>')
+
     # --- Final output ---
     r.finalize(out_file)
     sys.exit(1 if r.errors > 0 else 0)

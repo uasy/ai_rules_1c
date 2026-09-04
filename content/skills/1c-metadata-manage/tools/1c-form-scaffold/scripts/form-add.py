@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# form-add v1.7 — Add managed form to 1C config object
+# form-add v1.11 — Add managed form to 1C config object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -107,7 +107,7 @@ def main():
         "Document", "Catalog", "DataProcessor", "Report",
         "ExternalDataProcessor", "ExternalReport",
         "InformationRegister", "AccumulationRegister", "ChartOfAccounts", "ChartOfCharacteristicTypes",
-        "ExchangePlan", "BusinessProcess", "Task",
+        "ExchangePlan", "BusinessProcess", "Task", "DocumentJournal",
     ]
 
     object_type = None
@@ -390,7 +390,12 @@ def main():
         print(f"Не найден элемент ChildObjects в {object_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Add <Form>$FormName</Form>
+    # Add <Form>$FormName</Form> — idempotent: never register the same form twice.
+    already_registered = any(
+        etree.QName(ch).localname == "Form" and (ch.text or "").strip() == form_name
+        for ch in child_objects
+    )
+
     form_elem = etree.Element(f"{{{ns}}}Form")
     form_elem.text = form_name
 
@@ -406,7 +411,9 @@ def main():
     elif first_tabular is not None:
         insert_before = first_tabular
 
-    if insert_before is not None:
+    if already_registered:
+        pass
+    elif insert_before is not None:
         # Insert before the found element
         idx = list(child_objects).index(insert_before)
         child_objects.insert(idx, form_elem)
@@ -475,7 +482,10 @@ def main():
     print(f"  Form:     {obj_dir_name}\\{obj_base_name}\\Forms\\{form_name}\\Ext\\Form.xml")
     print(f"  Module:   {obj_dir_name}\\{obj_base_name}\\Forms\\{form_name}\\Ext\\Form\\Module.bsl")
     print()
-    print(f"Registered: <Form>{form_name}</Form> in ChildObjects")
+    if already_registered:
+        print(f"Already registered: <Form>{form_name}</Form> in ChildObjects (skipped duplicate)")
+    else:
+        print(f"Registered: <Form>{form_name}</Form> in ChildObjects")
     if default_updated:
         print(f"{default_prop_name}: {default_value}")
     print()

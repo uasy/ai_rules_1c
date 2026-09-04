@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# add-template v1.7 — Add template to 1C object
+# add-template v1.10 — Add template to 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -244,14 +244,22 @@ def main():
         print(f"Не найден элемент ChildObjects в {root_xml_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Add <Template> to end of ChildObjects
+    # Add <Template> to the end of ChildObjects — idempotent: never register the
+    # same template twice.
+    already_registered = any(
+        etree.QName(ch).localname == "Template" and (ch.text or "").strip() == template_name
+        for ch in child_objects
+    )
+
     template_elem = etree.SubElement(child_objects, f"{{{ns}}}Template")
     template_elem.text = template_name
     # Remove auto-appended element to reinsert with proper whitespace
     child_objects.remove(template_elem)
 
     children = list(child_objects)
-    if len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
+    if already_registered:
+        pass
+    elif len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
         # Empty ChildObjects (self-closing)
         child_objects.text = "\n\t\t\t"
         child_objects.append(template_elem)
@@ -300,6 +308,9 @@ def main():
     print(f"[OK] Создан макет: {template_name} ({template_type})")
     print(f"     Метаданные: {template_meta_path}")
     print(f"     Содержимое: {template_file_path}")
+    if already_registered:
+        print(f"     Already registered: <Template>{template_name}</Template> in ChildObjects "
+              f"(skipped duplicate)")
     if main_dcs_updated:
         print(f"     MainDataCompositionSchema: {main_dcs.text}")
 

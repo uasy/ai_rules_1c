@@ -212,6 +212,8 @@ These skills are not always-on; load them by trigger from the table below. Each 
 |---|---|
 | **`powershell-windows`** | Writing or running shell commands on Windows (slash commands, scripts, deploy / IB flows). Required by the shell-using subagents (`developer`, `tester`, `error-fixer`, `refactoring`, `planner`, `architect`, `analytic`). |
 | **`1c-repository-manage`** | `.dev.env` `REPOSITORY_PATH` is set and the task mutates configuration objects or runs IB config operations; or the task/user mentions the configuration repository (хранилище конфигурации). Hard gate above; SDLC discipline — the skill's `docs/repo-sdlc.md`. |
+| **`1c-ui-testing`** | UI verification through the platform's own mechanism — test client (`/TestClient`) driven by a test manager (`/TestManager`) running a BSL scenario. The thick / thin client route; browser automation of the web client stays with `content/rules/ui-testing-tools.md`. |
+| **`md-review`** | A `.md` file was created or substantially edited, and before committing documentation: local-data leaks, dangling links, and whether the content still matches what that document type is for. |
 | **`mermaid-diagrams`** | Producing diagrams (architecture, flows, ERD) for plans, designs, PRDs, code maps. |
 | **`handoff`** | Compressing the current chat into a self-contained handoff document for the next session. Default path: `handoffs/handoff-<timestamp>.md`. |
 | **`prompt-enhancer`** | Turning a short / unstructured note or ТЗ into a numbered imperative spec. Does not add new requirements. |

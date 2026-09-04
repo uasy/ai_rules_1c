@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# role-info v1.1 — Analyze 1C role rights
+# role-info v1.2 — Analyze 1C role rights
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse

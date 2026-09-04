@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# skd-compile v1.107 — Compile 1C DCS from JSON
+# skd-compile v1.109 — Compile 1C DCS from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 import argparse
 import json
@@ -2465,10 +2465,13 @@ def emit_table_axis_block(lines, block, indent, emit_name=True):
     emit_group_items(lines, gb, indent)
     if block.get('filter'):
         emit_filter(lines, block['filter'], indent)
-    if block.get('order'):
-        emit_order(lines, block['order'], indent)
-    if block.get('selection'):
-        emit_selection(lines, block['selection'], indent)
+    # On an axis (column/row/point/series) the platform ALWAYS writes order and
+    # selection; with the key absent it puts Auto (as adding an axis by hand in
+    # the designer does). A present key — including an empty [] — is respected.
+    order_items = block['order'] if 'order' in block else ['Auto']
+    emit_order(lines, order_items, indent)
+    sel_items = block['selection'] if 'selection' in block else ['Auto']
+    emit_selection(lines, sel_items, indent)
     if block.get('conditionalAppearance'):
         emit_conditional_appearance(lines, block['conditionalAppearance'], indent)
     if block.get('outputParameters'):
@@ -2508,11 +2511,16 @@ def emit_structure_item(lines, item, indent, short_group=False):
 
         emit_group_items(lines, item.get('groupBy') or item.get('groupFields'), f'{indent}\t')
 
-        # Emit order/selection only if specified — platform doesn't always emit them on group
-        if item.get('order'):
-            emit_order(lines, item['order'], f'{indent}\t', block_view_mode=item.get('orderViewMode'), block_user_setting_id=item.get('orderUserSettingID'))
-        if item.get('selection'):
-            emit_selection(lines, item['selection'], f'{indent}\t')
+        # On a grouping (flat or nested in an axis, short or explicit) the platform
+        # ALWAYS writes order and selection; with the key absent it puts Auto. A
+        # present key — including an empty [] — is respected (blockViewMode /
+        # userSettingID only make sense with an explicit order).
+        grp_order = item['order'] if 'order' in item else ['Auto']
+        emit_order(lines, grp_order, f'{indent}\t',
+                   block_view_mode=item.get('orderViewMode'),
+                   block_user_setting_id=item.get('orderUserSettingID'))
+        grp_sel = item['selection'] if 'selection' in item else ['Auto']
+        emit_selection(lines, grp_sel, f'{indent}\t')
 
         emit_filter(lines, item.get('filter'), f'{indent}\t')
 
@@ -2617,8 +2625,10 @@ def emit_structure_item(lines, item, indent, short_group=False):
                 emit_table_axis_block(lines, sb, f'{indent}\t\t')
                 lines.append(f'{indent}\t</dcsset:series>')
 
-        # Selection (chart values)
-        emit_selection(lines, item.get('selection'), f'{indent}\t')
+        # Selection (chart values) — the platform always writes a chart-level
+        # selection; with the key absent it puts Auto.
+        chart_sel = item['selection'] if 'selection' in item else ['Auto']
+        emit_selection(lines, chart_sel, f'{indent}\t')
 
         if item.get('outputParameters'):
             emit_output_parameters(lines, item['outputParameters'], f'{indent}\t')

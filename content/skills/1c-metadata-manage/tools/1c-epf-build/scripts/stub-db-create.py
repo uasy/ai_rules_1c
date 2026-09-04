@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# stub-db-create v1.3 — Create temp 1C infobase with metadata stubs for EPF/ERF build
+# stub-db-create v1.7 — Create temp 1C infobase with metadata stubs for EPF/ERF build
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -10,6 +10,11 @@ import subprocess
 import sys
 import tempfile
 import uuid
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "..", "_common"))
+import dev_env  # noqa: E402
+import platform_args  # noqa: E402
 
 
 IBCMD_NOUSER_HINT = (
@@ -802,6 +807,12 @@ def main():
     parser.add_argument('-SourceDir', required=True)
     parser.add_argument('-V8Path', required=True)
     parser.add_argument('-TempBasePath', default='')
+    parser.add_argument("-AdditionalV8Arguments", action="append", default=[],
+                        help="Extra 1cv8 arguments (comma-separated or repeated). "
+                             "A value starting with '-' needs the -Flag=value form.")
+    parser.add_argument("-AdditionalIbcmdArguments", action="append", default=[],
+                        help="Extra ibcmd arguments, --key=value form "
+                             "(comma-separated or repeated). Use -Flag=value to pass them.")
     args = parser.parse_args()
 
     type_map = scan_ref_types(args.SourceDir)
@@ -1057,11 +1068,14 @@ def main():
 
     # Stub via ibcmd (one call: create [--import --apply])
     stub_engine = "ibcmd" if os.path.basename(args.V8Path).lower().startswith("ibcmd") else "1cv8"
+    extra_args = platform_args.resolve_extra_args(
+        stub_engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
     if stub_engine == "ibcmd":
         import shutil
         print(f'Creating infobase (ibcmd): {temp_base}')
         ib_data = tempfile.mkdtemp(prefix="stub_data_")
         ib_args = [args.V8Path, 'infobase', 'create', f'--db-path={temp_base}', '--create-database']
+        ib_args = ib_args + extra_args
         if has_ref_types:
             ib_args += [f'--import={os.path.join(temp_base, "cfg")}', '--apply', '--force']
         ib_args.append(f'--data={ib_data}')
@@ -1084,7 +1098,7 @@ def main():
     # Create infobase
     print(f'Creating infobase: {temp_base}')
     result = subprocess.run(
-        [args.V8Path, 'CREATEINFOBASE', f'File={temp_base}', '/DisableStartupDialogs'],
+        [args.V8Path, 'CREATEINFOBASE', f'File={temp_base}', '/DisableStartupDialogs'] + extra_args,
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -1096,7 +1110,7 @@ def main():
         # LoadConfigFromFiles
         print('Loading configuration from files...')
         result = subprocess.run(
-            [args.V8Path, 'DESIGNER', f'/F{temp_base}', '/LoadConfigFromFiles', cfg_dir, '/DisableStartupDialogs'],
+            [args.V8Path, 'DESIGNER', f'/F{temp_base}', '/LoadConfigFromFiles', cfg_dir, '/DisableStartupDialogs'] + extra_args,
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -1107,7 +1121,7 @@ def main():
         print('Updating database configuration...')
         update_log = os.path.join(tempfile.gettempdir(), 'stub_update_log.txt')
         result = subprocess.run(
-            [args.V8Path, 'DESIGNER', f'/F{temp_base}', '/UpdateDBCfg', '/Out', update_log, '/DisableStartupDialogs'],
+            [args.V8Path, 'DESIGNER', f'/F{temp_base}', '/UpdateDBCfg', '/Out', update_log, '/DisableStartupDialogs'] + extra_args,
             capture_output=True, text=True,
         )
         if result.returncode != 0:
