@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 # meta-edit v1.23 — Edit existing 1C metadata object XML
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills, pinned at
+#         ecd289fe11733028d87b55284ea9fb5feff8f513 — the same upstream state the
+#         vendored meta-edit.ps1 was synced from.
+# Licence: MIT, Copyright (c) 2025-2026 Nick Shirokov. Full notice and permission
+#          text: ../../../NOTICE.md (installed as
+#          skills/1c-metadata-manage/NOTICE.md).
+# Local: `add-form` refuses before it mutates anything, and
+#        auto-validation is a real gate. Upstream builds a form as an inline
+#        `ChildObjects/Form` descriptor with a hardcoded `FormType=Ordinary` and
+#        no form file at all, then looks for its validator under the upstream
+#        directory name (`meta-validate`), prints `[SKIP]` when it is not there,
+#        and ignores the validator's exit code. Here `add-form` exits 2 with the
+#        exact `form-add` command to use instead, the validator is resolved under
+#        the downstream name (`1c-meta-validate`), its absence is a failure
+#        raised *before* the edit is written (unless `-NoValidate` opts out
+#        explicitly), and a non-zero validator exit makes meta-edit non-zero.
 
 import argparse
 import json
@@ -13,23 +28,229 @@ from lxml import etree
 
 
 # ============================================================
-# Support guard (Ext/ParentConfigurations.bin) — see docs/support-manage.md
-# Shared implementation: tools/_shared/support_guard.py (Python port of
-# tools/_shared/support-guard.ps1 — same .dev.env SUPPORT_EDIT_POLICY source,
-# .v8-project.json is documentation-only for this guard, see docs/db-manage.md).
+# Support guard (Ext/ParentConfigurations.bin) — canon: docs/support-manage.md
+# Blocks edits of vendor objects "на замке" / read-only configs. Trigger = bin
+# present; reaction from `.dev.env` SUPPORT_GUARD (deny|warn|off, default deny;
+# `.v8-project.json` editingAllowedCheck stays as the upstream fallback).
+# Fail-closed on an unreadable support state (bin exists but cannot be parsed —
+# same reaction); other guard errors degrade to allow with a stderr notice.
 # ============================================================
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
-import support_guard  # noqa: E402
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "..", "_common"))
-import meta_dsl  # noqa: E402
-from meta_dsl import (  # noqa: E402
-    RESERVED_ATTR_EN_RU, RESERVED_BY_CONTEXT,
-    normalize_md_object_ref, expand_data_path, esc_xml_text, get_ch_el_prop,
-    build_min_max_value_xml, build_link_by_type_xml, build_choice_parameter_links_xml,
-    build_choice_parameters_xml, build_fill_value_explicit_xml,
-)
+def _sg_root_uuid(xml_path):
+    if not os.path.isfile(xml_path):
+        return None
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str) and child.get("uuid"):
+                return child.get("uuid")
+    except Exception:
+        return None
+    return None
+
+
+def _sg_is_external_root(xml_path):
+    if not os.path.isfile(xml_path):
+        return False
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str):
+                return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+    except Exception:
+        return False
+    return False
+
+def _sg_find_v8project(start_dir):
+    d = start_dir
+    for _ in range(20):
+        if not d:
+            break
+        pj = os.path.join(d, ".v8-project.json")
+        if os.path.isfile(pj):
+            return pj
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+def _sg_dev_env_guard_mode():
+    """`SUPPORT_GUARD` from the project's `.dev.env`, or None when not configured.
+
+    Mirrors the PowerShell family, which dot-sources `_common/DevEnv.ps1` from
+    inside its own lookup function. A missing helper (an installed tree that
+    predates it) is "not configured", never an error."""
+    try:
+        helper = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "_common", "dev_env.py"))
+        if not os.path.isfile(helper):
+            return None
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_1c_rules_dev_env", helper)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.get_support_guard_mode()
+    except Exception:  # noqa: BLE001 - an unreadable .dev.env is "not configured"
+        return None
+
+
+def _sg_get_edit_mode(cfg_dir):
+    try:
+        # 1c-rules: `.dev.env` SUPPORT_GUARD wins over .v8-project.json editingAllowedCheck.
+        dev_env_mode = _sg_dev_env_guard_mode()
+        if dev_env_mode:
+            return dev_env_mode
+        pj = _sg_find_v8project(os.getcwd()) or _sg_find_v8project(cfg_dir)
+        if not pj:
+            return "deny"
+        proj = json.loads(open(pj, encoding="utf-8-sig").read())
+        cfg_full = os.path.normcase(os.path.abspath(cfg_dir)).rstrip("\\/")
+        for db in proj.get("databases", []):
+            src = db.get("configSrc")
+            if src:
+                src_full = os.path.normcase(os.path.abspath(src)).rstrip("\\/")
+                if cfg_full == src_full or cfg_full.startswith(src_full + os.sep):
+                    if db.get("editingAllowedCheck"):
+                        return db["editingAllowedCheck"]
+        if proj.get("editingAllowedCheck"):
+            return proj["editingAllowedCheck"]
+        return "deny"
+    except Exception:
+        return "deny"
+
+
+def assert_edit_allowed(target_path, require):
+    try:
+        rp = os.path.abspath(target_path)
+        # Autonomous external object (EPF/ERF): never part of a config on support (issue #39).
+        if _sg_is_external_root(rp):
+            return
+        elem_uuid = _sg_root_uuid(rp)
+        cfg_dir = None
+        bin_path = None
+        d = rp if os.path.isdir(rp) else os.path.dirname(rp)
+        for _ in range(12):
+            if not d:
+                break
+            if _sg_is_external_root(d + ".xml"):
+                return
+            if not elem_uuid:
+                elem_uuid = _sg_root_uuid(d + ".xml")
+            if not cfg_dir:
+                cand = os.path.join(d, "Ext", "ParentConfigurations.bin")
+                if os.path.exists(cand) or os.path.exists(os.path.join(d, "Configuration.xml")):
+                    cfg_dir = d
+                    bin_path = cand
+            if elem_uuid and cfg_dir:
+                break
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+        if not elem_uuid and cfg_dir:
+            elem_uuid = _sg_root_uuid(os.path.join(cfg_dir, "Configuration.xml"))
+        if not bin_path or not os.path.exists(bin_path):
+            return
+        # Bin present: an unreadable / unparseable support state must not silently
+        # degrade to allow — fail closed via the SUPPORT_GUARD reaction instead.
+        g = k = 0
+        text = ""
+        parse_ok = False
+        try:
+            data = open(bin_path, "rb").read()
+            if len(data) > 32:
+                if data[:3] == b"\xef\xbb\xbf":
+                    data = data[3:]
+                text = data.decode("utf-8", "replace")
+                h = re.match(r"\{6,(\d+),(\d+),", text)
+                if h:
+                    g = int(h.group(1))
+                    k = int(h.group(2))
+                    parse_ok = True
+        except Exception:  # noqa: BLE001 - handled by the fail-closed branch below
+            parse_ok = False
+        if not parse_ok:
+            mode = _sg_get_edit_mode(cfg_dir)
+            if mode == "off":
+                return
+            msg = (f"[support-guard] Файл состояния поддержки «{bin_path}» существует, "
+                   f"но не читается или не разбирается — состояние объекта неизвестно, "
+                   f"он может быть на замке.")
+            if mode == "warn":
+                sys.stderr.write(msg + " Продолжаю по SUPPORT_GUARD=warn.\n")
+                return
+            sys.stderr.write(
+                msg + "\nРедактирование остановлено (fail-closed). Проверьте целостность "
+                "выгрузки, либо задайте SUPPORT_GUARD = warn|off в .dev.env "
+                "(канон — docs/support-manage.md).\n")
+            sys.exit(1)
+        if k == 0:
+            return
+        best = None
+        if elem_uuid:
+            for m in re.finditer(r"([0-2]),0," + re.escape(elem_uuid.lower()), text):
+                f1 = int(m.group(1))
+                if best is None or f1 < best:
+                    best = f1
+        blocked = False
+        code = ""
+        reason = ""
+        if g == 1:
+            blocked = True
+            code = "capability-off"
+            reason = "возможность изменения конфигурации выключена (вся конфигурация read-only)"
+        elif require == "removed":
+            if best is not None and best != 2:
+                blocked = True
+                code = "not-removed"
+                reason = "объект не снят с поддержки — удаление сломает обновления"
+        else:
+            if best is not None and best == 0:
+                blocked = True
+                code = "locked"
+                reason = "объект на замке — редактирование сломает обновления"
+        if not blocked:
+            return
+        mode = _sg_get_edit_mode(cfg_dir)
+        if mode == "off":
+            return
+        if mode == "warn":
+            sys.stderr.write(f"[support-guard] ПРЕДУПРЕЖДЕНИЕ: {reason}. Цель: {rp}\n")
+            return
+        head = "[support-guard] Редактирование отклонено: это объект типовой конфигурации на поддержке поставщика, прямое редактирование молча сломает будущие обновления."
+        cfe = "Рекомендуемый путь: внести доработку в расширение (навыки cfe-borrow / cfe-patch-method) — состояние поддержки менять не нужно, обновления вендора сохраняются."
+        off_note = "Снять проверку: SUPPORT_GUARD = warn|off в .dev.env (канон — docs/support-manage.md)."
+        if code == "capability-off":
+            state = f"Состояние: у всей конфигурации выключена возможность изменения (режим read-only «из коробки») — поэтому объект «{rp}» редактировать нельзя."
+            fix = (
+                "Либо снять защиту явно (навык support-edit, два шага):\n"
+                f'  1. support-edit -Path "{cfg_dir}" -Capability on — включить возможность изменения (объекты пока остаются на замке);\n'
+                f'  2. support-edit -Path "{rp}" -Set editable — открыть этот объект для редактирования.\n'
+                "  Изменение применяется в базу полной загрузкой выгрузки и обходит механизм обновлений вендора."
+            )
+        elif code == "not-removed":
+            state = f"Состояние: объект «{rp}» на поддержке (не снят с поддержки) — его удаление разорвёт обновления вендора."
+            fix = (
+                "Либо сначала снять объект с поддержки, затем удалять:\n"
+                f'  support-edit -Path "{rp}" -Set off-support — объект уходит из-под обновлений, после этого удаление безопасно.'
+            )
+        else:
+            state = f"Состояние: объект «{rp}» на замке (возможность изменения конфигурации включена, но сам объект не редактируется)."
+            fix = (
+                "Либо разрешить редактирование этого объекта (навык support-edit, выбрать одно):\n"
+                f'  support-edit -Path "{rp}" -Set editable — редактировать и дальше получать обновления вендора (возможны конфликты слияния);\n'
+                f'  support-edit -Path "{rp}" -Set off-support — снять с поддержки: обновления по объекту больше не приходят.'
+            )
+        sys.stderr.write(head + "\n" + state + "\n" + cfe + "\n" + fix + "\n" + off_note + "\n")
+        sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a broken guard must not block work
+        sys.stderr.write(f"[support-guard] Проверка состояния поддержки не выполнена "
+                         f"({exc}) — продолжаю без блокировки.\n")
+        return
 
 
 # ============================================================
@@ -42,8 +263,6 @@ V8_NS = "http://v8.1c.ru/8.1/data/core"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 XS_NS = "http://www.w3.org/2001/XMLSchema"
 CFG_NS = "http://v8.1c.ru/8.1/data/enterprise/current-config"
-APP_NS = "http://v8.1c.ru/8.2/managed-application/core"
-ENT_NS = "http://v8.1c.ru/8.1/data/enterprise"
 
 NSMAP_WRAPPER = {
     None: MD_NS,
@@ -431,8 +650,8 @@ def import_fragment(xml_string):
         f' xmlns:v8="{V8_NS}"'
         f' xmlns:xr="{XR_NS}"'
         f' xmlns:cfg="{CFG_NS}"'
-        f' xmlns:app="{APP_NS}"'
-        f' xmlns:ent="{ENT_NS}"'
+        f' xmlns:app="http://v8.1c.ru/8.2/managed-application/core"'
+        f' xmlns:ent="http://v8.1c.ru/8.1/data/enterprise"'
         f' xmlns:xs="{XS_NS}">'
         f"{xml_string}</_W>"
     )
@@ -476,7 +695,7 @@ def insert_before_element(container, new_node, ref_node, child_indent):
     if ref_node is not None:
         # Insert before ref_node
         idx = list(container).index(ref_node)
-        new_node.tail = "\n" + child_indent
+        new_node.tail = "\r\n" + child_indent
         container.insert(idx, new_node)
     else:
         # Append: insert before closing tag
@@ -486,13 +705,13 @@ def insert_before_element(container, new_node, ref_node, child_indent):
             # The last element's tail is the whitespace before </Container>
             # We set new_node.tail to what last.tail was (newline + parent indent)
             new_node.tail = last.tail
-            last.tail = "\n" + child_indent
+            last.tail = "\r\n" + child_indent
             container.append(new_node)
         else:
             # Container is empty (possibly self-closing)
             parent_indent = child_indent[:-1] if len(child_indent) > 0 else ""
-            container.text = "\n" + child_indent
-            new_node.tail = "\n" + parent_indent
+            container.text = "\r\n" + child_indent
+            new_node.tail = "\r\n" + parent_indent
             container.append(new_node)
 
 
@@ -556,14 +775,14 @@ def ensure_child_objects_open():
         if not has_elements:
             # It's empty - add whitespace for proper formatting
             indent = get_child_indent(obj_element)
-            child_objects_el.text = "\n" + indent
+            child_objects_el.text = "\r\n" + indent
         return
 
     # No ChildObjects at all - create one after Properties
     indent = get_child_indent(obj_element)
 
     co_el = etree.Element(f"{{{md_ns}}}ChildObjects")
-    co_el.text = "\n" + indent
+    co_el.text = "\r\n" + indent
 
     # Find where to insert: after Properties
     ref_node = None
@@ -579,7 +798,7 @@ def ensure_child_objects_open():
     if ref_node is not None:
         # Insert before ref_node
         idx = list(obj_element).index(ref_node)
-        co_el.tail = "\n" + indent
+        co_el.tail = "\r\n" + indent
         obj_element.insert(idx, co_el)
     else:
         # Append
@@ -587,12 +806,12 @@ def ensure_child_objects_open():
         if len(children) > 0:
             last = children[-1]
             co_el.tail = last.tail
-            last.tail = "\n" + indent
+            last.tail = "\r\n" + indent
             obj_element.append(co_el)
         else:
             parent_indent = indent[:-1] if len(indent) > 0 else ""
-            obj_element.text = "\n" + indent
-            co_el.tail = "\n" + parent_indent
+            obj_element.text = "\r\n" + indent
+            co_el.tail = "\r\n" + parent_indent
             obj_element.append(co_el)
 
     child_objects_el = co_el
@@ -727,25 +946,44 @@ RESERVED_ATTR_NAMES_RU = {
 }
 
 
+# Стандартные реквизиты по типу объекта (EN + RU). Совпадение имени реквизита с ними платформа
+# не позволит — жёсткий отказ. Контексты вне карты → предупреждение по плоскому списку.
+RESERVED_BY_CONTEXT = {
+    'catalog': {
+        'ref', 'ссылка',
+        'deletionmark', 'пометкаудаления',
+        'predefined', 'предопределенный',
+        'predefineddataname', 'имяпредопределенныхданных',
+        'code', 'код',
+        'description', 'наименование',
+        'owner', 'владелец',
+        'parent', 'родитель',
+        'isfolder', 'этогруппа',
+    },
+    'document': {
+        'ref', 'ссылка',
+        'deletionmark', 'пометкаудаления',
+        'date', 'дата',
+        'number', 'номер',
+        'posted', 'проведен',
+    },
+}
+
+
 def build_attribute_fragment(parsed, context, indent):
     """Build XML fragment string for an Attribute element."""
     if not context:
         context = get_attribute_context()
 
-    # Reserved attribute names — type-aware: catalog/document is a hard refusal,
-    # anything else is a warning.
+    # Check reserved attribute names (типозависимо: catalog/document — отказ; прочее — предупреждение)
     attr_name = parsed['name']
     ctx_reserved = RESERVED_BY_CONTEXT.get(context)
-    if ctx_reserved:
-        for en in ctx_reserved:
-            ru = RESERVED_ATTR_EN_RU.get(en)
-            if attr_name.lower() == en.lower() or (ru and attr_name.lower() == ru.lower()):
-                die(f"Имя реквизита '{attr_name}' зарезервировано стандартным реквизитом "
-                    f"({en}/{ru}) объекта '{context}'. Выберите другое имя.")
-    elif context not in ("tabular", "processor-tabular") and (
-            attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
-        print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. "
-              f"This may cause errors when loading into 1C.", file=sys.stderr)
+    if ctx_reserved is not None:
+        if attr_name.lower() in ctx_reserved:
+            print(f"meta-edit: имя реквизита '{attr_name}' зарезервировано стандартным реквизитом объекта '{context}'. Выберите другое имя.", file=sys.stderr)
+            sys.exit(1)
+    elif context not in ('tabular', 'processor-tabular') and (attr_name in RESERVED_ATTR_NAMES or attr_name in RESERVED_ATTR_NAMES_RU):
+        print(f"WARNING: Attribute '{attr_name}' conflicts with a standard attribute name. This may cause errors when loading into 1C.", file=sys.stderr)
 
     uid = new_uuid()
     lines = []
@@ -1115,8 +1353,7 @@ def build_column_fragment(col_def, indent):
     if references:
         lines.append(f"{indent}\t\t<References>")
         for ref in references:
-            lines.append(f'{indent}\t\t\t<xr:Item xsi:type="xr:MDObjectRef">'
-                         f'{esc_xml(normalize_md_object_ref(str(ref)))}</xr:Item>')
+            lines.append(f'{indent}\t\t\t<xr:Item xsi:type="xr:MDObjectRef">{esc_xml(normalize_md_object_ref(str(ref)))}</xr:Item>')
         lines.append(f"{indent}\t\t</References>")
     else:
         lines.append(f"{indent}\t\t<References/>")
@@ -1304,8 +1541,7 @@ def convert_inline_to_definition(operation, value):
         complex_action = "set" if op == "set" else op
         return {"_complex": [{"action": complex_action, "property": prop_name, "values": values}]}
 
-    # Predefined data (Ext/Predefined.xml) lives in its own file — build
-    # { <op>: { predefined: [...] } }.
+    # Предопределённые (Ext/Predefined.xml) — отдельный файл; строим { <op>: { predefined: [...] } }.
     if target == "predefined":
         items = [v.strip() for v in value.split(";;") if v.strip()]
         return {op: {"predefined": items}}
@@ -1522,7 +1758,6 @@ def process_add(add_def):
         if raw_key in ('predefined', 'предопределенные', 'предопределённые'):
             add_predefined_items(items)
             continue
-
         child_type = resolve_child_type_key(raw_key)
 
         if not child_type:
@@ -1718,17 +1953,17 @@ def modify_properties(props_def):
                 break
 
         if prop_el is None:
-            # create-if-missing: a known property is created (1C tolerates the
-            # order, so append); an unknown one is a typo -> error.
-            if prop_name not in KNOWN_OBJECT_PROPS:
-                die(f"modify-property: неизвестное свойство '{prop_name}' - "
-                    f"нет такого свойства объекта (опечатка?)")
+            # create-if-missing: известное свойство создаём (порядок 1С терпит); неизвестное → ошибка (опечатка)
+            if prop_name not in known_object_props:
+                print(f"meta-edit: modify-property: неизвестное свойство '{prop_name}' — нет такого свойства объекта (опечатка?)", file=sys.stderr)
+                sys.exit(1)
             new_nodes = import_fragment(f"<{prop_name}/>")
-            if not new_nodes:
+            if new_nodes:
+                insert_property_in_order(properties_el, new_nodes[0], None, prop_name)
+                prop_el = new_nodes[0]
+            else:
                 warn(f"Property '{prop_name}': could not create element")
                 continue
-            insert_property_in_order(properties_el, new_nodes[0], None, prop_name)
-            prop_el = new_nodes[0]
 
         # Complex property: Owners, RegisterRecords, BasedOn, InputByString
         if prop_name in complex_property_map:
@@ -1745,27 +1980,26 @@ def modify_properties(props_def):
         if isinstance(prop_value, bool):
             value_str = "true" if prop_value else "false"
 
-        # Structural value-type property (the root <Type> of a Constant or a
-        # ChartOfCharacteristicTypes) — rebuild the type descriptor rather than
-        # flattening it into a scalar.
+        # Structural value-type property (корневой <Type> у Константы, ПВХ) —
+        # перестроить дескриптор типа через build_value_type_xml (не расплющивать в скаляр)
         if prop_name == "Type":
             type_indent = get_child_indent(properties_el)
-            new_type_nodes = import_fragment(build_value_type_xml(type_indent, value_str))
+            new_type_xml = build_value_type_xml(type_indent, value_str)
+            new_type_nodes = import_fragment(new_type_xml)
             if new_type_nodes:
-                idx = list(properties_el).index(prop_el)
+                type_idx = list(properties_el).index(prop_el)
                 new_type_nodes[0].tail = prop_el.tail
-                properties_el.insert(idx, new_type_nodes[0])
-                properties_el.remove(prop_el)
+                properties_el.insert(type_idx + 1, new_type_nodes[0])
+                remove_node_with_whitespace(prop_el)
                 info(f"Modified property: Type = {value_str}")
                 modify_count += 1
             continue
 
-        # Guard: never flatten a structural property (one that has child
-        # elements) into scalar text — that silently corrupts the XML. Fail
-        # BEFORE the file is written.
-        if len(prop_el) > 0:
-            die(f"modify-property: свойство '{prop_name}' структурное (содержит дочерние узлы) - "
-                f"установка скалярного текста повредит XML; не поддерживается")
+        # Guard: не расплющивать структурное свойство (с дочерними узлами) в скалярный текст —
+        # это молча повредит XML. Завершаем ошибкой ДО записи файла.
+        if len(list(prop_el)) > 0:
+            print(f"meta-edit: modify-property: свойство '{prop_name}' структурное (содержит дочерние узлы) — установка скалярного текста повредит XML; не поддерживается", file=sys.stderr)
+            sys.exit(1)
 
         # Set inner text — clear children first, set text
         for ch in list(prop_el):
@@ -1817,7 +2051,7 @@ def modify_child_elements(modify_def, child_type):
                     has_ts_child_elements = any(True for _ in ts_child_obj_el)
                     if not has_ts_child_elements:
                         ts_co_indent = get_child_indent(el)
-                        ts_child_obj_el.text = "\n" + ts_co_indent
+                        ts_child_obj_el.text = "\r\n" + ts_co_indent
                     attr_defs = change_value if isinstance(change_value, list) else [change_value]
                     for attr_def in attr_defs:
                         parsed = parse_attribute_shorthand(attr_def)
@@ -1971,52 +2205,44 @@ def modify_child_elements(modify_def, child_type):
                 info(f"Changed synonym of {xml_tag} '{elem_name}': {change_value}")
                 modify_count += 1
 
-            elif change_prop in ("Format", "EditFormat", "ToolTip"):
-                if set_attr_property_element(
-                        props_el, change_prop,
-                        build_mltext_xml(get_child_indent(props_el), change_prop, str(change_value))):
-                    info(f"Set {xml_tag} '{elem_name}'.{change_prop}")
+            elif change_prop == "Format":
+                if set_attr_property_element(props_el, "Format", build_mltext_xml(get_child_indent(props_el), "Format", str(change_value))):
+                    info(f"Set {xml_tag} '{elem_name}'.Format")
                     modify_count += 1
-
+            elif change_prop == "EditFormat":
+                if set_attr_property_element(props_el, "EditFormat", build_mltext_xml(get_child_indent(props_el), "EditFormat", str(change_value))):
+                    info(f"Set {xml_tag} '{elem_name}'.EditFormat")
+                    modify_count += 1
+            elif change_prop == "ToolTip":
+                if set_attr_property_element(props_el, "ToolTip", build_mltext_xml(get_child_indent(props_el), "ToolTip", str(change_value))):
+                    info(f"Set {xml_tag} '{elem_name}'.ToolTip")
+                    modify_count += 1
             elif change_prop == "ChoiceForm":
-                if set_attr_property_element(
-                        props_el, "ChoiceForm",
-                        f"<ChoiceForm>{esc_xml(str(change_value))}</ChoiceForm>"):
+                if set_attr_property_element(props_el, "ChoiceForm", f"<ChoiceForm>{esc_xml(str(change_value))}</ChoiceForm>"):
                     info(f"Set {xml_tag} '{elem_name}'.ChoiceForm")
                     modify_count += 1
-
-            elif change_prop in ("MinValue", "MaxValue"):
-                if set_attr_property_element(
-                        props_el, change_prop,
-                        build_min_max_value_xml(change_prop, change_value)):
-                    info(f"Set {xml_tag} '{elem_name}'.{change_prop}")
+            elif change_prop == "MinValue":
+                if set_attr_property_element(props_el, "MinValue", build_min_max_value_xml("MinValue", change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.MinValue")
                     modify_count += 1
-
+            elif change_prop == "MaxValue":
+                if set_attr_property_element(props_el, "MaxValue", build_min_max_value_xml("MaxValue", change_value)):
+                    info(f"Set {xml_tag} '{elem_name}'.MaxValue")
+                    modify_count += 1
             elif change_prop == "LinkByType":
-                if set_attr_property_element(
-                        props_el, "LinkByType",
-                        build_link_by_type_xml(get_child_indent(props_el), change_value)):
+                if set_attr_property_element(props_el, "LinkByType", build_link_by_type_xml(get_child_indent(props_el), change_value)):
                     info(f"Set {xml_tag} '{elem_name}'.LinkByType")
                     modify_count += 1
-
             elif change_prop == "ChoiceParameterLinks":
-                if set_attr_property_element(
-                        props_el, "ChoiceParameterLinks",
-                        build_choice_parameter_links_xml(get_child_indent(props_el), change_value)):
+                if set_attr_property_element(props_el, "ChoiceParameterLinks", build_choice_parameter_links_xml(get_child_indent(props_el), change_value)):
                     info(f"Set {xml_tag} '{elem_name}'.ChoiceParameterLinks")
                     modify_count += 1
-
             elif change_prop == "ChoiceParameters":
-                if set_attr_property_element(
-                        props_el, "ChoiceParameters",
-                        build_choice_parameters_xml(get_child_indent(props_el), change_value)):
+                if set_attr_property_element(props_el, "ChoiceParameters", build_choice_parameters_xml(get_child_indent(props_el), change_value)):
                     info(f"Set {xml_tag} '{elem_name}'.ChoiceParameters")
                     modify_count += 1
-
             elif change_prop == "FillValue":
-                if set_attr_property_element(
-                        props_el, "FillValue",
-                        build_fill_value_explicit_xml(get_attr_type_str_from_xml(props_el), change_value)):
+                if set_attr_property_element(props_el, "FillValue", build_fill_value_explicit_xml(get_attr_type_str_from_xml(props_el), change_value)):
                     info(f"Set {xml_tag} '{elem_name}'.FillValue")
                     modify_count += 1
 
@@ -2040,20 +2266,18 @@ def modify_child_elements(modify_def, child_type):
                     info(f"Modified {xml_tag} '{elem_name}'.{change_prop} = {value_str}")
                     modify_count += 1
                 else:
-                    # create-if-missing: a known property is created in position;
-                    # an unknown one is a typo -> error.
-                    if change_prop not in KNOWN_CHILD_PROPS:
-                        die(f"modify: неизвестное свойство '{change_prop}' у {xml_tag} "
-                            f"'{elem_name}' (опечатка?)")
+                    # create-if-missing: известное свойство создаём в позиции; неизвестное → ошибка (опечатка)
+                    if change_prop not in known_child_props:
+                        print(f"meta-edit: modify: неизвестное свойство '{change_prop}' у {xml_tag} '{elem_name}' (опечатка?)", file=sys.stderr)
+                        sys.exit(1)
                     value_str = str(change_value)
                     if isinstance(change_value, bool):
                         value_str = "true" if change_value else "false"
                     else:
                         value_str = normalize_enum_value(change_prop, value_str)
-                    new_nodes = import_fragment(
-                        f"<{change_prop}>{esc_xml(value_str)}</{change_prop}>")
+                    new_nodes = import_fragment(f"<{change_prop}>{esc_xml(value_str)}</{change_prop}>")
                     if new_nodes:
-                        insert_property_in_order(props_el, new_nodes[0], ATTR_PROP_ORDER, change_prop)
+                        insert_property_in_order(props_el, new_nodes[0], attr_prop_order, change_prop)
                         info(f"Created {xml_tag} '{elem_name}'.{change_prop} = {value_str}")
                         modify_count += 1
 
@@ -2076,135 +2300,49 @@ def process_modify(modify_def):
 # Complex property helpers
 # ============================================================
 
-# ============================================================
-# Section 12.4: DOM-bound property helpers.
-# The forgiving-input helpers they build on (MDObjectRef / data-path
-# normalisation, choice links and parameters, fill values) live in
-# _common/meta_dsl.py — one implementation shared with meta-compile.
-# ============================================================
-
-KNOWN_OBJECT_PROPS = {
-    'ActionPeriod', 'ActionPeriodUse', 'Addressing', 'AutoOrderByCode', 'Autonumbering',
-    'AuxiliaryChoiceForm', 'AuxiliaryFolderChoiceForm', 'AuxiliaryFolderForm', 'AuxiliaryForm',
-    'AuxiliaryListForm', 'AuxiliaryObjectForm', 'AuxiliaryRecordForm', 'AuxiliarySettingsForm',
-    'BaseCalculationTypes', 'BasePeriod', 'BasedOn', 'CharacteristicExtValues', 'Characteristics',
-    'ChartOfAccounts', 'ChartOfCalculationTypes', 'CheckUnique', 'ChoiceDataGetModeOnInputByString',
-    'ChoiceFoldersAndItems', 'ChoiceForm', 'ChoiceHistoryOnInput', 'ChoiceMode', 'ChoiceParameterLinks',
-    'ChoiceParameters', 'CodeAllowedLength', 'CodeLength', 'CodeMask', 'CodeSeries', 'CodeType',
-    'Comment', 'Correspondence', 'CreateOnInput', 'CreateTaskInPrivilegedMode', 'CurrentPerformer',
-    'DataHistory', 'DataLockControlMode', 'DataLockFields', 'DefaultChoiceForm', 'DefaultFolderChoiceForm',
-    'DefaultFolderForm', 'DefaultForm', 'DefaultListForm', 'DefaultObjectForm', 'DefaultPresentation',
-    'DefaultRecordForm', 'DefaultSettingsForm', 'DefaultVariantForm', 'DependenceOnCalculationTypes',
-    'DescriptionLength', 'DistributedInfoBase', 'EditFormat', 'EditType', 'EnableTotalsSliceFirst',
-    'EnableTotalsSliceLast', 'EnableTotalsSplitting', 'ExecuteAfterWriteDataHistoryVersionProcessing',
-    'Explanation', 'ExtDimensionTypes', 'ExtendedEdit', 'ExtendedListPresentation',
-    'ExtendedObjectPresentation', 'ExtendedPresentation', 'ExtendedRecordPresentation', 'FillChecking',
-    'FoldersOnTop', 'Format', 'FullTextSearch', 'FullTextSearchOnInputByString', 'Hierarchical',
-    'HierarchyType', 'IncludeConfigurationExtensions', 'IncludeHelpInContents',
-    'InformationRegisterPeriodicity', 'InputByString', 'LevelCount', 'LimitLevelCount', 'LinkByType',
-    'ListPresentation', 'MainAddressingAttribute', 'MainDataCompositionSchema', 'MainFilterOnPeriod',
-    'MarkNegatives', 'Mask', 'MaxExtDimensionCount', 'MaxValue', 'MinValue', 'MultiLine', 'Name',
-    'NumberAllowedLength', 'NumberLength', 'NumberPeriodicity', 'NumberType', 'Numerator',
-    'ObjectPresentation', 'OrderLength', 'Owners', 'PasswordMode', 'PeriodAdjustmentLength',
-    'Periodicity', 'PostInPrivilegedMode', 'Posting', 'PredefinedDataUpdate', 'QuickChoice',
-    'RealTimePosting', 'RecordPresentation', 'RegisterRecords', 'RegisterRecordsDeletion',
-    'RegisterRecordsWritingOnPost', 'RegisterType', 'RegisteredDocuments', 'Schedule', 'ScheduleDate',
-    'ScheduleValue', 'SearchStringModeOnInputByString', 'SequenceFilling', 'SettingsStorage',
-    'StandardAttributes', 'StandardTabularSections', 'SubordinationUse', 'Synonym', 'Task',
-    'TaskNumberAutoPrefix', 'ToolTip', 'Type', 'UnpostInPrivilegedMode',
-    'UpdateDataHistoryImmediatelyAfterWrite', 'UseStandardCommands', 'VariantsStorage', 'WriteMode',
+# Прощающий ввод MDObjectRef-путей: русские корни метаданных → английские + ссылочные формы
+# ("CatalogRef.Валюты"/"СправочникСсылка.Валюты" → "Catalog.Валюты"). MDObjectRef ссылается на ОБЪЕКТ
+# метаданных, а не на тип ссылки; вида метаданных, оканчивающегося на Ref, не существует → схлопывание
+# однозначно. Виды на ЧЁТНЫХ позициях (0,2,4…), имена (нечётные) не трогаем. Канонические английские
+# пути неизменны. Зеркало meta-compile.
+md_ref_roots = {
+    'справочник': 'Catalog', 'документ': 'Document', 'перечисление': 'Enum', 'константа': 'Constant',
+    'регистрсведений': 'InformationRegister', 'регистрнакопления': 'AccumulationRegister',
+    'регистрбухгалтерии': 'AccountingRegister', 'регистррасчета': 'CalculationRegister', 'регистррасчёта': 'CalculationRegister',
+    'плансчетов': 'ChartOfAccounts', 'планвидовхарактеристик': 'ChartOfCharacteristicTypes',
+    'планвидоврасчета': 'ChartOfCalculationTypes', 'планвидоврасчёта': 'ChartOfCalculationTypes',
+    'планобмена': 'ExchangePlan', 'бизнеспроцесс': 'BusinessProcess', 'задача': 'Task',
+    'журналдокументов': 'DocumentJournal', 'отчет': 'Report', 'отчёт': 'Report', 'обработка': 'DataProcessor',
+    'табличнаячасть': 'TabularSection', 'реквизит': 'Attribute', 'измерение': 'Dimension', 'ресурс': 'Resource',
+    'стандартныйреквизит': 'StandardAttribute', 'значениеперечисления': 'EnumValue', 'команда': 'Command',
+    'признакучета': 'AccountingFlag', 'признакучёта': 'AccountingFlag',
+    'catalogref': 'Catalog', 'documentref': 'Document', 'enumref': 'Enum',
+    'chartofaccountsref': 'ChartOfAccounts', 'chartofcharacteristictypesref': 'ChartOfCharacteristicTypes',
+    'chartofcalculationtypesref': 'ChartOfCalculationTypes', 'exchangeplanref': 'ExchangePlan',
+    'businessprocessref': 'BusinessProcess', 'taskref': 'Task',
+    'справочникссылка': 'Catalog', 'документссылка': 'Document', 'перечислениессылка': 'Enum',
+    'плансчетовссылка': 'ChartOfAccounts', 'планвидовхарактеристикссылка': 'ChartOfCharacteristicTypes',
+    'планвидоврасчетассылка': 'ChartOfCalculationTypes', 'планвидоврасчётассылка': 'ChartOfCalculationTypes',
+    'планобменассылка': 'ExchangePlan', 'бизнеспроцессссылка': 'BusinessProcess', 'задачассылка': 'Task',
 }
 
-# Known child-element properties (union of Attribute / Dimension / Resource over the
-# corpus) — the allowlist for the default branch of modify-attribute/-dimension/-resource.
-KNOWN_CHILD_PROPS = {
-    'AccountingFlag', 'Balance', 'BaseDimension', 'ChoiceFoldersAndItems', 'ChoiceForm',
-    'ChoiceHistoryOnInput', 'ChoiceParameterLinks', 'ChoiceParameters', 'Comment', 'CreateOnInput',
-    'DataHistory', 'DenyIncompleteValues', 'DocumentMap', 'EditFormat', 'ExtDimensionAccountingFlag',
-    'ExtendedEdit', 'FillChecking', 'FillFromFillingValue', 'FillValue', 'Format', 'FullTextSearch',
-    'Indexing', 'LinkByType', 'MainFilter', 'MarkNegatives', 'Mask', 'Master', 'MaxValue', 'MinValue',
-    'MultiLine', 'Name', 'PasswordMode', 'QuickChoice', 'RegisterRecordsMap', 'ScheduleLink',
-    'Synonym', 'ToolTip', 'Type', 'Use', 'UseInTotals',
-}
 
-# Canonical attribute-property order (the sequence build_attribute_fragment emits) —
-# used to insert a created property in position. 1C tolerates any order, but we keep
-# the canonical one for consistency with meta-compile.
-ATTR_PROP_ORDER = [
-    'Name', 'Synonym', 'Comment', 'Type', 'PasswordMode', 'Format', 'EditFormat', 'ToolTip',
-    'MarkNegatives', 'Mask', 'MultiLine', 'ExtendedEdit', 'MinValue', 'MaxValue',
-    'FillFromFillingValue', 'FillValue', 'FillChecking', 'ChoiceFoldersAndItems',
-    'ChoiceParameterLinks', 'ChoiceParameters', 'QuickChoice', 'CreateOnInput', 'ChoiceForm',
-    'LinkByType', 'ChoiceHistoryOnInput', 'Use', 'Indexing', 'FullTextSearch', 'DataHistory',
-]
+def normalize_md_object_ref(ref, default_root=None):
+    """default_root — корень для ГОЛОГО имени без точки (owners: "Валюты" → "Catalog.Валюты")."""
+    if not ref:
+        return ref
+    if '.' not in ref:
+        return f'{default_root}.{ref}' if default_root else ref
+    parts = ref.split('.')
+    for k in range(0, len(parts), 2):
+        t = md_ref_roots.get(parts[k].lower())
+        if t:
+            parts[k] = t
+    return '.'.join(parts)
 
 
-def insert_property_in_order(props_el, new_node, order_array, prop_name):
-    """Insert a new property element at its canonical position (per order_array);
-    append when the property is not in the array (or no array is given)."""
-    child_indent = get_child_indent(props_el)
-    ref_node = None
-    idx = order_array.index(prop_name) if (order_array and prop_name in order_array) else -1
-    if idx >= 0:
-        for ch in props_el:
-            ln = localname(ch)
-            if ln in order_array and order_array.index(ln) > idx:
-                ref_node = ch
-                break
-    insert_before_element(props_el, new_node, ref_node, child_indent)
-
-
-def set_attr_property_element(props_el, prop_name, fragment_xml):
-    """Replace an attribute property element with a new fragment, or create it at
-    its canonical position. Returns True on success."""
-    new_nodes = import_fragment(fragment_xml)
-    if not new_nodes:
-        return False
-    existing = None
-    for ch in props_el:
-        if localname(ch) == prop_name:
-            existing = ch
-            break
-    if existing is not None:
-        # insert-then-remove keeps the leading/trailing whitespace of the old
-        # position intact (remove_node_with_whitespace would swallow the indent).
-        idx = list(props_el).index(existing)
-        new_nodes[0].tail = existing.tail
-        props_el.insert(idx, new_nodes[0])
-        props_el.remove(existing)
-    else:
-        insert_property_in_order(props_el, new_nodes[0], ATTR_PROP_ORDER, prop_name)
-    return True
-
-
-def get_attr_type_str_from_xml(props_el):
-    """Read the attribute type out of the XML (<Type>/<v8:Type>) as a DSL type
-    string, so FillValue can be categorised. DOM-bound, hence local rather than
-    in meta_dsl."""
-    type_el = None
-    for ch in props_el:
-        if localname(ch) == 'Type':
-            type_el = ch
-            break
-    if type_el is None:
-        return ""
-    mapped = []
-    for ch in type_el:
-        if localname(ch) != 'Type':
-            continue
-        t = (ch.text or "").strip()
-        colon = t.find(":")
-        if colon >= 0:
-            t = t[colon + 1:]
-        mapped.append({'string': 'String', 'decimal': 'Number',
-                       'boolean': 'Boolean', 'dateTime': 'Date'}.get(t, t))
-    if not mapped:
-        return ""
-    return " + ".join(mapped) if len(mapped) > 1 else mapped[0]
-
-
-# mdref - the list values are MDObjectRef paths -> run through normalize_md_object_ref.
-# root  - the root for a bare name with no dot. expand - values are data paths.
+# mdref — значения списка суть MDObjectRef-пути → прогоняем через normalize_md_object_ref.
+# root — корень для голого имени без точки.
 complex_property_map = {
     "Owners": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True, "root": "Catalog"},
     "RegisterRecords": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
@@ -2214,19 +2352,514 @@ complex_property_map = {
     "RegisteredDocuments": {"tag": "xr:Item", "attr": 'xsi:type="xr:MDObjectRef"', "mdref": True},
 }
 
+# Известные свойства объекта (union по корпусу acc+erp 8.3.24) — allowlist для modify-property.
+# Известное отсутствующее свойство create-if-missing создаётся; неизвестное (опечатка) → ошибка.
+known_object_props = {
+    'ActionPeriod', 'ActionPeriodUse', 'Addressing', 'AutoOrderByCode', 'Autonumbering', 'AuxiliaryChoiceForm',
+    'AuxiliaryFolderChoiceForm', 'AuxiliaryFolderForm', 'AuxiliaryForm', 'AuxiliaryListForm', 'AuxiliaryObjectForm',
+    'AuxiliaryRecordForm', 'AuxiliarySettingsForm', 'BaseCalculationTypes', 'BasePeriod', 'BasedOn',
+    'CharacteristicExtValues', 'Characteristics', 'ChartOfAccounts', 'ChartOfCalculationTypes', 'CheckUnique',
+    'ChoiceDataGetModeOnInputByString', 'ChoiceFoldersAndItems', 'ChoiceForm', 'ChoiceHistoryOnInput', 'ChoiceMode',
+    'ChoiceParameterLinks', 'ChoiceParameters', 'CodeAllowedLength', 'CodeLength', 'CodeMask', 'CodeSeries', 'CodeType',
+    'Comment', 'Correspondence', 'CreateOnInput', 'CreateTaskInPrivilegedMode', 'CurrentPerformer', 'DataHistory',
+    'DataLockControlMode', 'DataLockFields', 'DefaultChoiceForm', 'DefaultFolderChoiceForm', 'DefaultFolderForm',
+    'DefaultForm', 'DefaultListForm', 'DefaultObjectForm', 'DefaultPresentation', 'DefaultRecordForm', 'DefaultSettingsForm',
+    'DefaultVariantForm', 'DependenceOnCalculationTypes', 'DescriptionLength', 'DistributedInfoBase', 'EditFormat',
+    'EditType', 'EnableTotalsSliceFirst', 'EnableTotalsSliceLast', 'EnableTotalsSplitting',
+    'ExecuteAfterWriteDataHistoryVersionProcessing', 'Explanation', 'ExtDimensionTypes', 'ExtendedEdit',
+    'ExtendedListPresentation', 'ExtendedObjectPresentation', 'ExtendedPresentation', 'ExtendedRecordPresentation',
+    'FillChecking', 'FoldersOnTop', 'Format', 'FullTextSearch', 'FullTextSearchOnInputByString', 'Hierarchical',
+    'HierarchyType', 'IncludeConfigurationExtensions', 'IncludeHelpInContents', 'InformationRegisterPeriodicity',
+    'InputByString', 'LevelCount', 'LimitLevelCount', 'LinkByType', 'ListPresentation', 'MainAddressingAttribute',
+    'MainDataCompositionSchema', 'MainFilterOnPeriod', 'MarkNegatives', 'Mask', 'MaxExtDimensionCount', 'MaxValue',
+    'MinValue', 'MultiLine', 'Name', 'NumberAllowedLength', 'NumberLength', 'NumberPeriodicity', 'NumberType', 'Numerator',
+    'ObjectPresentation', 'OrderLength', 'Owners', 'PasswordMode', 'PeriodAdjustmentLength', 'Periodicity',
+    'PostInPrivilegedMode', 'Posting', 'PredefinedDataUpdate', 'QuickChoice', 'RealTimePosting', 'RecordPresentation',
+    'RegisterRecords', 'RegisterRecordsDeletion', 'RegisterRecordsWritingOnPost', 'RegisterType', 'RegisteredDocuments',
+    'Schedule', 'ScheduleDate', 'ScheduleValue', 'SearchStringModeOnInputByString', 'SequenceFilling', 'SettingsStorage',
+    'StandardAttributes', 'StandardTabularSections', 'SubordinationUse', 'Synonym', 'Task', 'TaskNumberAutoPrefix',
+    'ToolTip', 'Type', 'UnpostInPrivilegedMode', 'UpdateDataHistoryImmediatelyAfterWrite', 'UseStandardCommands',
+    'VariantsStorage', 'WriteMode',
+}
 
-def _normalize_complex_values(property_name, values):
-    """Forgiving input for complex-property lists: data paths get expanded,
-    MDObjectRef paths get their Russian / *Ref roots collapsed to the canonical
-    English metadata kind."""
-    entry = complex_property_map.get(property_name)
-    if not entry:
-        return values
-    if entry.get("expand"):
-        values = [expand_data_path(str(v)) for v in values]
-    if entry.get("mdref"):
-        values = [normalize_md_object_ref(str(v), entry.get("root")) for v in values]
-    return values
+# Известные свойства дочерних элементов (union Attribute/Dimension/Resource) — allowlist default-ветки modify-child.
+known_child_props = {
+    'AccountingFlag', 'Balance', 'BaseDimension', 'ChoiceFoldersAndItems', 'ChoiceForm', 'ChoiceHistoryOnInput',
+    'ChoiceParameterLinks', 'ChoiceParameters', 'Comment', 'CreateOnInput', 'DataHistory', 'DenyIncompleteValues',
+    'DocumentMap', 'EditFormat', 'ExtDimensionAccountingFlag', 'ExtendedEdit', 'FillChecking', 'FillFromFillingValue',
+    'FillValue', 'Format', 'FullTextSearch', 'Indexing', 'LinkByType', 'MainFilter', 'MarkNegatives', 'Mask', 'Master',
+    'MaxValue', 'MinValue', 'MultiLine', 'Name', 'PasswordMode', 'QuickChoice', 'RegisterRecordsMap', 'ScheduleLink',
+    'Synonym', 'ToolTip', 'Type', 'Use', 'UseInTotals',
+}
+
+# Канонический порядок свойств реквизита (последовательность build_attribute_fragment) — для вставки в позицию.
+attr_prop_order = [
+    'Name', 'Synonym', 'Comment', 'Type', 'PasswordMode', 'Format', 'EditFormat', 'ToolTip', 'MarkNegatives', 'Mask',
+    'MultiLine', 'ExtendedEdit', 'MinValue', 'MaxValue', 'FillFromFillingValue', 'FillValue', 'FillChecking',
+    'ChoiceFoldersAndItems', 'ChoiceParameterLinks', 'ChoiceParameters', 'QuickChoice', 'CreateOnInput', 'ChoiceForm',
+    'LinkByType', 'ChoiceHistoryOnInput', 'Use', 'Indexing', 'FullTextSearch', 'DataHistory',
+]
+
+
+def insert_property_in_order(props_el, new_node, order_array, prop_name):
+    """Вставить новое свойство в Properties в канонической позиции (по order_array); иначе append."""
+    child_indent = get_child_indent(props_el)
+    ref_node = None
+    idx = order_array.index(prop_name) if (order_array and prop_name in order_array) else -1
+    if idx >= 0:
+        for ch in props_el:
+            cl = localname(ch)
+            if cl in order_array and order_array.index(cl) > idx:
+                ref_node = ch
+                break
+    insert_before_element(props_el, new_node, ref_node, child_indent)
+
+
+def set_attr_property_element(props_el, prop_name, fragment_xml):
+    """Заменить существующий элемент свойства реквизита новым фрагментом, либо создать в позиции."""
+    new_nodes = import_fragment(fragment_xml)
+    if not new_nodes:
+        return False
+    existing = None
+    for ch in props_el:
+        if localname(ch) == prop_name:
+            existing = ch
+            break
+    if existing is not None:
+        idx = list(props_el).index(existing)
+        new_nodes[0].tail = existing.tail
+        props_el.insert(idx + 1, new_nodes[0])
+        remove_node_with_whitespace(existing)
+    else:
+        insert_property_in_order(props_el, new_nodes[0], attr_prop_order, prop_name)
+    return True
+
+
+def build_min_max_value_xml(tag, val):
+    """MinValue/MaxValue — типизированное значение (порт Emit-MinMaxValue): nil / xs:string / xs:decimal."""
+    if val is None or str(val) == '':
+        return f'<{tag} xsi:nil="true"/>'
+    t = 'xs:string' if isinstance(val, str) else 'xs:decimal'
+    return f'<{tag} xsi:type="{t}">{esc_xml(str(val))}</{tag}>'
+
+
+# --- Порт из meta-compile: развёртка путей данных + связи выбора / тип по ссылке (structural modify) ---
+
+def get_ch_el_prop(obj, names):
+    """Свойство из dict по списку синонимов (первый найденный, иначе None)."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        for n in names:
+            if n in obj:
+                return obj[n]
+    return None
+
+
+# Пары EN↔RU стандартных реквизитов Catalog/Document (для resolve_std_attr_en; py-карты плоские, восстанавливаем).
+_STD_ATTR_BY_CTX = {
+    'Catalog': [('Ref', 'Ссылка'), ('DeletionMark', 'ПометкаУдаления'), ('Predefined', 'Предопределенный'),
+                ('PredefinedDataName', 'ИмяПредопределенныхДанных'), ('Code', 'Код'), ('Description', 'Наименование'),
+                ('Owner', 'Владелец'), ('Parent', 'Родитель'), ('IsFolder', 'ЭтоГруппа')],
+    'Document': [('Ref', 'Ссылка'), ('DeletionMark', 'ПометкаУдаления'), ('Date', 'Дата'),
+                 ('Number', 'Номер'), ('Posted', 'Проведен')],
+}
+
+
+def resolve_std_attr_en(name):
+    """Стандартный реквизит рус/англ → английский (Catalog/Document)."""
+    pairs = _STD_ATTR_BY_CTX.get(obj_type)
+    if not pairs:
+        return None
+    nl = str(name).lower()
+    for en, ru in pairs:
+        if nl == en.lower() or nl == ru.lower():
+            return en
+    return None
+
+
+def expand_data_path(dp):
+    """Прощающий ввод пути данных: короткое имя реквизита → полный путь объекта (порт Expand-DataPath)."""
+    if not dp:
+        return dp
+    s = str(dp)
+    if re.search(r'[:/]', s):
+        return s
+    if re.match(r'^-?\d+$', s):
+        return s
+    if re.match(r'^(StandardAttribute|Attribute)\.', s):
+        return f"{obj_type}.{obj_name}.{s}"
+    if '.' not in s:
+        en = resolve_std_attr_en(s)
+        if en:
+            return f"{obj_type}.{obj_name}.StandardAttribute.{en}"
+        return f"{obj_type}.{obj_name}.Attribute.{s}"
+    return s
+
+
+def convert_from_ch_link_shorthand(s):
+    """Shorthand "name=path" | "name=path:Clear|DontChange" → {name, dataPath, valueChange?}."""
+    eq = s.find('=')
+    if eq < 0:
+        return {'name': s.strip()}
+    o = {'name': s[:eq].strip()}
+    rest = s[eq + 1:].strip()
+    m = re.match(r'^(.*):(Clear|DontChange|очистить|неизменять)$', rest, re.IGNORECASE)
+    if m:
+        o['dataPath'] = m.group(1).strip()
+        o['valueChange'] = m.group(2)
+    else:
+        o['dataPath'] = rest
+    return o
+
+
+def build_link_by_type_xml(indent, spec):
+    """LinkByType — {dataPath, linkItem?} (порт Emit-LinkByType)."""
+    if not spec:
+        return f"{indent}<LinkByType/>"
+    if isinstance(spec, str):
+        dp = spec
+        li = 0
+    else:
+        dp = str(get_ch_el_prop(spec, ['dataPath', 'path', 'путь']) or '')
+        li_raw = get_ch_el_prop(spec, ['linkItem', 'элементСвязи'])
+        li = li_raw if li_raw is not None else 0
+    if not dp:
+        return f"{indent}<LinkByType/>"
+    dp = expand_data_path(dp)
+    return "\r\n".join([
+        f"{indent}<LinkByType>",
+        f"{indent}\t<xr:DataPath>{esc_xml(str(dp))}</xr:DataPath>",
+        f"{indent}\t<xr:LinkItem>{li}</xr:LinkItem>",
+        f"{indent}</LinkByType>",
+    ])
+
+
+def build_choice_parameter_links_xml(indent, cpl):
+    """ChoiceParameterLinks — [{name, dataPath, valueChange?}] (порт Emit-ChoiceParameterLinks)."""
+    items = cpl if isinstance(cpl, list) else ([cpl] if cpl else [])
+    if not items:
+        return f"{indent}<ChoiceParameterLinks/>"
+    parts = [f"{indent}<ChoiceParameterLinks>"]
+    for lk in items:
+        if isinstance(lk, str):
+            lk = convert_from_ch_link_shorthand(lk)
+        name = get_ch_el_prop(lk, ['name', 'имя'])
+        dp = expand_data_path(get_ch_el_prop(lk, ['dataPath', 'path', 'путь']))
+        vc_raw = get_ch_el_prop(lk, ['valueChange', 'режимИзменения'])
+        vc = 'Clear'
+        if vc_raw:
+            low = str(vc_raw).lower()
+            if re.match(r'^(clear|очистить|очистка)$', low):
+                vc = 'Clear'
+            elif re.match(r'^(dontchange|неизменять|неменять|нет)$', low):
+                vc = 'DontChange'
+            else:
+                vc = str(vc_raw)
+        parts.append(f"{indent}\t<xr:Link>")
+        parts.append(f"{indent}\t\t<xr:Name>{esc_xml(str(name) if name is not None else '')}</xr:Name>")
+        parts.append(f'{indent}\t\t<xr:DataPath xsi:type="xs:string">{esc_xml(str(dp) if dp is not None else "")}</xr:DataPath>')
+        parts.append(f"{indent}\t\t<xr:ValueChange>{vc}</xr:ValueChange>")
+        parts.append(f"{indent}\t</xr:Link>")
+    parts.append(f"{indent}</ChoiceParameterLinks>")
+    return "\r\n".join(parts)
+
+
+# --- Порт из meta-compile: значения параметров выбора (ChoiceParameters) ---
+
+fill_ref_roots = {
+    'перечисление': 'Enum', 'справочник': 'Catalog', 'документ': 'Document',
+    'плансчетов': 'ChartOfAccounts', 'планвидовхарактеристик': 'ChartOfCharacteristicTypes',
+    'планвидоврасчета': 'ChartOfCalculationTypes', 'планвидоврасчёта': 'ChartOfCalculationTypes',
+    'планобмена': 'ExchangePlan', 'бизнеспроцесс': 'BusinessProcess', 'задача': 'Task',
+    'enum': 'Enum', 'catalog': 'Catalog', 'document': 'Document', 'chartofaccounts': 'ChartOfAccounts',
+    'chartofcharacteristictypes': 'ChartOfCharacteristicTypes', 'chartofcalculationtypes': 'ChartOfCalculationTypes',
+    'exchangeplan': 'ExchangePlan', 'businessprocess': 'BusinessProcess', 'task': 'Task',
+}
+fill_empty_ref_words = {'emptyref', 'пустаяссылка'}
+fill_enum_val_words = {'enumvalue', 'значениеперечисления'}
+account_type_values = ('Active', 'Passive', 'ActivePassive')
+fill_ref_kind_root = {
+    'catalogref': 'Catalog', 'documentref': 'Document', 'enumref': 'Enum',
+    'chartofaccountsref': 'ChartOfAccounts', 'chartofcharacteristictypesref': 'ChartOfCharacteristicTypes',
+    'chartofcalculationtypesref': 'ChartOfCalculationTypes', 'exchangeplanref': 'ExchangePlan',
+    'businessprocessref': 'BusinessProcess', 'taskref': 'Task',
+}
+
+
+def convert_to_ch_scalar(s):
+    t = str(s).strip()
+    if re.match(r'^(true|истина)$', t, re.IGNORECASE):
+        return True
+    if re.match(r'^(false|ложь)$', t, re.IGNORECASE):
+        return False
+    if re.match(r'^-?\d+$', t):
+        return int(t)
+    if re.match(r'^-?\d+\.\d+$', t):
+        return float(t)
+    return t
+
+
+def format_fill_num(n):
+    if isinstance(n, float):
+        return str(int(n)) if n == int(n) else repr(n)
+    return str(n)
+
+
+def normalize_fill_ref(s):
+    if not s:
+        return None
+    if re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.[0-9a-fA-F-]+$', s):
+        return s
+    parts = s.split('.')
+    if len(parts) < 2:
+        return None
+    root = fill_ref_roots.get(parts[0].lower())
+    if not root:
+        return None
+    type_name = parts[1]
+    if root == 'Enum':
+        if len(parts) == 2:
+            return None
+        if len(parts) == 3:
+            if parts[2].lower() in fill_empty_ref_words:
+                return f"Enum.{type_name}.EmptyRef"
+            return f"Enum.{type_name}.EnumValue.{parts[2]}"
+        member = parts[2]
+        rest = '.'.join(parts[3:]) if member.lower() in fill_enum_val_words else '.'.join(parts[2:])
+        return f"Enum.{type_name}.EnumValue.{rest}"
+    tail = list(parts[1:])
+    for i in range(len(tail)):
+        if tail[i].lower() in fill_empty_ref_words:
+            tail[i] = 'EmptyRef'
+    return f"{root}." + '.'.join(tail)
+
+
+def expand_choice_ref_value(value, type_str):
+    if not type_str:
+        return None
+    t = resolve_type_str(type_str)
+    root = None
+    tn = None
+    m = re.match(r'^(\w+Ref)\.(.+)$', t)
+    if m:
+        root = fill_ref_kind_root.get(m.group(1).lower())
+        tn = m.group(2)
+    else:
+        m2 = re.match(r'^([^.]+)\.(.+)$', t)
+        if m2:
+            root = fill_ref_roots.get(m2.group(1).lower())
+            tn = m2.group(2)
+    if not root:
+        return None
+    if str(value).lower() in fill_empty_ref_words:
+        return f"{root}.{tn}.EmptyRef"
+    if root == 'Enum':
+        return f"Enum.{tn}.EnumValue.{value}"
+    return f"{root}.{tn}.{value}"
+
+
+def normalize_choice_value(value):
+    if isinstance(value, bool):
+        return {'XsiType': 'xs:boolean', 'Text': 'true' if value else 'false'}
+    if isinstance(value, (int, float)):
+        return {'XsiType': 'xs:decimal', 'Text': format_fill_num(value)}
+    s = str(value)
+    if s == '':
+        return {'XsiType': 'xs:string', 'Text': ''}
+    if re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$', s):
+        return {'XsiType': 'xs:dateTime', 'Text': s}
+    ref = normalize_fill_ref(s)
+    if ref:
+        return {'XsiType': 'xr:DesignTimeRef', 'Text': ref}
+    if s in account_type_values:
+        return {'XsiType': 'ent:AccountType', 'Text': s}
+    return {'XsiType': 'xs:string', 'Text': s}
+
+
+def normalize_choice_value_t(value, type_str):
+    if type_str and isinstance(value, str) and '.' not in str(value):
+        ex = expand_choice_ref_value(value, type_str)
+        if ex:
+            return {'XsiType': 'xr:DesignTimeRef', 'Text': ex}
+    return normalize_choice_value(value)
+
+
+def convert_from_ch_param_shorthand(s):
+    eq = s.find('=')
+    if eq < 0:
+        return {'name': s.strip()}
+    name = s[:eq].strip()
+    rest = s[eq + 1:]
+    if ',' in rest:
+        return {'name': name, 'value': [convert_to_ch_scalar(p) for p in rest.split(',')]}
+    return {'name': name, 'value': convert_to_ch_scalar(rest)}
+
+
+def build_choice_parameters_xml(indent, cp):
+    """ChoiceParameters — [{name, type?, value?}] (порт Emit-ChoiceParameters). Требует xmlns:app в import_fragment."""
+    items = cp if isinstance(cp, list) else ([cp] if cp else [])
+    if not items:
+        return f"{indent}<ChoiceParameters/>"
+    parts = [f"{indent}<ChoiceParameters>"]
+    for item in items:
+        if isinstance(item, str):
+            item = convert_from_ch_param_shorthand(item)
+        name = get_ch_el_prop(item, ['name', 'имя'])
+        ptype = get_ch_el_prop(item, ['type', 'тип'])
+        has_val = False
+        val = None
+        if isinstance(item, dict):
+            if 'value' in item:
+                has_val = True
+                val = item['value']
+            elif 'значение' in item:
+                has_val = True
+                val = item['значение']
+        val_is_array = isinstance(val, list)
+        parts.append(f'{indent}\t<app:item name="{esc_xml(str(name) if name is not None else "")}">')
+        if not has_val:
+            parts.append(f'{indent}\t\t<app:value xsi:nil="true"/>')
+        elif val_is_array:
+            parts.append(f'{indent}\t\t<app:value xsi:type="v8:FixedArray">')
+            for v in val:
+                norm = normalize_choice_value_t(v, ptype)
+                if not norm['Text']:
+                    parts.append(f'{indent}\t\t\t<v8:Value xsi:type="{norm["XsiType"]}"/>')
+                else:
+                    parts.append(f'{indent}\t\t\t<v8:Value xsi:type="{norm["XsiType"]}">{esc_xml(norm["Text"])}</v8:Value>')
+            parts.append(f'{indent}\t\t</app:value>')
+        else:
+            norm = normalize_choice_value_t(val, ptype)
+            if not norm['Text']:
+                parts.append(f'{indent}\t\t<app:value xsi:type="{norm["XsiType"]}"/>')
+            else:
+                parts.append(f'{indent}\t\t<app:value xsi:type="{norm["XsiType"]}">{esc_xml(norm["Text"])}</app:value>')
+        parts.append(f'{indent}\t</app:item>')
+    parts.append(f"{indent}</ChoiceParameters>")
+    return "\r\n".join(parts)
+
+
+# --- Порт из meta-compile: явное значение заполнения (FillValue) ---
+
+fill_bool_true = {'true', 'истина', 'да'}
+fill_bool_false = {'false', 'ложь', 'нет'}
+
+
+def esc_xml_text(s):
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def get_fill_type_category(type_str):
+    if not type_str:
+        return 'String'
+    if '+' in type_str:
+        return 'Other'
+    t = resolve_type_str(type_str)
+    if re.match(r'^Boolean$', t):
+        return 'Boolean'
+    if re.match(r'^String(\(|$)', t):
+        return 'String'
+    if re.match(r'^Number(\(|$)', t):
+        return 'Number'
+    if re.match(r'^(Date|DateTime)$', t):
+        return 'Date'
+    return 'Other'
+
+
+def expand_fill_short_ref(s, type_str):
+    if not type_str or '+' in type_str:
+        return None
+    t = resolve_type_str(type_str)
+    m = re.match(r'^(\w+Ref)\.(.+)$', t)
+    if not m:
+        return None
+    root = fill_ref_kind_root.get(m.group(1).lower())
+    if not root:
+        return None
+    type_name = m.group(2)
+    if s.lower() in fill_empty_ref_words:
+        return f"{root}.{type_name}.EmptyRef"
+    if root == 'Enum':
+        return f"Enum.{type_name}.EnumValue.{s}"
+    return f"{root}.{type_name}.{s}"
+
+
+def resolve_fill_value_spec(s, type_str):
+    cat = get_fill_type_category(type_str)
+    if s == '':
+        return {'XsiType': 'xs:string', 'Text': ''}
+    if cat == 'String':
+        return {'XsiType': 'xs:string', 'Text': s}
+    if cat == 'Boolean' or s.lower() in fill_bool_true or s.lower() in fill_bool_false:
+        if s.lower() in fill_bool_true:
+            return {'XsiType': 'xs:boolean', 'Text': 'true'}
+        if s.lower() in fill_bool_false:
+            return {'XsiType': 'xs:boolean', 'Text': 'false'}
+    if cat == 'Number':
+        return {'XsiType': 'xs:decimal', 'Text': s}
+    if cat == 'Date' or re.match(r'^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$', s):
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+            s = s + 'T00:00:00'
+        return {'XsiType': 'xs:dateTime', 'Text': s}
+    ref = normalize_fill_ref(s)
+    if ref:
+        return {'XsiType': 'xr:DesignTimeRef', 'Text': ref}
+    short = expand_fill_short_ref(s, type_str)
+    if short:
+        return {'XsiType': 'xr:DesignTimeRef', 'Text': short}
+    return {'XsiType': 'xs:string', 'Text': s}
+
+
+def get_attr_type_str_from_xml(props_el):
+    """Извлечь тип реквизита из XML (<Type>/<v8:Type>) → DSL-typeStr для категоризации FillValue."""
+    type_el = None
+    for ch in props_el:
+        if localname(ch) == 'Type':
+            type_el = ch
+            break
+    if type_el is None:
+        return ""
+    mapped = []
+    for ch in type_el:
+        if localname(ch) == 'Type':
+            t = (ch.text or '').strip()
+            colon = t.find(':')
+            if colon >= 0:
+                t = t[colon + 1:]
+            if t == 'string':
+                mapped.append('String')
+            elif t == 'decimal':
+                mapped.append('Number')
+            elif t == 'boolean':
+                mapped.append('Boolean')
+            elif t == 'dateTime':
+                mapped.append('Date')
+            else:
+                mapped.append(t)
+    if not mapped:
+        return ""
+    if len(mapped) > 1:
+        return ' + '.join(mapped)
+    return mapped[0]
+
+
+def build_fill_value_explicit_xml(type_str, spec):
+    """FillValue — явное значение (порт Emit-FillValue, ветка hasSpec)."""
+    if spec is None:
+        return '<FillValue xsi:nil="true"/>'
+    if isinstance(spec, bool):
+        return f'<FillValue xsi:type="xs:boolean">{"true" if spec else "false"}</FillValue>'
+    if isinstance(spec, (int, float)):
+        return f'<FillValue xsi:type="xs:decimal">{format_fill_num(spec)}</FillValue>'
+    if get_ch_el_prop(spec, ['nil']) is True:
+        return '<FillValue xsi:nil="true"/>'
+    if get_ch_el_prop(spec, ['emptyRef', 'пустаяссылка']) is True:
+        return '<FillValue xsi:type="xr:DesignTimeRef"/>'
+    r = resolve_fill_value_spec(str(spec), type_str)
+    if r['Text'] == '' and r['XsiType'] == 'xs:string':
+        return '<FillValue xsi:type="xs:string"/>'
+    return f'<FillValue xsi:type="{r["XsiType"]}">{esc_xml_text(r["Text"])}</FillValue>'
 
 
 def find_property_element(prop_name):
@@ -2250,7 +2883,10 @@ def add_complex_property_item(property_name, values):
     if not map_entry:
         warn(f"Unknown complex property: {property_name}")
         return
-    values = _normalize_complex_values(property_name, values)
+    if map_entry.get("expand"):
+        values = [expand_data_path(str(v)) for v in values]
+    if map_entry.get("mdref"):
+        values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
 
     prop_el = find_property_element(property_name)
     if prop_el is None:
@@ -2268,7 +2904,7 @@ def add_complex_property_item(property_name, values):
 
     # If self-closing / empty, add closing whitespace
     if is_empty and not (prop_el.text and prop_el.text.strip()):
-        prop_el.text = "\n" + indent
+        prop_el.text = "\r\n" + indent
 
     for val in values:
         if val in existing:
@@ -2290,7 +2926,11 @@ def add_complex_property_item(property_name, values):
 def remove_complex_property_item(property_name, values):
     global remove_count
 
-    values = _normalize_complex_values(property_name, values)
+    map_entry = complex_property_map.get(property_name)
+    if map_entry and map_entry.get("expand"):
+        values = [expand_data_path(str(v)) for v in values]
+    if map_entry and map_entry.get("mdref"):
+        values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
     prop_el = find_property_element(property_name)
     if prop_el is None:
         warn(f"Property element '{property_name}' not found in Properties")
@@ -2321,7 +2961,10 @@ def set_complex_property(property_name, values):
     if not map_entry:
         warn(f"Unknown complex property: {property_name}")
         return
-    values = _normalize_complex_values(property_name, values)
+    if map_entry.get("expand"):
+        values = [expand_data_path(str(v)) for v in values]
+    if map_entry.get("mdref"):
+        values = [normalize_md_object_ref(str(v), map_entry.get("root")) for v in values]
 
     prop_el = find_property_element(property_name)
     if prop_el is None:
@@ -2343,7 +2986,7 @@ def set_complex_property(property_name, values):
         return
 
     # Add closing whitespace
-    prop_el.text = "\n" + indent
+    prop_el.text = "\r\n" + indent
 
     # Add each value
     for val in values:
@@ -2363,130 +3006,50 @@ def set_complex_property(property_name, values):
 
 
 # ============================================================
-# Predefined data (Ext/Predefined.xml) — add predefined items
-# (Catalog / ChartOfCharacteristicTypes).
-# Existing <Item id=GUID> entries are preserved byte-for-byte (textual append);
-# new ones get a fresh GUID — the "never change the id of an existing entity"
-# invariant.
-# ============================================================
-
-PREDEF_XSI_TYPE_BY_OBJ = {
-    'Catalog': 'CatalogPredefinedItems',
-    'ChartOfCharacteristicTypes': 'PlanOfCharacteristicKindPredefinedItems',
-}
-
-
-def get_predefined_path():
-    obj_dir = os.path.join(os.path.dirname(resolved_path), obj_name)
-    return os.path.join(obj_dir, "Ext", "Predefined.xml")
-
-
-def get_object_code_type():
-    for ch in properties_el:
-        if localname(ch) == 'CodeType':
-            return (ch.text or "").strip()
-    return 'String'
-
-
-def resolve_predef_item(val):
-    """DSL item: the string "(Code) Name [Description]", or an object
-    {name, code, description, isFolder, childItems}."""
-    if isinstance(val, str):
-        s = val
-        desc_raw = None
-        has_desc = False
-        m = re.search(r"\[(.*)\]", s)
-        if m:
-            desc_raw = m.group(1)
-            has_desc = True
-            s = re.sub(r"\s*\[.*\]", "", s)
-        m = re.match(r"^\s*(?:\(([^)]*)\)\s*)?(\S+)\s*$", s.strip())
-        name = m.group(2) if m else s.strip()
-        code = m.group(1) if (m and m.group(1) is not None) else ""
-        desc = desc_raw if has_desc else split_camel_case(name)
-        return {"name": name, "code": code, "desc": desc, "isFolder": False, "children": []}
-
-    name = str(get_ch_el_prop(val, ['name', 'имя']) or "")
-    code_v = get_ch_el_prop(val, ['code', 'код'])
-    code = str(code_v) if code_v is not None else ""
-    has_desc = isinstance(val, dict) and ('description' in val or 'наименование' in val)
-    desc_v = get_ch_el_prop(val, ['description', 'наименование'])
-    desc = str(desc_v) if has_desc else split_camel_case(name)
-    is_folder = get_ch_el_prop(val, ['isFolder', 'группа']) is True
-    subs = get_ch_el_prop(val, ['childItems', 'подчиненные'])
-    return {"name": name, "code": code, "desc": desc, "isFolder": is_folder,
-            "children": list(subs) if subs else []}
-
-
-def build_predef_item_xml(indent, val, code_type):
-    r = resolve_predef_item(val)
-    out = [f'{indent}<Item id="{new_uuid()}">\r\n']
-    out.append(f'{indent}\t<Name>{esc_xml_text(r["name"])}</Name>\r\n')
-    if not r["code"]:
-        out.append(f'{indent}\t<Code/>\r\n')
-    elif code_type == 'Number':
-        out.append(f'{indent}\t<Code xsi:type="xs:decimal">{esc_xml_text(r["code"])}</Code>\r\n')
-    else:
-        out.append(f'{indent}\t<Code>{esc_xml_text(r["code"])}</Code>\r\n')
-    if r["desc"] == "":
-        out.append(f'{indent}\t<Description/>\r\n')
-    else:
-        out.append(f'{indent}\t<Description>{esc_xml_text(r["desc"])}</Description>\r\n')
-    out.append(f'{indent}\t<IsFolder>{"true" if r["isFolder"] else "false"}</IsFolder>\r\n')
-    if r["children"]:
-        out.append(f'{indent}\t<ChildItems>\r\n')
-        for c in r["children"]:
-            out.append(build_predef_item_xml(f"{indent}\t\t", c, code_type))
-        out.append(f'{indent}\t</ChildItems>\r\n')
-    out.append(f'{indent}</Item>\r\n')
-    return "".join(out)
-
-
-def add_predefined_items(items):
-    global add_count
-
-    xsi_type = PREDEF_XSI_TYPE_BY_OBJ.get(obj_type)
-    if not xsi_type:
-        die(f"add-predefined: тип объекта '{obj_type}' не поддержан "
-            f"(только Catalog, ChartOfCharacteristicTypes)")
-    code_type = get_object_code_type()
-    version = xml_root.get("version") or ""
-    path = get_predefined_path()
-    item_list = items if isinstance(items, list) else [items]
-    items_xml = "".join(build_predef_item_xml("\t", it, code_type) for it in item_list)
-
-    if os.path.exists(path):
-        with open(path, encoding="utf-8-sig") as f:
-            text = f.read()
-        text = text.replace("</PredefinedData>", f"{items_xml}</PredefinedData>")
-    else:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        hdr = ('<?xml version="1.0" encoding="UTF-8"?>\r\n<PredefinedData '
-               'xmlns="http://v8.1c.ru/8.3/xcf/predef" '
-               'xmlns:v8="http://v8.1c.ru/8.1/data/core" '
-               'xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" '
-               'xmlns:xs="http://www.w3.org/2001/XMLSchema" '
-               'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-               f'xsi:type="{xsi_type}" version="{version}">\r\n')
-        text = f"{hdr}{items_xml}</PredefinedData>\r\n"
-
-    with open(path, "w", encoding="utf-8-sig", newline="") as f:
-        f.write(text)
-    n = len(item_list)
-    info(f"Added {n} predefined item(s) -> {path}")
-    add_count += n
-
-
-# ============================================================
 # Save helpers
 # ============================================================
 
 
+def _detect_xml_style(path):
+    """Стиль существующего файла для round-trip-сохранения: BOM / EOL / регистр encoding /
+    финальный перенос. None → файл новый (сохранить текущее поведение)."""
+    try:
+        raw = open(path, "rb").read()
+    except OSError:
+        return None
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    body = raw[3:] if bom else raw
+    crlf = b"\r\n" in body
+    m = re.search(rb'encoding="([^"]+)"', body[:200])
+    enc = m.group(1).decode("ascii") if m else "utf-8"
+    final_nl = body.endswith(b"\n")
+    return {"bom": bom, "crlf": crlf, "enc": enc, "final_nl": final_nl}
+
+
+def _finalize_xml_bytes(xml_bytes, style):
+    """Привести сериализованные байты к стилю оригинала (или к дефолту, если style is None)."""
+    enc_decl = style["enc"] if style else "utf-8"
+    xml_bytes = xml_bytes.replace(
+        b"<?xml version='1.0' encoding='UTF-8'?>",
+        b'<?xml version="1.0" encoding="' + enc_decl.encode("ascii") + b'"?>')
+    # Канонизировать переносы к LF (убирает &#13; от \r в tail'ах)
+    xml_bytes = (xml_bytes.replace(b"&#13;\n", b"\n").replace(b"&#13;", b"")
+                 .replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+    # Финальный перенос — как в оригинале (новый файл → есть)
+    want_final_nl = style["final_nl"] if style else True
+    xml_bytes = xml_bytes.rstrip(b"\n")
+    if want_final_nl:
+        xml_bytes += b"\n"
+    # EOL — как в оригинале (новый файл → LF, текущее поведение)
+    if style and style["crlf"]:
+        xml_bytes = xml_bytes.replace(b"\n", b"\r\n")
+    return xml_bytes
+
+
 def save_xml(tree, path):
-    """Save XML tree with BOM and proper encoding declaration."""
+    """Save XML tree preserving the existing file's BOM/EOL/encoding-case/final-newline."""
+    style = _detect_xml_style(path)
     xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
-    # Fix XML declaration quotes
-    xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
     # Fix d5p1 namespace declarations stripped by lxml (it treats them as unused
     # because d5p1: appears only in text content, not in element/attribute names)
     xml_bytes = re.sub(
@@ -2494,16 +3057,205 @@ def save_xml(tree, path):
         b'\\1 xmlns:d5p1="http://v8.1c.ru/8.1/data/enterprise/current-config"\\2',
         xml_bytes
     )
-    if not xml_bytes.endswith(b"\n"):
-        xml_bytes += b"\n"
+    xml_bytes = _finalize_xml_bytes(xml_bytes, style)
     with open(path, "wb") as f:
-        f.write(b"\xef\xbb\xbf")
+        if style is None or style["bom"]:
+            f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)
 
 
 # ============================================================
 # Main
 # ============================================================
+
+# ============================================================
+# Predefined data (Ext/Predefined.xml) — add предопределённых (Catalog/ChartOfCharacteristicTypes).
+# Существующие <Item id=GUID> сохраняются побайтово (текстовый append), новые получают свежий GUID.
+# ============================================================
+
+predef_xsi_type_by_obj = {
+    'Catalog': 'CatalogPredefinedItems',
+    'ChartOfCharacteristicTypes': 'PlanOfCharacteristicKindPredefinedItems',
+}
+
+
+def get_predefined_path():
+    return os.path.join(os.path.dirname(resolved_path), obj_name, "Ext", "Predefined.xml")
+
+
+def get_object_code_type():
+    for ch in properties_el:
+        if localname(ch) == 'CodeType':
+            return (ch.text or '').strip()
+    return 'String'
+
+
+def resolve_predef_item(val):
+    if isinstance(val, str):
+        s = val
+        desc_raw = None
+        has_desc = False
+        m = re.search(r'\[(.*)\]', s)
+        if m:
+            desc_raw = m.group(1)
+            has_desc = True
+            s = re.sub(r'\s*\[.*\]', '', s)
+        mm = re.match(r'^\s*(?:\(([^)]*)\)\s*)?(\S+)\s*$', s.strip())
+        name = mm.group(2) if mm else s.strip()
+        code = mm.group(1) if (mm and mm.group(1) is not None) else ''
+        desc = desc_raw if has_desc else split_camel_case(name)
+        return {'name': name, 'code': code, 'desc': desc, 'isFolder': False, 'children': []}
+
+    def gv(o, keys):
+        for k in keys:
+            if isinstance(o, dict) and k in o:
+                return o[k]
+        return None
+    name = str(gv(val, ['name', 'имя']) or '')
+    code_v = gv(val, ['code', 'код'])
+    code = str(code_v) if code_v is not None else ''
+    has_desc = isinstance(val, dict) and ('description' in val or 'наименование' in val)
+    desc_v = gv(val, ['description', 'наименование'])
+    desc = str(desc_v) if has_desc else split_camel_case(name)
+    is_folder = gv(val, ['isFolder', 'группа']) is True
+    subs = gv(val, ['childItems', 'подчиненные'])
+    return {'name': name, 'code': code, 'desc': desc if desc is not None else '',
+            'isFolder': is_folder, 'children': list(subs) if subs else []}
+
+
+def build_predef_item_xml(indent, val, code_type):
+    r = resolve_predef_item(val)
+    parts = [f'{indent}<Item id="{new_uuid()}">']
+    parts.append(f'{indent}\t<Name>{esc_xml_text(r["name"])}</Name>')
+    if not r['code']:
+        parts.append(f'{indent}\t<Code/>')
+    elif code_type == 'Number':
+        parts.append(f'{indent}\t<Code xsi:type="xs:decimal">{esc_xml_text(r["code"])}</Code>')
+    else:
+        parts.append(f'{indent}\t<Code>{esc_xml_text(r["code"])}</Code>')
+    if r['desc'] == '':
+        parts.append(f'{indent}\t<Description/>')
+    else:
+        parts.append(f'{indent}\t<Description>{esc_xml_text(r["desc"])}</Description>')
+    parts.append(f'{indent}\t<IsFolder>{"true" if r["isFolder"] else "false"}</IsFolder>')
+    if r['children']:
+        parts.append(f'{indent}\t<ChildItems>')
+        for c in r['children']:
+            parts.append(build_predef_item_xml(indent + '\t\t', c, code_type).rstrip('\r\n'))
+        parts.append(f'{indent}\t</ChildItems>')
+    parts.append(f'{indent}</Item>')
+    return '\r\n'.join(parts) + '\r\n'
+
+
+def add_predefined_items(items):
+    global add_count
+    xsi_type = predef_xsi_type_by_obj.get(obj_type)
+    if not xsi_type:
+        print(f"add-predefined: тип объекта '{obj_type}' не поддержан (только Catalog, ChartOfCharacteristicTypes)", file=sys.stderr)
+        sys.exit(1)
+    code_type = get_object_code_type()
+    version = xml_root.get("version")
+    path = get_predefined_path()
+    item_list = items if isinstance(items, list) else [items]
+    items_xml = ''.join(build_predef_item_xml('\t', it, code_type) for it in item_list)
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            text = f.read()
+        text = text.replace('</PredefinedData>', items_xml + '</PredefinedData>')
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        hdr = ('<?xml version="1.0" encoding="UTF-8"?>\r\n<PredefinedData xmlns="http://v8.1c.ru/8.3/xcf/predef" '
+               'xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" '
+               'xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+               f'xsi:type="{xsi_type}" version="{version}">\r\n')
+        text = hdr + items_xml + '</PredefinedData>\r\n'
+    with open(path, 'wb') as f:
+        f.write(b'\xef\xbb\xbf')
+        f.write(text.encode('utf-8'))
+    info(f"Added {len(item_list)} predefined item(s) -> {path}")
+    add_count += len(item_list)
+
+
+def definition_add_form_targets(definition):
+    """Every add-form request in a definition, in whatever spelling it was written.
+
+    The preflight has to see exactly what the dispatcher will act on, so it goes
+    through the same resolve_operation_key / resolve_child_type_key normalizers
+    instead of matching the literal English keys. `{"добавить": {"формы": [...]}}`
+    and `{"Add": {"forms": [...]}}` reach process_add() just like `{"add": ...}`
+    does; matching only the literal `add` let both of them through the gate and
+    write an inline FormType=Ordinary descriptor before the validator complained.
+
+    The whole definition is scanned, not the first operation, so a mixed
+    definition that adds a form next to an unrelated modify is refused as a whole
+    and neither half is applied."""
+    if not isinstance(definition, dict):
+        return []
+    targets = []
+    for operation_key, payload in definition.items():
+        if resolve_operation_key(str(operation_key)) != "add":
+            continue
+        if not isinstance(payload, dict):
+            continue
+        for child_key in payload:
+            if resolve_child_type_key(str(child_key)) == "forms":
+                targets.append(f"{operation_key}/{child_key}")
+    return targets
+
+
+def definition_adds_form(definition):
+    """True when a JSON definition asks to add a form (any accepted key spelling)."""
+    return bool(definition_add_form_targets(definition))
+
+
+def deny_add_form(object_path):
+    """Refuse add-form with the exact command that does work. Exit 2, no mutation."""
+    scaffold = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "1c-form-scaffold", "scripts"))
+    form_add_py = os.path.join(scaffold, "form-add.py")
+    form_add_ps1 = os.path.join(scaffold, "form-add.ps1")
+    sys.stderr.write(
+        "[ERROR] Операция add-form в meta-edit не поддерживается — она зарегистрировала бы "
+        "форму вложенным дескриптором ChildObjects/Form с FormType=Ordinary и не создала бы "
+        "файл формы. Такую выгрузку Конфигуратор не загружает.\n"
+        "        Используйте штатный form-add (создаёт управляемую форму: скалярную "
+        "регистрацию, дескриптор, Ext/Form.xml и модуль):\n"
+        f'          Linux/macOS: python3 "{form_add_py}" -ObjectPath "{object_path}" '
+        "-FormName ИмяФормы -Purpose Object -SetDefault\n"
+        f'          Windows:     powershell -NoProfile -File "{form_add_ps1}" '
+        f'-ObjectPath "{object_path}" -FormName ИмяФормы -Purpose Object -SetDefault\n'
+        "        -Purpose выбирается по слоту формы (Object/List/Choice/Record); -SetDefault "
+        "перезапишет уже назначенную форму по умолчанию — проверьте её перед запуском.\n"
+        "        Ничего не изменено.\n")
+    sys.exit(2)
+
+
+def resolve_validate_script():
+    """Path of the sibling validator under its downstream directory name.
+
+    Upstream looks under `meta-validate`; the vendored tree calls it
+    `1c-meta-validate`, so the upstream-relative path resolved to nothing and the
+    run printed `[SKIP]` on an otherwise successful edit."""
+    return os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..",
+        "1c-meta-validate", "scripts", "meta-validate.py"))
+
+
+def require_validate_script():
+    """A missing validator is a refusal raised *before* the edit is written.
+
+    `-NoValidate` stays the one explicit opt-out; an absent validator must never
+    degrade into one silently."""
+    script = resolve_validate_script()
+    if os.path.isfile(script):
+        return script
+    sys.stderr.write(
+        f"[ERROR] Обязательная автопроверка не может быть выполнена: meta-validate не найден "
+        f"по пути {script}.\n"
+        "        Правка не применена. Восстановите навык целиком либо запустите с "
+        "-NoValidate, если проверка сознательно не нужна.\n")
+    sys.exit(1)
+
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
@@ -2551,6 +3303,21 @@ def main():
         with open(args.DefinitionFile, "r", encoding="utf-8-sig") as f:
             definition = json.load(f)
 
+    # --- Local gate 1: add-form is refused, before anything is read or written ---
+    #
+    # The generic child builder registers a form as a *nested* ChildObjects/Form
+    # descriptor with a hardcoded FormType=Ordinary, an empty UsePurposes and no
+    # Forms/<Name>.xml at all. That is not what a managed form looks like on disk,
+    # and the Configurator does not recover from it — the result of the earlier
+    # silent success. Fixing the builder means reimplementing the whole managed
+    # scaffold that 1c-form-scaffold already owns, so the contract here is: refuse,
+    # and name the working command. Removal (remove-form) is untouched.
+    if definition_adds_form(definition) or args.Operation == "add-form":
+        deny_add_form(args.ObjectPath)
+
+    # --- Local gate 2: the validator has to exist *before* the edit, not after ---
+    validate_script = require_validate_script() if not args.NoValidate else None
+
     # --- Resolve object path ---
     object_path = args.ObjectPath
     if os.path.isdir(object_path):
@@ -2579,7 +3346,7 @@ def main():
 
     resolved_path = os.path.abspath(object_path)
 
-    support_guard.assert_edit_allowed(resolved_path, "editable")
+    assert_edit_allowed(resolved_path, "editable")
 
     # --- Load XML ---
     xml_parser = etree.XMLParser(remove_blank_text=False)
@@ -2621,12 +3388,6 @@ def main():
             obj_name = (child.text or "").strip()
             break
 
-    # hand the shared DSL helpers this script's primitives and the current object
-    meta_dsl.ctx.esc_xml = esc_xml
-    meta_dsl.ctx.resolve_type_str = resolve_type_str
-    meta_dsl.ctx.obj_type = obj_type
-    meta_dsl.ctx.obj_name = obj_name
-
     info(f"Object: {obj_type}.{obj_name}")
 
     # --- Inline mode conversion ---
@@ -2635,6 +3396,13 @@ def main():
 
     if definition is None:
         die("No definition loaded")
+
+    # Gate 1 again, on the definition the dispatcher below actually receives. The
+    # inline converter is pure - it has written nothing - so this is still before
+    # the first mutation, and it means the gate and the executor can never disagree
+    # about what "add a form" is, whichever entry point produced the definition.
+    if definition_adds_form(definition):
+        deny_add_form(args.ObjectPath)
 
     # --- Process complex property operations ---
     if "_complex" in definition and definition["_complex"]:
@@ -2668,17 +3436,22 @@ def main():
     info(f"Saved: {resolved_path}")
 
     # --- Auto-validate ---
+    # Local: the path is resolved and its existence enforced before the edit (see
+    # require_validate_script above). Here only the run remains — and its exit code
+    # decides ours: a child that reported errors must not be summarized as a
+    # successful edit.
+    validate_exit_code = 0
     if not args.NoValidate:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        validate_script = os.path.normpath(os.path.join(script_dir, "..", "..", "meta-validate", "scripts", "meta-validate.py"))
-        if os.path.exists(validate_script):
-            print()
-            print("--- Running meta-validate ---")
-            python_exe = sys.executable
-            subprocess.run([python_exe, validate_script, "-ObjectPath", resolved_path])
-        else:
-            print()
-            print(f"[SKIP] meta-validate not found at: {validate_script}")
+        print()
+        print("--- Running meta-validate ---")
+        completed = subprocess.run(
+            [sys.executable, "-B", validate_script, "-ObjectPath", resolved_path])
+        validate_exit_code = completed.returncode
+        if validate_exit_code != 0:
+            sys.stderr.write(
+                f"[ERROR] meta-validate завершился с кодом {validate_exit_code}: изменение "
+                f"записано, но объект не проходит проверку. Разберите вывод выше перед "
+                f"загрузкой в базу.\n")
 
     # --- Summary ---
     print()
@@ -2694,7 +3467,8 @@ def main():
     if total_changes == 0:
         print("  No changes applied.")
 
-    sys.exit(0)
+    # Local: a failed auto-validation is the run's result, not a note in the log.
+    sys.exit(validate_exit_code)
 
 
 if __name__ == "__main__":

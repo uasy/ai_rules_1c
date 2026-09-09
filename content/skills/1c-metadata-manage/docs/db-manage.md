@@ -426,7 +426,7 @@ If the base is busy (active sessions), the load fails: for a server base pass `-
 
 `db-load-cf` / `db-load-xml` / `db-load-git` / `db-update` failures are handled **iteratively**, mirroring `content/commands/update1cbase.md → Update retry loop`:
 
-1. **Log after every attempt, success or not.** Exit code 0 does not prove success — the platform writes errors like `Неверное свойство объекта метаданных`, `Неизвестное имя типа`, `Ошибка при обновлении конфигурации базы данных` to the log while formally exiting clean (`db-load-xml` already parses for these; still read the log output the script shows). A diagnostic line = failed attempt — but classify the platform's **success phrases first** (`Ошибок не обнаружено`, `Предупреждений: 0` contain the same word stems), otherwise a clean run reads as a failure. Order and pattern list — `content/rules/designer-batch-checks.md → The success-phrase trap`.
+1. **Log after every attempt, success or not.** Exit code 0 does not prove success — the platform writes errors like `Неверное свойство объекта метаданных`, `Неизвестное имя типа`, `Ошибка при обновлении конфигурации базы данных` to the log while formally exiting clean. The scripts already close part of that gap: every Designer launch passes `/DumpResult` and turns a non-zero (or missing) batch result into a non-zero script exit, and `db-load-xml` / `db-update` also scan the log for known failure lines. Still read the log output the script shows. A diagnostic line = failed attempt — but classify the platform's **success phrases first** (`Ошибок не обнаружено`, `Предупреждений: 0` contain the same word stems), otherwise a clean run reads as a failure. Order and pattern list — `content/rules/designer-batch-checks.md → The success-phrase trap`.
 2. **Terminate a hung / failed Configurator before retrying.** A dead-but-alive Designer process holds the configuration lock, and every next attempt fails with `База данных заблокирована`. Kill only the process this run started (by PID with a timeout); never blanket-kill all `1cv8` processes — the user's own Designer / client sessions may be among them. A lock that survives your process's death is foreign — report it, do not kill further.
 3. **Fix before retry.** Re-running against unchanged sources is forbidden. Fix the logged cause first (source XML/BSL — through this skill's tools plus `verify_xml` / `syntaxcheck`; parameters — in `.dev.env` / flags). After a failed **load**, restart from the load step, not from `db-update` — the half-loaded state is not trustworthy.
 4. **Budget: 3 full attempts.** Then stop and report the last log fragment, the fixes applied between attempts, and the remaining error. A failed update is never reported as done.
@@ -440,26 +440,4 @@ If the base is busy (active sessions), the load fails: for a server base pass `-
 
 ---
 
-## Recent Additions (upstream sync `2026-07-30`)
-
-The PowerShell scripts under `tools/1c-db-ops/scripts/` were refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills). Highlights of this sync (previous base: late May 2026):
-
-- **`db-dump-dt` / `db-load-dt`** — new: full infobase snapshot (configuration + data). See sections 9 and 10.
-- **All `db-*` / `epf-*`** — `-AdditionalV8Arguments` / `-AdditionalIbcmdArguments` with per-engine validation and secret masking (see *Common Parameters*); project-wide defaults via `v8args` / `ibcmdargs` in `.v8-project.json`.
-- **Platform resolution** — unified across the scripts: explicit `-V8Path` → project config → auto-detect the newest `C:\Program Files\1cv8\*\bin\1cv8.exe`. Locally patched so the project config is read from **`.dev.env`** (`PLATFORM_PATH`, `PLATFORM_ARGS`, `IBCMD_ARGS`, `SUPPORT_GUARD`) before upstream's `.v8-project.json`, and so a **version install directory** — the shape `PLATFORM_PATH` uses — resolves via `bin\1cv8.exe`.
-- **`db-load-xml`** — strict log parsing. Catches "Неверное свойство объекта метаданных", "Неизвестное имя типа" and similar messages that the platform writes to the log despite a formal "success" exit. Previously a partial silent metadata loss was reported as a green run.
-- **`db-load-xml` / `db-load-git`** — `-UpdateDB` flag combines load + database update in a single Configurator launch (was two separate calls).
-- **`db-load-git`** — picks up changes to HTML help (`ru.html` and similar) via partial load even without the accompanying `Help.xml` in the commit. Previously such edits were silently dropped and the help text in the base stayed stale. Fixed search for changed files when sources live in a nested folder of the repo (`src/cf` etc.); path normalisation for the configuration directory is corrected.
-- **db-list** — already fully described in Part 1 of this doc (registry of `.v8-project.json`). It is a no-script skill in upstream — the agent reads / writes the JSON directly. No script files were added under `tools/`.
-
-## MCP Integration
-
-- **metadatasearch** — Verify object names when doing partial loads.
-- **get_metadata_details** — Get object structure for verifying load targets.
-- **docsearch** — Platform documentation on Designer command-line parameters.
-
-## SDD Integration
-
-When creating or modifying databases as part of a project, update SDD artifacts if present (see `content/rules/sdd-integrations.md` for detection):
-
-- **OpenSpec**: If the database setup is part of a tracked change, note the environment configuration in the active proposal under `openspec/changes/<change-id>/design.md`.
+Scripts vendored from Nikolay-Shirokov/cc-1c-skills; sync history — `docs/CHANGELOG.md`.

@@ -4,7 +4,7 @@ description: Load the configuration into the test infobase from .dev.env and run
 
 # /deploy-and-test — deploy to test infobase + UI tests
 
-Deploy the current configuration to the test infobase defined in `.dev.env`, then optionally run UI tests in the web client at `INFOBASE_PUBLISH_URL`. UI testing is an opt-in step gated by `UI_TESTING` (default `manual` — run only on explicit request); see Step 4.
+Deploy the current configuration to the test infobase defined in `.dev.env`, then optionally run UI tests in the web client at `INFOBASE_PUBLISH_URL`. UI testing is an opt-in step gated by `UI_TESTING`; see Step 4.
 
 When `EXTENSION_NAMES` is filled and the user asked to deploy the full snapshot ("all" / "with extensions"), Steps 2–3 run as multiple passes — main configuration, then each extension in order — per `/update1cbase → Full-snapshot mode` (`content/commands/update1cbase.md`); everything else in this command is unchanged.
 
@@ -14,29 +14,9 @@ When `EXTENSION_NAMES` is filled and the user asked to deploy the full snapshot 
 
 If the project still has legacy `infobasesettings.md`, migrate values to `.dev.env`, preserving already-filled `.dev.env` keys, and delete the legacy file after successful migration. The ruleset has no other location for connection settings or the web publication URL.
 
-Used keys (behavior of an empty value in parentheses):
+Parameters, classes and defaults — `content/rules/dev-standards-env.md §1`; Defaulted keys are never asked for. Keys read: `PLATFORM_PATH`, `INFOBASE_PATH` (**blocking** — if either is empty, ask once and write the value to `.dev.env`), `INFOBASE_KIND`, `IB_USER` / `IB_PASSWORD`, `EXTENSION_NAME`, `EXTENSION_NAMES` (full-snapshot deploy), `EXPORT_PATH`, `EXTENSIONS_PATH`, `LOG_PATH`, `RESULT_PATH`, `INFOBASE_PUBLISH_URL` and `UI_TESTING` (Step 4), `IBCMD_CONFIG`.
 
-| Key | Purpose |
-|---|---|
-| `PLATFORM_PATH` | Platform installation directory containing `bin\1cv8.exe` — **blocking** |
-| `INFOBASE_PATH` | File infobase path or server connection string — **blocking** |
-| `INFOBASE_KIND` | `file` or `server` (empty = `file`) |
-| `IB_USER` / `IB_PASSWORD` | Credentials (empty = no authentication / no password; `/N` / `/P` / `--user` / `--password` are omitted) |
-| `EXTENSION_NAME` | Extension name (empty = main configuration) |
-| `EXTENSION_NAMES` | Full-snapshot extension list for the full-snapshot deploy — comma-separated, order = load order (empty = single-target mode) |
-| `EXPORT_PATH` | Source directory (empty = repository root) |
-| `EXTENSIONS_PATH` | Root of extension sources for the full-snapshot deploy: `{EXTENSIONS_PATH}\<Name>\` (empty = `cfe` at the repository root) |
-| `LOG_PATH` | Designer log file (empty = `$env:TEMP\1cv8.log` on Windows / `$TMPDIR/1cv8.log` on POSIX) |
-| `INFOBASE_PUBLISH_URL` | Test infobase web publication URL for UI tests (empty = skip UI tests, deploy only) |
-| `UI_TESTING` | Web UI-testing mode: `manual` (empty = default) / `auto` / `off` — governs whether Step 4 runs (see Step 4) |
-| `IBCMD_CONFIG` | Standalone server `config.yml` for `ibcmd` (empty = Designer fallback) |
-
-Ask-policy (canon — `dev-standards-env.md`): only `INFOBASE_PATH` and `PLATFORM_PATH` are blocking — if either is empty, ask the user once and write the value to `.dev.env`. **Never ask up front** about the defaulted keys — apply the defaults from the table silently; re-ask `IB_USER` / `IB_PASSWORD` only if the platform itself returns an authentication error, `LOG_PATH` only if the resolved path turns out to be non-writable. An empty password is a fully valid configuration for dev / test infobases.
-
-When substituting `.dev.env` values into the templates below:
-
-- if `LOG_PATH` is empty, replace `{LOG_PATH}` with `"$env:TEMP\1cv8.log"` (PowerShell expands the env var when the string is double-quoted);
-- resolve `{INFOBASE_FLAG}` once: `/F` for empty / `file`, `/S` for `server`; reject any other `INFOBASE_KIND`.
+When substituting `.dev.env` values into the templates below, resolve `{INFOBASE_FLAG}` once from the effective `INFOBASE_KIND` (`/F` for `file`, `/S` for `server`; reject any other value), and substitute resolved `{LOG_PATH}` / `{RESULT_PATH}` values that contain `$env:` double-quoted — single quotes do not expand it. Delete a stale `{RESULT_PATH}` file before every Designer launch.
 
 Before running, make sure `{EXPORT_PATH}` contains dumped configuration sources (for example, `Configuration.xml` at the root or in the extension subdirectory). If no sources exist, stop and tell the user.
 
@@ -93,12 +73,13 @@ Read `{LOG_PATH}`. On errors, show the relevant log fragment and **do not run** 
     /DisableStartupMessages `
     /LoadConfigFromFiles '{EXPORT_PATH}' `
     -Extension {EXTENSION_NAME} `
-    /Out '{LOG_PATH}'
+    /Out '{LOG_PATH}' `
+    /DumpResult '{RESULT_PATH}'
 ```
 
 Remove empty optional keys (`/N`, `/P`, `-Extension`).
 
-Read `{LOG_PATH}`; it must contain `Конфигурация успешно загружена` / `Configuration successfully loaded`. Wait 5-10 seconds.
+Read the verdict from all three signals (`{RESULT_PATH}` = `0`, exit code, `{LOG_PATH}` containing `Конфигурация успешно загружена` / `Configuration successfully loaded`). Wait 5-10 seconds.
 
 ## Step 3b. Update DB structure through Designer
 
@@ -110,25 +91,17 @@ Read `{LOG_PATH}`; it must contain `Конфигурация успешно за
     /DisableStartupMessages `
     /UpdateDBCfg -Dynamic+ -SessionTerminate force `
     -Extension {EXTENSION_NAME} `
-    /Out '{LOG_PATH}'
+    /Out '{LOG_PATH}' `
+    /DumpResult '{RESULT_PATH}'
 ```
 
 `-SessionTerminate force` forcibly terminates active sessions. It is allowed only after the dev/test confirmation above. On production, remove this key and agree on an update window with the user.
 
-Read `{LOG_PATH}`. On errors, show the relevant log fragment and **do not run** UI tests.
+Read the verdict from all three signals (`{RESULT_PATH}`, exit code, `{LOG_PATH}`). On errors, show the relevant log fragment and **do not run** UI tests.
 
 ## Step 3c. Applicability check — mandatory when an extension is deployed
 
-Whenever this run loads an extension (`EXTENSION_NAME` filled, or a full-snapshot pass over `EXTENSION_NAMES`), run the batch check ladder **between the load (Step 2) and the DB update (Step 3)** — canon `content/rules/designer-batch-checks.md → The check ladder`:
-
-```
-/CheckModules -ThinClient -Server -ExternalConnection -Extension {EXTENSION_NAME}
-/CheckCanApplyConfigurationExtensions -Extension {EXTENSION_NAME}
-```
-
-Stop at the first failure and do not run Step 3. An interceptor pointing at a method the vendor renamed loads without complaint and only fails at apply time — or, worse, silently stops intercepting; the applicability check is the only thing in this pipeline that names it. Read the verdict from all three signals (exit code, `/DumpResult`, `/Out`), classifying success phrases before error stems.
-
-For the main configuration alone the ladder is optional — run `/CheckConfig` when the change is large (whole-snapshot deploy, release build) or when the Gate 1–3 MCP validators were not exposed in this session.
+Whenever this run loads an extension (`EXTENSION_NAME` filled, or a full-snapshot pass over `EXTENSION_NAMES`), run `/update1cbase → Step 2c` (`content/commands/update1cbase.md` — the `/CheckModules` → `/CheckCanApplyConfigurationExtensions` ladder with the three-signal verdict) **between the load (Step 2) and the DB update (Step 3)**, in the `ibcmd` path as well. Stop at the first failure and do not run Step 3. For the main configuration alone the ladder is optional — run `/CheckConfig` when the change is large (whole-snapshot deploy, release build) or when the Gate 1–3 MCP validators were not exposed in this session.
 
 ## Failure handling for Steps 2–3 — retry loop
 
@@ -136,11 +109,11 @@ Apply the **Update retry loop** from `/update1cbase` (`content/commands/update1c
 
 ## Step 4. UI tests in the web client
 
-UI testing is an **opt-in** step controlled by `UI_TESTING` (empty = `manual`; see `dev-standards-env.md → "UI_TESTING — web UI-testing mode"`). It burns a lot of tokens, so it is not run by default. Resolve whether to run this step:
+UI testing is an **opt-in** step controlled by `UI_TESTING` (values and default — `dev-standards-env.md → "UI_TESTING — web UI-testing mode"`). It burns a lot of tokens, so it is not run by default. Resolve the effective value and act on it:
 
-- **`UI_TESTING=off`** — skip this step; finish with: "UI tests skipped: web testing is disabled in `.dev.env` (`UI_TESTING=off`)."
-- **`UI_TESTING=manual`** (or empty / any invalid value) — run this step **only if the user explicitly asked to run UI tests** in the current request. Otherwise skip it and finish with: "UI tests skipped: `UI_TESTING=manual` — run only on explicit request."
-- **`UI_TESTING=auto`** — run this step automatically (subject to the `INFOBASE_PUBLISH_URL` check below).
+- **`off`** — skip this step; finish with: "UI tests skipped: web testing is disabled in `.dev.env` (`UI_TESTING=off`)."
+- **`manual`** — run this step **only if the user explicitly asked to run UI tests** in the current request. Otherwise skip it and finish with: "UI tests skipped: `UI_TESTING=manual` — run only on explicit request."
+- **`auto`** — run this step automatically (subject to the `INFOBASE_PUBLISH_URL` check below).
 
 If UI testing is to run but `INFOBASE_PUBLISH_URL` is empty, skip this step and finish with: "UI tests skipped: `INFOBASE_PUBLISH_URL` is not set in `.dev.env`."
 

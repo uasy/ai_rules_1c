@@ -9,7 +9,7 @@ Bring the test infobase defined in `.dev.env` to the **effective snapshot**: a d
 
 ## Step 0. Check `.dev.env` parameters
 
-Canon — `dev-standards-env.md`. Blocking keys: `PLATFORM_PATH`, `INFOBASE_PATH`. Also used: `INFOBASE_KIND`, `IB_USER` / `IB_PASSWORD`, `DT_SNAPSHOT_PATH`, `EXTENSION_NAMES`, `EXTENSIONS_PATH`, `EXPORT_PATH`, `LOG_PATH`, `IBCMD_CONFIG` — all with their documented defaults, no up-front questions.
+Parameters, classes and defaults — `content/rules/dev-standards-env.md §1`; Defaulted keys are never asked for. Blocking keys: `PLATFORM_PATH`, `INFOBASE_PATH`. Also read: `INFOBASE_KIND`, `IB_USER` / `IB_PASSWORD`, `DT_SNAPSHOT_PATH`, `EXTENSION_NAMES`, `EXTENSIONS_PATH`, `EXPORT_PATH`, `LOG_PATH`, `IBCMD_CONFIG`.
 
 **Dev/test only — hard requirement.** This command overwrites data and forcibly terminates sessions. The target must be an explicitly identified dev/test infobase; if the current context does not establish that, stop and ask the user to confirm the target. Never run it against production.
 
@@ -38,7 +38,7 @@ The retry loop (log-first, PID-scoped Configurator termination, fix-before-retry
 
 ## Step 3. Smoke check
 
-Mandatory: the log check of the `/update1cbase` procedure (success lines present, no `Ошибка` / `Error`).
+Mandatory: the three-signal verdict of the `/update1cbase` procedure for the last launch of every pass — `{RESULT_PATH}` = `0`, exit code `0`, and a log whose success phrases are classified before error stems (`content/rules/designer-batch-checks.md → The verdict is three signals`); a bare "contains `Ошибка`" test is not a verdict.
 
 Optional, only when already available in the session: one read-only `vcexecutecode` ping via `1c-data-mcp` to confirm the base opens and executes code (same read-only discipline as `verification-gates.md → Gate 3a`). Web-client login checks are UI testing — they run only per the `UI_TESTING` gate (`dev-standards-env.md`), never automatically here.
 

@@ -49,7 +49,7 @@ Use this lean sequence:
 
 2. **Read adapters only.** For each active tool open `adapters/<tool>.yaml` from the clone. These files are small and define, in a closed schema:
    - `detection` — how to confirm the tool is active.
-   - `rules`, `agents`, `commands`, `skills` — `copyTo` target paths (with `{name}` placeholder), `frontmatter.keep`/`drop`/`rename`/`addIf`/`toolsToPermission` operations, and copy `mode` (default per-file with frontmatter ops; `verbatim` for skills; `rebuild-toml` for Codex agents). `toolsToPermission` (OpenCode only) converts the source `tools` array into OpenCode's `permission` object — see *OpenCode agents: `tools` array → `permission` object* below.
+   - `rules`, `agents`, `commands`, `skills` — `copyTo` target paths (with `{name}` placeholder), `frontmatter.keep`/`drop`/`rename`/`addIf`/`toolsToPermission`/`toolsToDenylist`/`toolsToFlag` operations, and copy `mode` (default per-file with frontmatter ops; `verbatim` for skills; `rebuild-toml` for Codex agents). The three `tools…` operations all translate the abstract source `tools` array into what one host actually understands, and all run before `keep`/`drop`: `toolsToPermission` (OpenCode) builds a `permission` object, `toolsToDenylist` (Claude Code, Kimi, Qwen) builds that host's `disallowedTools` field, `toolsToFlag` (Cursor) sets a single capability flag. See the three subsections below.
    - `mcp` — how `content/mcp-servers.json` is rendered into the tool's MCP config.
    - `entry` — optional entry-point template (e.g. minimal `CLAUDE.md` pointing at `AGENTS.md`).
 
@@ -60,11 +60,13 @@ Use this lean sequence:
    - `content/skills/` → `<skills.copyTo dir>/` (mode `verbatim` — copy **every** skill folder as-is, no transformation). Copy the whole `content/skills/` directory; do **not** cherry-pick a subset. All skills are required, including the non-1C-domain ones (`caveman`, `prompt-enhancer`, `handoff`, `mermaid-diagrams`, `transcribe`, `md-to-docx`, `img-grid-analysis`) — `AGENTS.md` references them and silently skipping any of them leaves a degraded ruleset. Use a single directory copy, not per-skill judgement calls.
    - `content/openspec-bundle/<tool>/` → at the locations encoded in that snapshot, **skip-if-exists**.
 
-4. **Apply frontmatter operations only where needed.** For sections that have `frontmatter.keep` / `drop` / `rename` / `addIf` / `toolsToPermission`:
+4. **Apply frontmatter operations only where needed.** For sections that have `frontmatter.keep` / `drop` / `rename` / `addIf` / `toolsToPermission` / `toolsToDenylist` / `toolsToFlag`:
    - For each placed file, read **only** the YAML frontmatter block (between the leading `---` markers — typically the first 5–20 lines). Do not read the body.
    - Rewrite the frontmatter according to the adapter ops and write it back; the body is left untouched.
    - **Agents: resolve `modelTier` first.** Source agent files declare an abstract `modelTier` (`coding` | `analysis` | `light`) instead of a concrete model name. Before applying the adapter ops, replace it with `modelHint: <concrete model>` taken from the project `.dev.env`: tier `coding` → `SUBAGENT_MODEL_CODING`, tier `analysis` → `SUBAGENT_MODEL_ANALYSIS`, tier `light` → `SUBAGENT_MODEL_LIGHT`. When the corresponding value is empty or `.dev.env` does not exist yet, simply **remove** `modelTier` and emit no model field — the AI client then uses its default model (all three parameters are DEFAULTED; never block or re-ask because of them). On first init the values may be asked once as part of the `.dev.env` bootstrap prompts — a benchmark-based profile picker offering `Balanced` / `Economy` / `Quality` (see *`.dev.env` bootstrap* below). After the resolution, the adapter ops apply as written (`keep`/`rename` reference `modelHint`).
    - For OpenCode agents (`agents.frontmatter.toolsToPermission`) — convert the source `tools` array into a `permission` object before applying `keep`/`drop`. See *OpenCode agents: `tools` array → `permission` object* below. **Never** copy the source `tools` array into an OpenCode agent file verbatim — an array fails OpenCode config validation and prevents OpenCode from (re)starting.
+   - For Claude Code / Kimi / Qwen agents (`agents.frontmatter.toolsToDenylist`) — convert the source `tools` array into that host's `disallowedTools` field before applying `keep`/`drop`, and do not emit `tools` at all. See *Claude Code / Kimi / Qwen agents: `tools` array → `disallowedTools`* below. **Never** copy the source `tools` array into those agent files verbatim — the abstract names `Shell` and `MCP` match nothing in those hosts, and the subagent silently launches with no shell and no MCP server.
+   - For Cursor agents (`agents.frontmatter.toolsToFlag`) — convert the source `tools` array into the boolean `readonly` before applying `keep`/`drop`, and do not emit `tools` at all. See *Cursor agents: `tools` array → `readonly`* below.
    - For sections with `mode: verbatim` (skills) — skip the frontmatter step entirely.
    - For Codex agents (`mode: rebuild-toml`) — render via the adapter's `template`. This is the one case that requires the body, but only for those agent files in `content/agents/` (a small set).
 
@@ -76,9 +78,64 @@ Use this lean sequence:
 
 8. **Scaffold OpenSpec.** Copy `openspec/` into the project in skip-if-exists mode (no overwrites).
 
-9. **Write the manifest** `.ai-rules.json` at the project root: list all placed files with their content sources and `owners` (one or more active tools for shared paths), the active tools, the source version (`git describe --tags --always` from the clone), the protocol version (`1.1`), the canonical rules directory used for diagnostics / updates, and any detected foreign user-authored files under `foreignFiles`.
+9. **Write the manifest** `.ai-rules.json` at the project root: list all placed files with their content sources and `owners` (one or more active tools for shared paths), the active tools, the source version (`git describe --tags --always` from the clone), the protocol version (`1.1`), the canonical rules directory used for diagnostics / updates, and any detected foreign user-authored files under `foreignFiles`. On `init` also set `lastUpdatesCheckAt` to the same UTC timestamp as `installedAt` / `updatedAt` so the monthly `/checkupdates` cadence starts 30 days later, not on the next chat. On `update` leave an existing `lastUpdatesCheckAt` untouched.
 
 10. **OpenCode agent frontmatter gate (mandatory when `.opencode/agent/` or `.opencode/agents/` exists).** After placement, verify that **no** installed agent markdown still has a `tools` **array** in its YAML frontmatter. A single leftover array fails OpenCode config validation and prevents OpenCode from (re)starting. The PowerShell channel runs this gate automatically (`Assert-OpenCodeAgentFrontmatter` in `install.ps1`) and **aborts with a non-zero exit** on failure. The agent channel MUST run the same check before declaring init / update / add complete — scan every `*.md` under `.opencode/agent/` (and `.opencode/agents/` if present); any frontmatter matching `tools:\s*\[` is a defect. Repair by re-applying `toolsToPermission` (or re-running `install.ps1` with `-ForcePaths .opencode/agent/*`), not by hand-editing one field and leaving the array in place. `/doctor` and `/updaterules` also own this gate.
+
+11. **Agent tool vocabulary gate (mandatory when `.claude/agents/`, `.kimi-code/agents/`, `.qwen/agents/` or `.cursor/agents/` exists).** After placement, verify that **no** installed agent markdown under those directories still names an abstract tool (`Shell`, `MCP`) in its `tools` or `disallowedTools` frontmatter. No host understands those names, and the hosts that match tool names literally turn the leftover into the difference between a working subagent and one that launches without shell and without a single MCP server. The PowerShell channel runs this gate automatically (`Assert-AgentToolVocabulary` in `install.ps1`) and **aborts with a non-zero exit** on failure. The agent channel MUST run the same check before declaring init / update / add complete. Repair by re-applying the adapter's `tools…` operation (or re-running `install.ps1 update` with `-ForcePaths .claude/agents/*` for the affected directory), never by deleting the `tools` line — that also drops the read-only guarantee for `1c-explorer`, `1c-code-reviewer` and `1c-arch-reviewer`. `/doctor` and `/updaterules` also own this gate.
+
+### Cursor agents: `tools` array → `readonly`
+
+Cursor documents exactly five frontmatter fields for a custom agent file — `name`, `description`, `model`, `readonly`, `is_background` — and states that subagents inherit every tool of the parent session, MCP tools included. There is **no** per-tool field and no per-server MCP syntax, so an emitted `tools` array is an undocumented key: today it is ignored, and the day Cursor starts matching it literally the ruleset would lose shell and MCP there exactly as it did in Claude Code.
+
+The `agents` adapter therefore declares `frontmatter.toolsToFlag`, which both installation channels MUST apply: drop `tools`, and set `readonly: true` when the source list grants **none** of `Write`, `Edit`, `Shell`. Cursor defines `readonly` as "no file edits, no state-changing shell commands", which is precisely what those three source tools cover. The flag is emitted only for the read-only agents; an agent that may write carries no `readonly` key at all rather than `readonly: false`, so the file states a restriction and never a grant. Example for `1c-explorer`:
+
+```yaml
+---
+name: 1c-explorer
+description: "Read-only 1C codebase exploration specialist …"
+allowParallel: true
+isSubagent: true
+readonly: true
+---
+```
+
+This is the one place where the mapping makes the installed agents **more** restricted than before: previously the read-only agents carried an array Cursor ignores, so nothing stopped them from writing.
+
+### Claude Code / Kimi / Qwen agents: `tools` array → `disallowedTools`
+
+The source agent files declare capabilities in an abstract vocabulary (`tools: ["Read", "Write", "Edit", "Grep", "Glob", "Shell", "MCP"]`), the same way they declare an abstract `modelTier` instead of a model name. `Shell` and `MCP` are **not** tool names in any host; they are placeholders the installer resolves.
+
+Claude Code, Kimi Code CLI and Qwen Code all treat `tools` as a **strict allowlist matched literally against their own tool registry**. Copying the source array into their agent directories therefore silently narrows the subagent instead of describing it:
+
+- `Shell` matches nothing, so the agent loses `Bash` / `PowerShell` (`run_shell_command` in Qwen). `1c-metadata-manager` then cannot run the external-processing toolchain and answers `BLOCKED - toolchain cannot be executed in this session`, even though the skill scripts are installed and work for the parent.
+- `MCP` matches nothing, and an allowlist without explicit `mcp__<server>` entries removes **every** MCP tool. `1c-explorer` loses the entire MCP-first chain (graph metadata → code metadata → templates → SSL → docs → ITS) and is left with `Grep` / `Glob`, which makes the "delegate exploration only to `1c-explorer`" rule unachievable.
+- Qwen is worse still: its own tool names are snake_case (`read_file`, `write_file`, `run_shell_command`), so **no** entry of the source list resolves and the allowlist grants nothing at all.
+
+Enumerating each host's own names in `tools` is not the fix either: an allowlist would have to spell out one `mcp__<server>` entry per configured server, which breaks the moment a project uses the external MCP installation (режим 3, different server ids) or the user adds a server. So the adapters take the other documented route — **omit `tools`, and deny what the source list withholds**. All three hosts inherit the parent session's full tool pool (MCP included) when `tools` is absent, and all three apply `disallowedTools` to that inherited pool.
+
+`agents.frontmatter.toolsToDenylist` declares the mapping, and both installation channels MUST apply it **before** the `keep`/`drop` step:
+
+| Source tool | Claude Code | Kimi Code | Qwen Code |
+| --- | --- | --- | --- |
+| `Write` | `Write`, `NotebookEdit` | `Write` | `write_file` |
+| `Edit` | `Edit`, `NotebookEdit` | `Edit` | `edit` |
+| `Shell` | `Bash`, `PowerShell` | `Bash` | `run_shell_command` |
+| `Read`, `Grep`, `Glob`, `MCP` | *(never denied — inherited)* | *(same)* | *(same)* |
+
+A host tool is denied only when **no** source tool that maps to it is granted (`Write` and `Edit` both map to `NotebookEdit`, so granting either keeps it available). The result is written as the comma-separated string all three hosts document, and the field is omitted entirely when nothing is denied. Example for `1c-explorer` (source `tools: ["Read", "Grep", "Glob", "MCP"]`) under Claude Code:
+
+```yaml
+---
+name: 1c-explorer
+description: "Read-only 1C codebase exploration specialist …"
+isSubagent: true
+allowParallel: true
+disallowedTools: "Write, NotebookEdit, Edit, Bash, PowerShell"
+---
+```
+
+The three read-only agents (`1c-explorer`, `1c-code-reviewer`, `1c-arch-reviewer`) keep an enforced read-only boundary; the ten mutating agents deny nothing and simply inherit the full pool.
 
 ### OpenCode agents: `tools` array → `permission` object
 
@@ -124,13 +181,22 @@ After a first rules installation, invoke the `/installtools` procedure as the si
 
 On update, compare the pre-update manifest's installed `install*.md` command names with the updated source. Invoke `/installtools` only when at least one installer command is new. The PowerShell channel performs this comparison and prints the new filenames plus the post-restart command; the interactive agent channel performs the comparison and runs the procedure in the same update task. Routine updates with no new tool installer must not open the menu again.
 
+### Remind about MCP servers when the bundle is absent
+
+After a successful `init` **and** after a successful `update`, if the purchased MCP bundle is not detected — no external `install.manifest.json` / `integrations.mcp.mode = "external"`, and `.dev.env` `SUPPORT_KEY` is empty (the rules installer never supplies that key) — print a short reminder in Russian:
+
+> Правила работают наиболее эффективно с MCP-серверами для 1С: https://vibecoding1c.ru/mcp_server
+> Комплект уже куплен — `/installtools` или `/installmcp`. Нет комплекта — страница покупки по ссылке. Установщик правил ключ MCP не выдаёт.
+
+Skip the reminder when either signal is present (external install **or** a non-empty `SUPPORT_KEY`). Do not ask for Tilda credentials here — that belongs to `/installmcp` after the user confirms a purchase. The PowerShell installer prints the same text via `Write-McpEffectivenessReminder`. The same reminder is required from `/updaterules` and from `/checkupdates` when 1C MCP tools are not in the current session.
+
 ### Announce the /economymode command
 
 In the final report of a successful `init` — and of an `update` that placed `content/commands/economymode.md` into the project for the first time — include a short note (in Russian): режим экономии оркестратора включается командой `/economymode` — она записывает `ORCHESTRATION=economy` в `.dev.env`, после чего головной агент делегирует исполнение дешёвым субагентам (модели — по ярусам из `SUBAGENT_MODEL_*`), оставляя себе решения, спеки и верификацию; если модели ярусов не заданы, команда предложит выбрать их (профили по бенчу или свои слаги); действует на весь проект, включая новые чаты; выключение — `/economymode off` (правило `orchestrator-economy.md`). The PowerShell installer prints the equivalent announcement automatically.
 
 ### Announce the /rulesmodel command
 
-In the final report of a successful `init` — and of an `update` that placed `content/commands/rulesmodel.md` into the project for the first time — include a short note (in Russian): правила адаптируются под модель головного агента командой `/rulesmodel <модель>` (название можно писать как угодно — команда сама его нормализует; `/rulesmodel auto` определяет текущую модель, `/rulesmodel off` выключает). Поддерживаемые профили: `opus5` (Claude Opus 5), `sonnet5` (Claude Sonnet 5), `fable5` (Claude Fable 5 / Mythos 5), `gpt56` (GPT-5.6); команда пишет `AGENT_MODEL` в `.dev.env`, действует на весь проект, включая новые чаты, перерендер и перезапуск клиента не нужны. Профиль настраивает только стиль и инициативу (длина ответов и отчётов, объём нарратива, глубина планирования, охота к делегированию, лишние самопроверки) и **не** ослабляет обязательные проверки и хард-гейты. Если `AGENT_MODEL` уже заполнен — назовите текущее значение вместо приглашения. The PowerShell installer prints the equivalent announcement automatically.
+In the final report of a successful `init` — and of an `update` that placed `content/commands/rulesmodel.md` into the project for the first time — include a short note (in Russian): правила адаптируются под модель головного агента командой `/rulesmodel <модель>` (название можно писать как угодно — команда сама его нормализует; `/rulesmodel auto` определяет текущую модель, `/rulesmodel off` выключает). Поддерживаемые профили: `opus5` (Claude Opus 5), `sonnet5` (Claude Sonnet 5), `fable5` (Claude Fable 5 / Mythos 5), `gpt56` (GPT-5.6), `gpt6` (GPT-6 Astra); команда пишет `AGENT_MODEL` в `.dev.env`, действует на весь проект, включая новые чаты, перерендер и перезапуск клиента не нужны. Профиль настраивает только стиль и инициативу (длина ответов и отчётов, объём нарратива, глубина планирования, охота к делегированию, лишние самопроверки) и **не** ослабляет обязательные проверки и хард-гейты. Если `AGENT_MODEL` уже заполнен — назовите текущее значение вместо приглашения. The PowerShell installer prints the equivalent announcement automatically.
 
 ### External MCP installation (INSTALL.md, режим 3)
 
@@ -186,7 +252,7 @@ Bootstrap procedure:
    - `PLATFORM_PATH` ← scan `C:\Program Files\1cv8\<version>\bin\1cv8.exe` (and `(x86)`) for the highest installed version that matches or exceeds `PLATFORM_VERSION`.
    - `PREFIX` ← `NamePrefix` from `ConfigurationExtension.xml` when the project is an extension.
 3. In interactive mode (agent channel, or PowerShell installer without `-NonInteractive`) — ask the required one-time project-choice question `Используется ли в этом проекте 1C:EDT?` and persist `USE_EDT=true|false`. This is an install-time selection, not a task-time prompt. Also offer a one-time setup prompt for the **highly-desirable** fields that the user is most likely to need: `INFOBASE_PATH` (критично для `/update1cbase`, `/getconfigfiles`, `/loadfrom1cbase`, `/deploy-and-test`), `INFOBASE_PUBLISH_URL` (критично для UI-тестирования через `1c-tester`), and the defaulted `INFOBASE_KIND`, `IB_USER` / `IB_PASSWORD` (empty = no authentication, the `/N` / `/P` flags are simply omitted — fully valid for dev / test infobases), `LOG_PATH` (empty = `$env:TEMP\1cv8.log` / `$TMPDIR/1cv8.log` — fully valid), `SUBAGENT_MODEL_CODING` / `SUBAGENT_MODEL_ANALYSIS` / `SUBAGENT_MODEL_LIGHT` (empty = the AI client's default model; a benchmark-based profile picker fills all three at once; used to resolve the agents' `modelTier` — see *Lean placement*, step 4). Each ordinary parameter prompt must have an obvious "skip" option — **leaving any of them empty is always valid**, it just means the corresponding command will use the documented default (`IB_USER` / `IB_PASSWORD` / `LOG_PATH` / `SUBAGENT_MODEL_*`), ask later when it is actually invoked (`INFOBASE_PATH`), or silently skip UI tests (`INFOBASE_PUBLISH_URL`). Advisory fields (`PREFIX`, `COMPANY`, `DEVELOPER`) may also be offered with the same skip choice, but they MUST NOT be re-asked on every task per `content/rules/dev-standards-env.md → "Advisory parameters"`. In `-NonInteractive`, write `USE_EDT=false` and warn that it can be changed later; no field may block installation. **The EDT question belongs to the creation of `.dev.env` only.** When the file already exists but predates the key (update / add), append `USE_EDT=false` **without asking** — on such a run it would be the single interactive question of an otherwise unattended pass — and report in one line that the default means "EDT not used" and that `/installtools` or `/install-edt-mcp` will ask and persist `true` when the project does use EDT.
-4. **Set `AGENT_MODEL` from your own identity — do not ask.** This key names the model the **parent agent** runs on so the ruleset can adapt to its documented behaviour (`AGENTS.md → Active model adaptation`, rule `content/rules/model-adaptation.md`). You know which model you are: write the matching slug — `opus5` (Claude Opus 5), `sonnet5` (Claude Sonnet 5), `fable5` (Claude Fable 5 / Mythos 5), `gpt56` (GPT-5.6) — and leave the key **empty** when you are any other model; the base ruleset is model-neutral and complete without a profile, so an empty value is a valid result, never a warning. Do not guess a neighbouring profile for a model that has none, and do not confuse this key with `SUBAGENT_MODEL_*` (the models **subagents** run on, step 3). The user can change it later with `/rulesmodel`. When `.dev.env` already exists, leave the key exactly as it is — like every other user value.
+4. **Set `AGENT_MODEL` from your own identity — do not ask.** This key names the model the **parent agent** runs on so the ruleset can adapt to its documented behaviour (`AGENTS.md → Active model adaptation`, rule `content/rules/model-adaptation.md`). You know which model you are: write the matching slug — `opus5` (Claude Opus 5), `sonnet5` (Claude Sonnet 5), `fable5` (Claude Fable 5 / Mythos 5), `gpt56` (GPT-5.6), `gpt6` (GPT-6 Astra) — and leave the key **empty** when you are any other model; the base ruleset is model-neutral and complete without a profile, so an empty value is a valid result, never a warning. Do not guess a neighbouring profile for a model that has none, and do not confuse this key with `SUBAGENT_MODEL_*` (the models **subagents** run on, step 3). The user can change it later with `/rulesmodel`. When `.dev.env` already exists, leave the key exactly as it is — like every other user value.
 5. In non-interactive mode (`-NonInteractive` / agent without ability to ask) — leave non-detected critical fields empty and emit a clear WARNING listing them. Do not block installation.
 6. Write the file to the project root and record it in `.ai-rules.json` with `template: true` so the file is never overwritten by subsequent updates.
 
@@ -219,6 +285,7 @@ Failures from past agent-driven installs that the protocol explicitly forbids:
 - **Inventing MCP or a subagent folder for Pi.** Pi has no built-in MCP and no project agents directory; place skills under `.pi/skills/` and map commands to `.pi/prompts/`.
 - **Dumping the whole `1c-rules` repo into the project as a vendor subfolder.** Symptom: `./1c-rules/AGENTS.md`, `./1c-rules/content/...` appearing under the project / config directory and being referenced from the tool's entry config. The protocol places files **per section** at the adapter's `copyTo` targets; the source clone is only a staging area outside the project. Vendoring the source tree leaves `AGENTS.md` with unrewritten `content/...` paths and the tool with no skill discovery.
 - **Hand-rolling frontmatter transforms with `node -e` / inline scripts.** Symptom: ad-hoc one-liners that only convert `modelHint → model` and forget `frontmatter.drop` / `addIf` rules. Use the adapter operations as a whole (read the YAML once, apply `keep` / `drop` / `rename` / `addIf` / `toolsToPermission` in one pass, write back) or run `install.ps1`, which already implements them.
+- **Copying the abstract `tools` array into `.claude/agents/`, `.kimi-code/agents/`, `.qwen/agents/` or `.cursor/agents/`.** Symptom: the subagent starts but reports that it cannot run the toolchain (`1c-metadata-manager` → `BLOCKED - toolchain cannot be executed in this session`) or that MCP is unavailable (`1c-explorer` left with `Grep` / `Glob` only), while the parent agent runs the very same chain without error. Cause: `Shell` and `MCP` are the ruleset's abstract vocabulary, and those hosts match `tools` entries literally, keeping only the names that happen to collide with their own (`Read`, `Write`, `Edit`, `Grep`, `Glob`). Fix: apply `agents.frontmatter.toolsToDenylist` / `toolsToFlag` (or `install.ps1 update -ForcePaths .claude/agents/*` for the affected directory). **Deleting the `tools` line is not the fix** — it restores MCP but silently removes the read-only boundary of `1c-explorer`, `1c-code-reviewer` and `1c-arch-reviewer`, which then have nothing but prompt text stopping them from writing. On Cursor the array causes no visible symptom at all, which is worse: it is silently ignored, so those three agents were never actually read-only. The gate in step 11 / `Assert-AgentToolVocabulary` exists specifically to catch both shapes.
 - **Copying OpenCode agents without `toolsToPermission`.** Symptom: after `/updaterules` or an agent-channel install, OpenCode fails to start with `Configuration is invalid at .opencode/agent/<name>.md` → `Expected object | undefined, got ["Read",…] tools`. Cause: `content/agents/*.md` was copied into `.opencode/agent/` verbatim (Cursor-style `tools` array). Fix: apply `adapters/opencode.yaml → agents.frontmatter.toolsToPermission` (or `install.ps1 update -ForcePaths .opencode/agent/*`) so the installed file has a `permission` object and no `tools` array. The post-place gate in step 10 / `Assert-OpenCodeAgentFrontmatter` exists specifically to catch this.
 - **Hooking up the tool entry config (`kilo.jsonc`, `.codex/config.toml`, `claude_desktop_config.json`, …) by hand.** The tool entry is whatever the adapter declares (e.g. `AGENTS.md` at the project root for tools that read it, the rendered MCP file at `mcp.target`). Do not add custom `instructions` / `skills.paths` arrays pointing at the staging clone — they bypass adapter-rewritten paths.
 - **Skipping `AGENTS.md` rewriting, `.dev.env` bootstrap, OpenSpec scaffold, or `.ai-rules.json` manifest.** All four are mandatory steps of the lean sequence. An install that completes without them is incomplete and will fail later updates / diagnostics.
@@ -250,6 +317,16 @@ The script implements the protocol above. Notes:
 - Run from the **project root**; the script writes there.
 - Commands: `init` / `update` / `add <tool>` / `remove [<tool>]` / `doctor` (read-only diagnostic) / `eject` (delete the manifest, leave files in place).
 - Flags: `-Tools cursor,claude-code,kimi` (explicit list), `-NonInteractive` (auto-resolve prompts), `-AssumeYes` (answer yes to confirmations but still pause on destructive conflicts unless `-NonInteractive` is also set), `-Force` (on `update`: overwrite user-modified files with the shipped version), `-ForcePaths <path>[,<path>…]` (on `update`: restrict the overwrite to the listed project-relative paths, comma-separated; exact match or `*`/`?` wildcard; implies `-Force`), `-McpMode auto|managed|external` (MCP phase behaviour — see *External MCP installation* above; default `auto` detects an external installation and leaves MCP configs untouched when found).
+
+### Agent recovery after an incomplete PowerShell install
+
+This is an **explicit recovery path**, not a routine post-install test. Use it only when the user reports that `install.ps1` exited with an error, says that files are missing, or provides a failing `doctor` result. Do not run it automatically after a successful install.
+
+1. Resolve the project root and rules source by the normal agent protocol; never guess either path. If the script is available, run `install.ps1 doctor -ProjectRoot <root>` once as a read-only inventory. Otherwise inspect `.ai-rules.json` and the managed paths it names.
+2. If no valid `.ai-rules.json` exists, ownership and the intended adapter set are unknown: use the normal agent-driven `init` protocol instead of reconstructing a partial installation from directory names.
+3. With a valid manifest, repair **only missing managed files and incomplete generated entry points**. Use the manifest's active tools / owners plus their `adapters/*.yaml`; apply the same frontmatter and path transforms as a normal install. A present file whose hash differs from `installedHash` is user-modified, not missing — preserve it unless the user explicitly authorizes replacement. Preserve every foreign file and never use broad `-Force` as a recovery shortcut.
+4. Update a repaired manifest entry only after the target file has been placed and its installed hash has been computed. Do not mark a failed copy as installed. Keep `.dev.env`, `USER-RULES.md`, `memory.md`, `LLM-RULES.md`, existing OpenSpec content, and externally managed MCP configs under their normal preservation rules.
+5. Run `doctor` once after the repair when the script is available. Report restored paths, preserved user-modified paths, and unresolved failures. Do not claim recovery from file presence alone when the adapter gate still fails.
 
 ### Do NOT pipe `install.ps1` into `Invoke-Expression`
 

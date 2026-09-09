@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 # form-add v1.11 — Add managed form to 1C config object
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills, pinned at
+#         ecd289fe11733028d87b55284ea9fb5feff8f513 — the same upstream state the
+#         vendored form-add.ps1 was synced from.
+# Licence: MIT, Copyright (c) 2025-2026 Nick Shirokov. Full notice and permission
+#          text: ../../../NOTICE.md (installed as
+#          skills/1c-metadata-manage/NOTICE.md).
+# Local: the support guard reads `.dev.env` `SUPPORT_GUARD` and fails
+#        closed on an unreadable support state, mirroring form-add.ps1.
 
 import argparse
 import json
@@ -13,13 +20,229 @@ from lxml import etree
 
 
 # ============================================================
-# Support guard (Ext/ParentConfigurations.bin) — see docs/support-manage.md
-# Shared implementation: tools/_shared/support_guard.py (Python port of
-# tools/_shared/support-guard.ps1 — same .dev.env SUPPORT_EDIT_POLICY source,
-# .v8-project.json is documentation-only for this guard, see docs/db-manage.md).
+# Support guard (Ext/ParentConfigurations.bin) — canon: docs/support-manage.md
+# Blocks edits of vendor objects "на замке" / read-only configs. Trigger = bin
+# present; reaction from `.dev.env` SUPPORT_GUARD (deny|warn|off, default deny;
+# `.v8-project.json` editingAllowedCheck stays as the upstream fallback).
+# Fail-closed on an unreadable support state (bin exists but cannot be parsed —
+# same reaction); other guard errors degrade to allow with a stderr notice.
 # ============================================================
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
-import support_guard  # noqa: E402
+
+def _sg_root_uuid(xml_path):
+    if not os.path.isfile(xml_path):
+        return None
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str) and child.get("uuid"):
+                return child.get("uuid")
+    except Exception:
+        return None
+    return None
+
+
+def _sg_is_external_root(xml_path):
+    if not os.path.isfile(xml_path):
+        return False
+    try:
+        mx = etree.parse(xml_path).getroot()
+        for child in mx:
+            if isinstance(child.tag, str):
+                return child.tag.split("}")[-1] in ("ExternalDataProcessor", "ExternalReport")
+    except Exception:
+        return False
+    return False
+
+def _sg_find_v8project(start_dir):
+    d = start_dir
+    for _ in range(20):
+        if not d:
+            break
+        pj = os.path.join(d, ".v8-project.json")
+        if os.path.isfile(pj):
+            return pj
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+def _sg_dev_env_guard_mode():
+    """`SUPPORT_GUARD` from the project's `.dev.env`, or None when not configured.
+
+    Mirrors the PowerShell family, which dot-sources `_common/DevEnv.ps1` from
+    inside its own lookup function. A missing helper (an installed tree that
+    predates it) is "not configured", never an error."""
+    try:
+        helper = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..", "_common", "dev_env.py"))
+        if not os.path.isfile(helper):
+            return None
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_1c_rules_dev_env", helper)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.get_support_guard_mode()
+    except Exception:  # noqa: BLE001 - an unreadable .dev.env is "not configured"
+        return None
+
+
+def _sg_get_edit_mode(cfg_dir):
+    try:
+        # 1c-rules: `.dev.env` SUPPORT_GUARD wins over .v8-project.json editingAllowedCheck.
+        dev_env_mode = _sg_dev_env_guard_mode()
+        if dev_env_mode:
+            return dev_env_mode
+        pj = _sg_find_v8project(os.getcwd()) or _sg_find_v8project(cfg_dir)
+        if not pj:
+            return "deny"
+        proj = json.loads(open(pj, encoding="utf-8-sig").read())
+        cfg_full = os.path.normcase(os.path.abspath(cfg_dir)).rstrip("\\/")
+        for db in proj.get("databases", []):
+            src = db.get("configSrc")
+            if src:
+                src_full = os.path.normcase(os.path.abspath(src)).rstrip("\\/")
+                if cfg_full == src_full or cfg_full.startswith(src_full + os.sep):
+                    if db.get("editingAllowedCheck"):
+                        return db["editingAllowedCheck"]
+        if proj.get("editingAllowedCheck"):
+            return proj["editingAllowedCheck"]
+        return "deny"
+    except Exception:
+        return "deny"
+
+
+def assert_edit_allowed(target_path, require):
+    try:
+        rp = os.path.abspath(target_path)
+        # Autonomous external object (EPF/ERF): never part of a config on support (issue #39).
+        if _sg_is_external_root(rp):
+            return
+        elem_uuid = _sg_root_uuid(rp)
+        cfg_dir = None
+        bin_path = None
+        d = rp if os.path.isdir(rp) else os.path.dirname(rp)
+        for _ in range(12):
+            if not d:
+                break
+            if _sg_is_external_root(d + ".xml"):
+                return
+            if not elem_uuid:
+                elem_uuid = _sg_root_uuid(d + ".xml")
+            if not cfg_dir:
+                cand = os.path.join(d, "Ext", "ParentConfigurations.bin")
+                if os.path.exists(cand) or os.path.exists(os.path.join(d, "Configuration.xml")):
+                    cfg_dir = d
+                    bin_path = cand
+            if elem_uuid and cfg_dir:
+                break
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+        if not elem_uuid and cfg_dir:
+            elem_uuid = _sg_root_uuid(os.path.join(cfg_dir, "Configuration.xml"))
+        if not bin_path or not os.path.exists(bin_path):
+            return
+        # Bin present: an unreadable / unparseable support state must not silently
+        # degrade to allow — fail closed via the SUPPORT_GUARD reaction instead.
+        g = k = 0
+        text = ""
+        parse_ok = False
+        try:
+            data = open(bin_path, "rb").read()
+            if len(data) > 32:
+                if data[:3] == b"\xef\xbb\xbf":
+                    data = data[3:]
+                text = data.decode("utf-8", "replace")
+                h = re.match(r"\{6,(\d+),(\d+),", text)
+                if h:
+                    g = int(h.group(1))
+                    k = int(h.group(2))
+                    parse_ok = True
+        except Exception:  # noqa: BLE001 - handled by the fail-closed branch below
+            parse_ok = False
+        if not parse_ok:
+            mode = _sg_get_edit_mode(cfg_dir)
+            if mode == "off":
+                return
+            msg = (f"[support-guard] Файл состояния поддержки «{bin_path}» существует, "
+                   f"но не читается или не разбирается — состояние объекта неизвестно, "
+                   f"он может быть на замке.")
+            if mode == "warn":
+                sys.stderr.write(msg + " Продолжаю по SUPPORT_GUARD=warn.\n")
+                return
+            sys.stderr.write(
+                msg + "\nРедактирование остановлено (fail-closed). Проверьте целостность "
+                "выгрузки, либо задайте SUPPORT_GUARD = warn|off в .dev.env "
+                "(канон — docs/support-manage.md).\n")
+            sys.exit(1)
+        if k == 0:
+            return
+        best = None
+        if elem_uuid:
+            for m in re.finditer(r"([0-2]),0," + re.escape(elem_uuid.lower()), text):
+                f1 = int(m.group(1))
+                if best is None or f1 < best:
+                    best = f1
+        blocked = False
+        code = ""
+        reason = ""
+        if g == 1:
+            blocked = True
+            code = "capability-off"
+            reason = "возможность изменения конфигурации выключена (вся конфигурация read-only)"
+        elif require == "removed":
+            if best is not None and best != 2:
+                blocked = True
+                code = "not-removed"
+                reason = "объект не снят с поддержки — удаление сломает обновления"
+        else:
+            if best is not None and best == 0:
+                blocked = True
+                code = "locked"
+                reason = "объект на замке — редактирование сломает обновления"
+        if not blocked:
+            return
+        mode = _sg_get_edit_mode(cfg_dir)
+        if mode == "off":
+            return
+        if mode == "warn":
+            sys.stderr.write(f"[support-guard] ПРЕДУПРЕЖДЕНИЕ: {reason}. Цель: {rp}\n")
+            return
+        head = "[support-guard] Редактирование отклонено: это объект типовой конфигурации на поддержке поставщика, прямое редактирование молча сломает будущие обновления."
+        cfe = "Рекомендуемый путь: внести доработку в расширение (навыки cfe-borrow / cfe-patch-method) — состояние поддержки менять не нужно, обновления вендора сохраняются."
+        off_note = "Снять проверку: SUPPORT_GUARD = warn|off в .dev.env (канон — docs/support-manage.md)."
+        if code == "capability-off":
+            state = f"Состояние: у всей конфигурации выключена возможность изменения (режим read-only «из коробки») — поэтому объект «{rp}» редактировать нельзя."
+            fix = (
+                "Либо снять защиту явно (навык support-edit, два шага):\n"
+                f'  1. support-edit -Path "{cfg_dir}" -Capability on — включить возможность изменения (объекты пока остаются на замке);\n'
+                f'  2. support-edit -Path "{rp}" -Set editable — открыть этот объект для редактирования.\n'
+                "  Изменение применяется в базу полной загрузкой выгрузки и обходит механизм обновлений вендора."
+            )
+        elif code == "not-removed":
+            state = f"Состояние: объект «{rp}» на поддержке (не снят с поддержки) — его удаление разорвёт обновления вендора."
+            fix = (
+                "Либо сначала снять объект с поддержки, затем удалять:\n"
+                f'  support-edit -Path "{rp}" -Set off-support — объект уходит из-под обновлений, после этого удаление безопасно.'
+            )
+        else:
+            state = f"Состояние: объект «{rp}» на замке (возможность изменения конфигурации включена, но сам объект не редактируется)."
+            fix = (
+                "Либо разрешить редактирование этого объекта (навык support-edit, выбрать одно):\n"
+                f'  support-edit -Path "{rp}" -Set editable — редактировать и дальше получать обновления вендора (возможны конфликты слияния);\n'
+                f'  support-edit -Path "{rp}" -Set off-support — снять с поддержки: обновления по объекту больше не приходят.'
+            )
+        sys.stderr.write(head + "\n" + state + "\n" + cfe + "\n" + fix + "\n" + off_note + "\n")
+        sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a broken guard must not block work
+        sys.stderr.write(f"[support-guard] Проверка состояния поддержки не выполнена "
+                         f"({exc}) — продолжаю без блокировки.\n")
+        return
 
 
 NSMAP = {
@@ -44,14 +267,50 @@ def detect_format_version(d):
     return "2.17"
 
 
-def save_xml_with_bom(tree, path):
-    """Save XML tree to file with UTF-8 BOM."""
-    xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
-    xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
-    if not xml_bytes.endswith(b"\n"):
+def _detect_xml_style(path):
+    """Стиль существующего файла для round-trip-сохранения: BOM / EOL / регистр encoding /
+    финальный перенос. None → файл новый (сохранить текущее поведение)."""
+    try:
+        raw = open(path, "rb").read()
+    except OSError:
+        return None
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    body = raw[3:] if bom else raw
+    crlf = b"\r\n" in body
+    m = re.search(rb'encoding="([^"]+)"', body[:200])
+    enc = m.group(1).decode("ascii") if m else "utf-8"
+    final_nl = body.endswith(b"\n")
+    return {"bom": bom, "crlf": crlf, "enc": enc, "final_nl": final_nl}
+
+
+def _finalize_xml_bytes(xml_bytes, style):
+    """Привести сериализованные байты к стилю оригинала (или к дефолту, если style is None)."""
+    enc_decl = style["enc"] if style else "utf-8"
+    xml_bytes = xml_bytes.replace(
+        b"<?xml version='1.0' encoding='UTF-8'?>",
+        b'<?xml version="1.0" encoding="' + enc_decl.encode("ascii") + b'"?>')
+    # Канонизировать переносы к LF (убирает &#13; от \r в tail'ах)
+    xml_bytes = (xml_bytes.replace(b"&#13;\n", b"\n").replace(b"&#13;", b"")
+                 .replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+    # Финальный перенос — как в оригинале (новый файл → есть)
+    want_final_nl = style["final_nl"] if style else True
+    xml_bytes = xml_bytes.rstrip(b"\n")
+    if want_final_nl:
         xml_bytes += b"\n"
+    # EOL — как в оригинале (новый файл → LF, текущее поведение)
+    if style and style["crlf"]:
+        xml_bytes = xml_bytes.replace(b"\n", b"\r\n")
+    return xml_bytes
+
+
+def save_xml_with_bom(tree, path):
+    """Save XML tree preserving the existing file's BOM/EOL/encoding-case/final-newline."""
+    style = _detect_xml_style(path)
+    xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
+    xml_bytes = _finalize_xml_bytes(xml_bytes, style)
     with open(path, "wb") as f:
-        f.write(b"\xef\xbb\xbf")
+        if style is None or style["bom"]:
+            f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)
 
 
@@ -59,6 +318,19 @@ def write_text_with_bom(path, text):
     """Write text to file with UTF-8 BOM."""
     with open(path, "w", encoding="utf-8-sig") as f:
         f.write(text)
+
+
+def xml_text(value):
+    """Escape a user-supplied string for an XML text node.
+
+    The form descriptor is assembled as text rather than through a serializer, so
+    an ordinary synonym such as ``A & B`` used to land in the file verbatim and
+    made it unparseable (``xmlParseEntityRef: no name``) - while the scaffolder
+    still exited 0 and the validator still passed, because the descriptor was only
+    checked for existence. Same five entities, in the same order, as
+    ConvertTo-XmlText in form-add.ps1, so the two runtimes stay byte-identical."""
+    return (str(value).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;"))
 
 
 def main():
@@ -96,7 +368,7 @@ def main():
         sys.exit(1)
 
     object_xml_full = os.path.abspath(object_path)
-    support_guard.assert_edit_allowed(object_xml_full, "editable")
+    assert_edit_allowed(object_xml_full, "editable")
     format_version = detect_format_version(os.path.dirname(object_xml_full))
 
     parser_xml = etree.XMLParser(remove_blank_text=False)
@@ -206,11 +478,11 @@ def main():
         f' version="{format_version}">\n'
         f'\t<Form uuid="{form_uuid}">\n'
         '\t\t<Properties>\n'
-        f'\t\t\t<Name>{form_name}</Name>\n'
+        f'\t\t\t<Name>{xml_text(form_name)}</Name>\n'
         '\t\t\t<Synonym>\n'
         '\t\t\t\t<v8:item>\n'
         '\t\t\t\t\t<v8:lang>ru</v8:lang>\n'
-        f'\t\t\t\t\t<v8:content>{synonym}</v8:content>\n'
+        f'\t\t\t\t\t<v8:content>{xml_text(synonym)}</v8:content>\n'
         '\t\t\t\t</v8:item>\n'
         '\t\t\t</Synonym>\n'
         '\t\t\t<Comment/>\n'
@@ -390,54 +662,50 @@ def main():
         print(f"Не найден элемент ChildObjects в {object_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Add <Form>$FormName</Form> — idempotent: never register the same form twice.
-    already_registered = any(
-        etree.QName(ch).localname == "Form" and (ch.text or "").strip() == form_name
-        for ch in child_objects
-    )
+    # Add <Form>$FormName</Form> — idempotent (do not duplicate already-registered form)
+    already_registered = child_objects.find(f"md:Form[.='{form_name}']", NSMAP) is not None
 
-    form_elem = etree.Element(f"{{{ns}}}Form")
-    form_elem.text = form_name
+    if not already_registered:
+        form_elem = etree.Element(f"{{{ns}}}Form")
+        form_elem.text = form_name
 
-    # Find first <Template> to insert before it
-    first_template = child_objects.find("md:Template", NSMAP)
-    # Find first <TabularSection> to insert before it (if no Template)
-    first_tabular = child_objects.find("md:TabularSection", NSMAP)
+        # Find first <Template> to insert before it
+        first_template = child_objects.find("md:Template", NSMAP)
+        # Find first <TabularSection> to insert before it (if no Template)
+        first_tabular = child_objects.find("md:TabularSection", NSMAP)
 
-    # Determine insertion point: before Template, before TabularSection, or at end
-    insert_before = None
-    if first_template is not None:
-        insert_before = first_template
-    elif first_tabular is not None:
-        insert_before = first_tabular
+        # Determine insertion point: before Template, before TabularSection, or at end
+        insert_before = None
+        if first_template is not None:
+            insert_before = first_template
+        elif first_tabular is not None:
+            insert_before = first_tabular
 
-    if already_registered:
-        pass
-    elif insert_before is not None:
-        # Insert before the found element
-        idx = list(child_objects).index(insert_before)
-        child_objects.insert(idx, form_elem)
-        # Whitespace: form_elem gets "\n\t\t\t" as tail (indent before insert_before)
-        form_elem.tail = "\n\t\t\t"
-    else:
-        # Add to end of ChildObjects
-        children = list(child_objects)
-        if len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
-            # Empty ChildObjects (self-closing)
-            child_objects.text = "\n\t\t\t"
-            child_objects.append(form_elem)
-            form_elem.tail = "\n\t\t"
+        if insert_before is not None:
+            # Insert before the found element
+            idx = list(child_objects).index(insert_before)
+            child_objects.insert(idx, form_elem)
+            # Whitespace: form_elem gets "\n\t\t\t" as tail (indent before insert_before)
+            form_elem.tail = "\n\t\t\t"
         else:
-            if len(children) > 0:
-                last_child = children[-1]
-                old_tail = last_child.tail
-                last_child.tail = "\n\t\t\t"
-                child_objects.append(form_elem)
-                form_elem.tail = old_tail if old_tail else "\n\t\t"
-            else:
-                child_objects.text = (child_objects.text or "") + "\n\t\t\t"
+            # Add to end of ChildObjects
+            children = list(child_objects)
+            if len(children) == 0 and (child_objects.text is None or child_objects.text.strip() == ""):
+                # Empty ChildObjects (self-closing)
+                child_objects.text = "\n\t\t\t"
                 child_objects.append(form_elem)
                 form_elem.tail = "\n\t\t"
+            else:
+                if len(children) > 0:
+                    last_child = children[-1]
+                    old_tail = last_child.tail
+                    last_child.tail = "\n\t\t\t"
+                    child_objects.append(form_elem)
+                    form_elem.tail = old_tail if old_tail else "\n\t\t"
+                else:
+                    child_objects.text = (child_objects.text or "") + "\n\t\t\t"
+                    child_objects.append(form_elem)
+                    form_elem.tail = "\n\t\t"
 
     # --- SetDefault ---
 

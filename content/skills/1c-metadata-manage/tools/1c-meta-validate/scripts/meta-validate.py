@@ -1,5 +1,16 @@
-# meta-validate v1.12 — Validate 1C metadata object structure (Python port)
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# meta-validate v1.12 — Validate 1C metadata object structure (Python port) (+корневой <Type>: скаляр без структуры = ошибка)
+# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills, pinned at
+#         ecd289fe11733028d87b55284ea9fb5feff8f513 — the same upstream state the
+#         vendored meta-validate.ps1 was synced from.
+# Licence: MIT, Copyright (c) 2025-2026 Nick Shirokov. Full notice and permission
+#          text: ../../../NOTICE.md (installed as
+#          skills/1c-metadata-manage/NOTICE.md).
+# Local: checks 6a/6b are local. Upstream accepts any
+#        `ChildObjects/Form` element whose tag is allowed for the metadata type,
+#        so both an inline form descriptor (which the Configurator cannot load)
+#        and a scalar registration with no `Forms/<Name>.xml` next to it pass as
+#        valid. Here a form registration must be a scalar reference and must have
+#        its descriptor file on disk.
 import argparse
 import os
 import re
@@ -70,9 +81,8 @@ if os.path.isdir(object_path):
             print(f"[ERROR] No XML file found in directory: {object_path}")
             sys.exit(1)
 
-# File not found -- forgiving input for flat objects (SessionParameter,
-# CommonAttribute, DefinedType, WSReference, ... — a single .xml with no folder):
-# append .xml to a bare name.
+# File not found -- прощающий ввод для плоских объектов (SessionParameter, CommonAttribute,
+# DefinedType, WSReference, ... -- один .xml без папки): дописать .xml к голому имени
 if not os.path.exists(object_path) and not os.path.splitext(object_path)[1]:
     if os.path.exists(object_path + ".xml"):
         object_path = object_path + ".xml"
@@ -169,43 +179,14 @@ valid_types = (
     "HTTPService", "WebService", "DefinedType",
 )
 
-# Valid metadata types with no deep validation rules — these used to fail as
-# "Unrecognized" (a false error on a valid object). They get a basic structural
-# check (root / uuid / Name) instead.
+# Валидные типы метаданных без глубоких правил валидации — раньше падали как "Unrecognized"
+# (ложная ошибка на валидном объекте). Для них выполняется базовая структурная проверка (root/uuid/Name).
 structural_only_types = (
     "Subsystem", "Role", "CommonForm", "CommonCommand", "CommandGroup", "CommonAttribute",
     "CommonTemplate", "CommonPicture", "SessionParameter", "SettingsStorage", "FilterCriterion",
     "FunctionalOption", "FunctionalOptionsParameter", "Language", "Style", "StyleItem",
     "WSReference", "XDTOPackage", "DocumentNumerator", "Sequence",
 )
-
-# Command-interface groups (mirrors meta-compile): a section group takes no
-# commandParameterType, a form group does.
-section_command_groups = (
-    "NavigationPanelImportant", "NavigationPanelOrdinary", "NavigationPanelSeeAlso",
-    "ActionsPanelCreate", "ActionsPanelReports", "ActionsPanelTools",
-)
-form_command_groups = (
-    "FormCommandBarImportant", "FormCommandBarCreateBasedOn",
-    "FormNavigationPanelImportant", "FormNavigationPanelGoTo", "FormNavigationPanelSeeAlso",
-)
-valid_command_groups = section_command_groups + form_command_groups
-
-# English -> Russian standard attribute names, for the type-aware reserved-name check.
-reserved_en_ru = {
-    "Ref": "Ссылка", "DeletionMark": "ПометкаУдаления", "Code": "Код", "Description": "Наименование",
-    "Date": "Дата", "Number": "Номер", "Posted": "Проведен", "Parent": "Родитель",
-    "Owner": "Владелец", "IsFolder": "ЭтоГруппа", "Predefined": "Предопределенный",
-    "PredefinedDataName": "ИмяПредопределенныхДанных", "Recorder": "Регистратор",
-    "Period": "Период", "LineNumber": "НомерСтроки", "Active": "Активность",
-    "Order": "Порядок", "Type": "Тип", "OffBalance": "Забалансовый", "RecordType": "ВидДвижения",
-    "Started": "Стартован", "Completed": "Завершен", "HeadTask": "ВедущаяЗадача",
-    "Executed": "Выполнена", "RoutePoint": "ТочкаМаршрута", "BusinessProcess": "БизнесПроцесс",
-    "ThisNode": "ЭтотУзел", "SentNo": "НомерОтправленного", "ReceivedNo": "НомерПринятого",
-    "CalculationType": "ВидРасчета", "RegistrationPeriod": "ПериодРегистрации",
-    "ReversingEntry": "СторноЗапись", "Account": "Счет", "ValueType": "ТипЗначения",
-    "ActionPeriodIsBasic": "ПериодДействияБазовый",
-}
 
 # GeneratedType categories by type
 generated_type_categories = {
@@ -284,6 +265,13 @@ child_object_rules = {
     "ScheduledJob":               [],
     "EventSubscription":          [],
 }
+
+# Группы командного интерфейса (зеркало meta-compile): раздела — без commandParameterType; формы — с параметром.
+SECTION_COMMAND_GROUPS = ["NavigationPanelImportant", "NavigationPanelOrdinary", "NavigationPanelSeeAlso",
+                          "ActionsPanelCreate", "ActionsPanelReports", "ActionsPanelTools"]
+FORM_COMMAND_GROUPS = ["FormCommandBarImportant", "FormCommandBarCreateBasedOn",
+                       "FormNavigationPanelImportant", "FormNavigationPanelGoTo", "FormNavigationPanelSeeAlso"]
+VALID_COMMAND_GROUPS = SECTION_COMMAND_GROUPS + FORM_COMMAND_GROUPS
 
 # Valid enum property values
 valid_property_values = {
@@ -442,16 +430,14 @@ output_lines.insert(0, f"=== Validation: {md_type}.{obj_name} ===")
 if check1_ok:
     report_ok(f"1. Root structure: MetaDataObject/{md_type}, version {version}")
 
-# ── Structural-only types: basic check (Name), no type-specific rules ─────────
-
+# ── Structural-only types: базовая проверка (Name), без type-specific правил ──
 if md_type in structural_only_types:
     if obj_name == "(unknown)":
         report_error("3. Properties: missing or empty Name")
     elif not ident_pattern.match(obj_name):
         report_error(f"3. Properties: Name '{obj_name}' is not a valid 1C identifier")
     else:
-        report_ok(f'3. Properties: Name="{obj_name}" '
-                  f'(базовая структурная проверка для {md_type})')
+        report_ok(f'3. Properties: Name="{obj_name}" (базовая структурная проверка для {md_type})')
     finalize()
     sys.exit(1 if errors > 0 else 0)
 
@@ -580,17 +566,16 @@ if props_node is not None:
                 check4_ok = False
             enum_checked += 1
 
-    # The root <Type> (value-type descriptor of a Constant or a ChartOfCharacteristicTypes)
-    # must be structural — <v8:Type> / <v8:TypeSet>, not scalar text. Scalar text means a
-    # corrupted descriptor (e.g. left by an old meta-edit modify-property Type).
-    root_type_el = find(props_node, "md:Type") if props_node is not None else None
+    # Корневой <Type> (дескриптор типа значения — Константа, ПВХ) должен быть структурным:
+    # <v8:Type>/<v8:TypeSet>, а не скалярный текст. Скаляр = повреждённый тип (напр. после
+    # старого meta-edit modify-property Type). См. issue #42.
+    root_type_el = find(props_node, "md:Type")
     if root_type_el is not None:
-        has_struct = bool(find_all(root_type_el, "v8:Type") or find_all(root_type_el, "v8:TypeSet"))
-        scalar_text = (root_type_el.text or "").strip()
-        if not has_struct and scalar_text:
-            report_error(f"4. Property <Type> содержит скалярный текст '{scalar_text}' без "
-                         f"структуры типа (<v8:Type>/<v8:TypeSet>) - повреждённый дескриптор "
-                         f"типа значения")
+        scalar_text = inner_text(root_type_el).strip()
+        v8_types = find_all(root_type_el, "v8:Type")
+        v8_type_sets = find_all(root_type_el, "v8:TypeSet")
+        if len(v8_types) == 0 and len(v8_type_sets) == 0 and scalar_text:
+            report_error(f"4. Property <Type> содержит скалярный текст '{scalar_text}' без структуры типа (<v8:Type>/<v8:TypeSet>) — повреждённый дескриптор типа значения")
             check4_ok = False
 
     if check4_ok:
@@ -681,6 +666,94 @@ if stopped:
     finalize()
     sys.exit(1)
 
+# ── Check 6a/6b (local): form registrations are references, and they resolve ──
+#
+# A form is registered in ChildObjects as a scalar reference — <Form>Name</Form> —
+# and described by its own file, <ObjectDir>/Forms/<Name>.xml. Both halves are
+# needed and neither was checked: an inline <Form uuid=...><Properties>… block
+# (what a generic child builder produces) and a reference with no file behind it
+# both passed as valid, and the defect only surfaced when the Configurator tried
+# to load the dump.
+
+if child_obj_node is not None:
+    form_nodes = [c for c in child_obj_node
+                  if isinstance(c.tag, str) and local_name(c) == "Form"]
+    if form_nodes:
+        object_dir = os.path.join(
+            os.path.dirname(resolved_path),
+            os.path.splitext(os.path.basename(resolved_path))[0])
+        forms_dir = os.path.join(object_dir, "Forms")
+        check6a_ok = True
+        check6b_ok = True
+        check6c_ok = True
+        check6d_ok = True
+        resolved_forms = 0
+        for form_node in form_nodes:
+            inline_children = [c for c in form_node if isinstance(c.tag, str)]
+            if inline_children:
+                name_node = find(form_node, "md:Properties/md:Name")
+                shown = (name_node.text or "").strip() if name_node is not None else ""
+                shown = shown or "<без имени>"
+                report_error(
+                    f"6a. ChildObjects/Form '{shown}' описана вложенным дескриптором внутри "
+                    f"объекта. Регистрация формы — скалярная ссылка <Form>{shown}</Form>, а "
+                    f"свойства формы живут в Forms/{shown}.xml. Такую выгрузку Конфигуратор "
+                    f"не загрузит; создавайте форму навыком form-add.")
+                check6a_ok = False
+                continue
+            form_name = (form_node.text or "").strip()
+            if not form_name:
+                report_error("6a. ChildObjects/Form: пустая регистрация формы (нет имени)")
+                check6a_ok = False
+                continue
+            form_meta = os.path.join(forms_dir, form_name + ".xml")
+            if not os.path.isfile(form_meta):
+                report_error(
+                    f"6b. Форма '{form_name}' зарегистрирована в ChildObjects, но её описание "
+                    f"не найдено: {form_meta}")
+                check6b_ok = False
+                continue
+            # 6c/6d: the descriptor has to be a real, matching descriptor, not just a
+            # path that exists. A scaffolder that interpolates an unescaped user
+            # string writes a file the Configurator cannot read, and an existence
+            # check reports that dump as valid.
+            try:
+                form_doc = etree.parse(form_meta)
+            except etree.XMLSyntaxError as exc:
+                report_error(
+                    f"6c. Дескриптор формы '{form_name}' не разбирается как XML: {form_meta} "
+                    f"— {exc}. Такую выгрузку Конфигуратор не загрузит.")
+                check6c_ok = False
+                continue
+            declared_node = find(form_doc.getroot(), "md:Form/md:Properties/md:Name")
+            declared = (declared_node.text or "").strip() if declared_node is not None else ""
+            if not declared:
+                report_error(
+                    f"6d. В дескрипторе {form_meta} нет Form/Properties/Name — форма "
+                    f"'{form_name}' зарегистрирована, но не описана.")
+                check6d_ok = False
+                continue
+            if declared != form_name:
+                report_error(
+                    f"6d. Имя в дескрипторе не совпадает с регистрацией: {form_meta} "
+                    f"описывает '{declared}', а ChildObjects ссылается на '{form_name}'.")
+                check6d_ok = False
+                continue
+            resolved_forms += 1
+        if check6a_ok:
+            report_ok(f"6a. Form registrations: {len(form_nodes)} scalar reference(s)")
+        if check6b_ok:
+            report_ok(f"6b. Form descriptors: {resolved_forms} of {len(form_nodes)} "
+                      f"resolved on disk")
+        if check6c_ok:
+            report_ok(f"6c. Form descriptors parse as XML: {resolved_forms}")
+        if check6d_ok:
+            report_ok(f"6d. Form descriptor names match their registration: {resolved_forms}")
+
+if stopped:
+    finalize()
+    sys.exit(1)
+
 # ── Check 7: Child elements -- UUID, Name, Type ──────────────
 
 
@@ -747,25 +820,28 @@ if stopped:
     finalize()
     sys.exit(1)
 
-# ── Check 7b: Reserved attribute names ───────────────────────
+# ── Check 7b: Reserved attribute names (типозависимо: стандартные ДАННОГО типа, EN+RU) ───────
+# Совпадение имени собственного реквизита со стандартным (англ. или рус.) платформа не примет → ошибка.
 
-RESERVED_ATTR_NAMES = {
-    'Ref', 'DeletionMark', 'Code', 'Description', 'Date', 'Number', 'Posted',
-    'Parent', 'Owner', 'IsFolder', 'Predefined', 'PredefinedDataName',
-    'Recorder', 'Period', 'LineNumber', 'Active', 'Order', 'Type', 'OffBalance',
-    'Started', 'Completed', 'HeadTask', 'Executed', 'RoutePoint', 'BusinessProcess',
-    'ThisNode', 'SentNo', 'ReceivedNo', 'CalculationType', 'RegistrationPeriod',
-    'ReversingEntry', 'Account', 'ValueType', 'ActionPeriodIsBasic',
+RESERVED_EN_RU = {
+    'Ref': 'Ссылка', 'DeletionMark': 'ПометкаУдаления', 'Code': 'Код', 'Description': 'Наименование',
+    'Date': 'Дата', 'Number': 'Номер', 'Posted': 'Проведен', 'Parent': 'Родитель', 'Owner': 'Владелец',
+    'IsFolder': 'ЭтоГруппа', 'Predefined': 'Предопределенный', 'PredefinedDataName': 'ИмяПредопределенныхДанных',
+    'Recorder': 'Регистратор', 'Period': 'Период', 'LineNumber': 'НомерСтроки', 'Active': 'Активность',
+    'Order': 'Порядок', 'Type': 'Тип', 'OffBalance': 'Забалансовый', 'RecordType': 'ВидДвижения',
+    'Started': 'Стартован', 'Completed': 'Завершен', 'HeadTask': 'ВедущаяЗадача',
+    'Executed': 'Выполнена', 'RoutePoint': 'ТочкаМаршрута', 'BusinessProcess': 'БизнесПроцесс',
+    'ThisNode': 'ЭтотУзел', 'SentNo': 'НомерОтправленного', 'ReceivedNo': 'НомерПринятого',
+    'CalculationType': 'ВидРасчета', 'RegistrationPeriod': 'ПериодРегистрации', 'ReversingEntry': 'СторноЗапись',
+    'Account': 'Счет', 'ValueType': 'ТипЗначения', 'ActionPeriodIsBasic': 'ПериодДействияБазовый',
 }
 
-if child_obj_node is not None:
-    # Reserved names of THIS object kind (EN + RU, lower-cased): the platform
-    # will not accept an own attribute named like a standard one -> error.
-    std_for_type = standard_attributes_by_type.get(md_type, [])
+std_for_type = standard_attributes_by_type.get(md_type)
+if child_obj_node is not None and std_for_type:
     reserved_set = set()
     for en in std_for_type:
         reserved_set.add(en.lower())
-        ru = reserved_en_ru.get(en)
+        ru = RESERVED_EN_RU.get(en)
         if ru:
             reserved_set.add(ru.lower())
     check7b_ok = True
@@ -776,14 +852,12 @@ if child_obj_node is not None:
             if attr_name_node is not None and inner_text(attr_name_node):
                 an = inner_text(attr_name_node)
                 if an.lower() in reserved_set:
-                    report_error(f"7b. Attribute '{an}' conflicts with a standard "
-                                 f"attribute of {md_type}")
+                    report_error(f"7b. Attribute '{an}' conflicts with a standard attribute of {md_type}")
                     check7b_ok = False
-    if check7b_ok and std_for_type:
+    if check7b_ok:
         report_ok("7b. Reserved attribute names: no conflicts")
-    elif not std_for_type:
-        report_ok(f"7b. Reserved attribute names: no conflicts "
-                  f"(no standard set for {md_type})")
+elif child_obj_node is not None:
+    report_ok(f"7b. Reserved attribute names: no conflicts (no standard set for {md_type})")
 
 if stopped:
     finalize()
@@ -1322,9 +1396,11 @@ if md_type == "DocumentJournal" and child_obj_node is not None:
     elif col_count == 0:
         report_ok("14. DocumentJournal Columns: none")
 
+if stopped:
+    finalize()
+    sys.exit(1)
 
-# ── Check 15: Commands — Group is required and valid; a section group is ──────
-# ── incompatible with CommandParameterType ───────────────────────────────────
+# ── Check 15: Commands — Group обязателен/валиден; секц.группа несовместима с CommandParameterType ──
 
 if child_obj_node is not None:
     commands = find_all(child_obj_node, "md:Command")
@@ -1337,8 +1413,7 @@ if child_obj_node is not None:
         cuuid = cmd.get("uuid", "")
         cmd_props = find(cmd, "md:Properties")
         cmd_name_node = find(cmd_props, "md:Name") if cmd_props is not None else None
-        cmd_name = inner_text(cmd_name_node) if (cmd_name_node is not None
-                                                 and inner_text(cmd_name_node)) else "(unnamed)"
+        cmd_name = inner_text(cmd_name_node) if (cmd_name_node is not None and inner_text(cmd_name_node)) else "(unnamed)"
         if not cuuid or not guid_pattern.match(cuuid):
             report_error(f"15. Command '{cmd_name}': missing or invalid uuid")
             check15_ok = False
@@ -1348,59 +1423,58 @@ if child_obj_node is not None:
         group_node = find(cmd_props, "md:Group") if cmd_props is not None else None
         group_val = inner_text(group_node).strip() if group_node is not None else ""
         if not group_val:
-            report_error(f"15. Command '{cmd_name}': не задана группа (Group) - "
-                         f"1С отвергает при загрузке")
+            report_error(f"15. Command '{cmd_name}': не задана группа (Group) — 1С отвергает при загрузке")
             check15_ok = False
-        elif group_val not in valid_command_groups and not group_val.startswith("CommandGroup."):
+        elif group_val not in VALID_COMMAND_GROUPS and not group_val.startswith("CommandGroup."):
             report_error(f"15. Command '{cmd_name}': неизвестная группа '{group_val}'. "
-                         f"Валидные: {', '.join(valid_command_groups)}; либо CommandGroup.<Имя>")
+                         f"Валидные: {', '.join(VALID_COMMAND_GROUPS)}; либо CommandGroup.<Имя>")
             check15_ok = False
-        elif group_val in section_command_groups:
+        elif group_val in SECTION_COMMAND_GROUPS:
             cpt_node = find(cmd_props, "md:CommandParameterType") if cmd_props is not None else None
-            has_cpt = cpt_node is not None and (find_all(cpt_node, "v8:Type")
-                                                or find_all(cpt_node, "v8:TypeSet"))
+            has_cpt = cpt_node is not None and (len(find_all(cpt_node, "v8:Type")) > 0 or len(find_all(cpt_node, "v8:TypeSet")) > 0)
             if has_cpt:
-                report_error(f"15. Command '{cmd_name}': тип параметра (CommandParameterType) "
-                             f"недоступен для команд командного интерфейса раздела ('{group_val}')")
+                report_error(f"15. Command '{cmd_name}': тип параметра (CommandParameterType) недоступен "
+                             f"для команд командного интерфейса раздела ('{group_val}')")
                 check15_ok = False
     if check15_ok and cmd_count > 0:
         report_ok(f"15. Commands: {cmd_count} command(s), groups valid")
 
-# ── Check 16: reference types like CatalogRef.X must resolve to configuration ─
-# ── objects. WARN level: a false positive on a partial dump is worse than a ───
-# ── miss. Extensions (CFE) are skipped — their types point at base-config ─────
-# ── objects that are not in the extension dump. ──────────────────────────────
+# ── Check 16: Reference type existence — типы вида CatalogRef.X должны разрешаться в объекты конфигурации ──
+# WARN-уровень: ложное срабатывание на частичных выгрузках хуже пропуска. Расширения (CFE) пропускаем —
+# их типы ссылаются на объекты базовой конфигурации, которых нет в выгрузке расширения.
 
 if config_dir:
     is_extension = False
     cfg_xml_path = os.path.join(config_dir, "Configuration.xml")
     if os.path.exists(cfg_xml_path):
         try:
-            with open(cfg_xml_path, encoding="utf-8-sig", errors="replace") as f:
-                if "ConfigurationExtensionPurpose" in f.read():
-                    is_extension = True
-        except OSError:
+            with open(cfg_xml_path, "r", encoding="utf-8") as f:
+                cfg_content = f.read()
+            if "ConfigurationExtensionPurpose" in cfg_content:
+                is_extension = True
+        except Exception:
             pass
     if not is_extension:
         ref_dir_map = {
             "CatalogRef": "Catalogs", "DocumentRef": "Documents", "EnumRef": "Enums",
-            "ChartOfAccountsRef": "ChartsOfAccounts",
-            "ChartOfCharacteristicTypesRef": "ChartsOfCharacteristicTypes",
-            "ChartOfCalculationTypesRef": "ChartsOfCalculationTypes",
-            "BusinessProcessRef": "BusinessProcesses", "ExchangePlanRef": "ExchangePlans",
-            "TaskRef": "Tasks", "DefinedType": "DefinedTypes",
+            "ChartOfAccountsRef": "ChartsOfAccounts", "ChartOfCharacteristicTypesRef": "ChartsOfCharacteristicTypes",
+            "ChartOfCalculationTypesRef": "ChartsOfCalculationTypes", "BusinessProcessRef": "BusinessProcesses",
+            "ExchangePlanRef": "ExchangePlans", "TaskRef": "Tasks", "DefinedType": "DefinedTypes",
         }
-        checked_refs = {}
-        missing_refs = {}
-        for tn in root.xpath("//v8:Type", namespaces=NS):
+        checked_refs = {}   # ref_key -> найден ли; для условия OK
+        missing_refs = {}   # ref_key -> ref_dir
+        for tn in find_all(root, ".//v8:Type"):
             tv = inner_text(tn).strip()
-            colon = tv.find(":")
-            if colon >= 0:
-                tv = tv[colon + 1:]
+            if not tv:
+                continue
+            colon_idx = tv.find(":")
+            if colon_idx >= 0:
+                tv = tv[colon_idx + 1:]
             dot_idx = tv.find(".")
             if dot_idx < 0:
                 continue
-            ref_cat, ref_name = tv[:dot_idx], tv[dot_idx + 1:]
+            ref_cat = tv[:dot_idx]
+            ref_name = tv[dot_idx + 1:]
             ref_dir = ref_dir_map.get(ref_cat)
             if not ref_dir or not ref_name:
                 continue
@@ -1408,82 +1482,80 @@ if config_dir:
             if ref_key in checked_refs:
                 continue
             ref_folder = os.path.join(config_dir, ref_dir, ref_name)
-            ref_file = os.path.join(config_dir, ref_dir, f"{ref_name}.xml")
-            if os.path.isdir(ref_folder) or os.path.isfile(ref_file):
+            ref_file = os.path.join(config_dir, ref_dir, ref_name + ".xml")
+            if os.path.exists(ref_folder) or os.path.exists(ref_file):
                 checked_refs[ref_key] = True
             else:
                 checked_refs[ref_key] = False
                 missing_refs[ref_key] = ref_dir
         if missing_refs:
             for mk in sorted(missing_refs):
-                report_warn(f"16. Ссылочный тип '{mk}' не найден в конфигурации "
-                            f"({missing_refs[mk]}/) - при загрузке будет ошибка неизвестного типа")
+                report_warn(f"16. Ссылочный тип '{mk}' не найден в конфигурации ({missing_refs[mk]}/) — при загрузке будет ошибка неизвестного типа")
         elif checked_refs:
             report_ok(f"16. Reference types: {len(checked_refs)} resolved")
 
-# ── Check 18: properties introduced by newer format versions ─────────────────
-# A tag present in a file stamped with an older format is silently dropped by
-# the platform on load (it reports success while the property is lost).
-
+# ── Check 18: свойства, появившиеся в новых версиях формата ──
+# Реестр «тег → минимальная версия формата». Служит двум целям: (1) поймать свойство в файле со
+# слишком старым штампом — при сборке на старой платформе оно будет молча отброшено (платформа
+# рапортует успех, а свойство теряется); (2) подсказать, что конструкция требует более нового
+# формата. Расширяется одной строкой на свойство — задел под 2.21 (8.5) и последующие.
 versioned_props = {
-    "TypeReductionMode": "2.20",   # type-reduction mode (standard attributes, IR dimensions)
-    "LineNumberLength": "2.20",    # tabular-section row-number length (5..9)
+    "TypeReductionMode": "2.20",   # режим приведения типов (стандартные реквизиты, измерения РС)
+    "LineNumberLength": "2.20",    # длина номера строки ТЧ (5..9)
 }
 
 
-def _format_rank(v):
+def format_rank(v):
+    """"2.20" → 220. Строковое сравнение неверно ("2.9" > "2.17")."""
     m = re.match(r'^(\d+)\.(\d+)$', v or '')
     return int(m.group(1)) * 100 + int(m.group(2)) if m else 0
 
 
-file_rank = _format_rank(version)
+file_rank = format_rank(version)
 if file_rank > 0:
     for vp in sorted(versioned_props):
-        nodes = root.xpath(f"//md:{vp} | //xr:{vp}", namespaces=NS)
-        if nodes and file_rank < _format_rank(versioned_props[vp]):
-            report_error(f"18. <{vp}> появился в формате {versioned_props[vp]}, а файл объявлен "
-                         f"как {version} - на платформе этой версии свойство будет отброшено "
-                         f"при загрузке")
+        nodes = find_all(root, f"//md:{vp} | //xr:{vp}")
+        if nodes and file_rank < format_rank(versioned_props[vp]):
+            report_error(f"18. <{vp}> появился в формате {versioned_props[vp]}, а файл объявлен как {version} — на платформе этой версии свойство будет отброшено при загрузке")
 
-# ── Check 19: LineNumberLength — valid range 5..9 ────────────────────────────
-
-for lnl in root.xpath("//md:LineNumberLength", namespaces=NS):
+# ── Check 19: LineNumberLength — допустимый диапазон 5..9 ──
+# Длина номера строки ТЧ: 5 (до 99 999 строк) … 9 (до 999 999 999). Границы — из документации 1С.
+for lnl in find_all(root, "//md:LineNumberLength"):
     raw = inner_text(lnl).strip()
     if not re.match(r'^\d+$', raw):
-        report_error(f"19. LineNumberLength='{raw}' - должно быть целое число 5..9")
+        report_error(f"19. LineNumberLength='{raw}' — должно быть целое число 5..9")
     elif int(raw) < 5 or int(raw) > 9:
         report_error(f"19. LineNumberLength={raw} вне допустимого диапазона 5..9")
 
-# ── Check 17: MDObjectRef form — the reference must point at a metadata OBJECT,
-# ── not at a reference TYPE. "CatalogRef.Валюты" is a common mistake; no
-# ── metadata kind ends in Ref, so it is unambiguously an error.
+# ── Check 17: MDObjectRef form — ссылка на ОБЪЕКТ метаданных, а не на тип ссылки ──
+# Owners/BasedOn/RegisterRecords/RegisteredDocuments/References содержат путь вида "Catalog.Валюты".
+# "CatalogRef.Валюты" — частая ошибка (тип ссылки вместо объекта): платформа отвечает
+# «Неизвестный объект метаданных». Вида метаданных, оканчивающегося на Ref, не существует → ERROR.
+# Неизвестный первый сегмент без Ref — только WARN (список видов может быть неполон).
 
-md_ref_nodes = root.xpath("//*[@xsi:type='xr:MDObjectRef']", namespaces=NS)
+md_ref_nodes = find_all(root, "//*[@xsi:type='xr:MDObjectRef']")
 if md_ref_nodes:
-    known_roots = set(valid_types) | set(structural_only_types)
-    bad_ref_form = {}
-    unknown_root = {}
+    known_roots = tuple(valid_types) + tuple(structural_only_types)
+    bad_ref_form = {}    # значение -> True (ссылочная форма, гарантированно нерабочая)
+    unknown_root = {}    # значение -> корень
     for rn in md_ref_nodes:
         rv = inner_text(rn).strip()
         if not rv:
             continue
-        rroot = rv.split(".")[0]
+        rroot = rv.split('.')[0]
         if rroot in known_roots:
             continue
-        if rroot.endswith("Ref"):
+        if rroot.endswith('Ref'):
             bad_ref_form[rv] = True
         else:
             unknown_root[rv] = rroot
     for bk in sorted(bad_ref_form):
         fixed = re.sub(r'^([A-Za-z]+)Ref\.', r'\1.', bk)
-        report_error(f"17. MDObjectRef '{bk}' - ссылка на ТИП, а не на объект метаданных; "
-                     f"нужно '{fixed}' (иначе «Неизвестный объект метаданных» при загрузке)")
+        report_error(f"17. MDObjectRef '{bk}' — ссылка на ТИП, а не на объект метаданных; нужно '{fixed}' (иначе «Неизвестный объект метаданных» при загрузке)")
     for uk in sorted(unknown_root):
-        report_warn(f"17. MDObjectRef '{uk}' - неизвестный вид метаданных "
-                    f"'{unknown_root[uk]}' (опечатка?)")
+        report_warn(f"17. MDObjectRef '{uk}' — неизвестный вид метаданных '{unknown_root[uk]}' (опечатка?)")
     if not bad_ref_form and not unknown_root:
         report_ok(f"17. MDObjectRef form: {len(md_ref_nodes)} checked")
-
 
 # ── Final output ──────────────────────────────────────────────
 

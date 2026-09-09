@@ -11,7 +11,7 @@ For any 1C **project-source search** (code, metadata, usages, call chains, struc
 
 **What counts as search.** Any action whose goal is to *locate* code, metadata, or files you do not yet have an exact path or qualified name for — including "getting oriented" sweeps at the start of a task (globbing the source tree, listing directories, reading modules one after another to see what is there). All of it falls under the hard rule below. Reading a specific file **already located via MCP** — to edit it, or to see a found fragment in full context — is normal work, not search, and needs no justification.
 
-Applies to every subagent except `1c-explorer`, which already encodes the same rule in its own prompt. The canonical fallback chain owner is `content/skills/mcp-1c-tools/SKILL.md → Fallback chain → Project-source search before Grep / Glob / rg`. This file does not redefine it — it makes the rule salient inside subagent prompts that previously only had a soft pointer.
+This file is the single owner of the search discipline and of the project-source fallback chain; `AGENTS.md → MCP Tool Calling → A.4`, the `mcp-1c-tools` skill and every subagent prompt point here. It applies to the parent and to every subagent.
 
 ---
 
@@ -24,6 +24,7 @@ Applies to every subagent except `1c-explorer`, which already encodes the same r
 2. **Only then `Grep` / `Glob` or another native discovery tool** — and only when you can state, in one or two sentences inside the response, **which MCP attempts were tried and why they did not return what was needed**. Silent fallback is a defect regardless of which native tool it lands on — `Grep`, a file-pattern search, or a chain of `Read` calls used as a manual scanner. **"Exhaust" is bounded:** one well-tuned call per applicable angle plus the documented reformulation / `grep=true` retry — not an open-ended loop. Once that missed (nothing found, irrelevant hits, non-actionable output), falling back to native tools is the **correct next move**, not a defect; burning further MCP calls just to satisfy this rule is blind chaining (`AGENTS.md → A.4`).
 3. **Tune the query before re-calling.** If the first MCP call returned nothing, do **not** immediately fall through to the next tool — reformulate: broaden / narrow the query, switch `search_type` (`fulltext` ↔ `semantic` ↔ `hybrid`), adjust `detail_level`, lower `exact`, raise `top_k`, drop or change `project_name` / category filters. Use the per-server parameter docs in `content/skills/mcp-1c-tools/docs/<server>.md`.
 4. **No-change repeats are forbidden.** Do not re-run the same MCP call against the same unchanged state. A new call must change parameters substantively, or the project state must have changed (file edit, new generation, resumed session).
+5. **A negative result needs freshness evidence.** An empty search response proves "not found" only when generation / readiness information available from the response or server shows that the index represents the relevant project state. When that evidence is absent, stale, degraded, or contradicted by fresh local edits, call the result inconclusive and continue to the next documented MCP or disk fallback. Do not add a health call merely to decorate a search whose absence you do not rely on.
 
 External-knowledge servers (`1c-templates-mcp`, `1c-ssl-mcp`, `1C-docs-mcp`, `1c-code-check-mcp`, `1c-syntax-checker-mcp`, `1c-data-mcp`) have **no `Grep` / `rg` equivalent** — they are called only when their knowledge is needed, not as part of the fallback above.
 
@@ -73,6 +74,29 @@ Native discovery tools (`Grep`, `Glob` / file search, directory listing, bulk `R
 
 ---
 
+## Configurations with extensions
+
+An extension catalog is **one base graph project with ordered layers**. Start with
+`list_graph_projects`, select the base project's returned `project_id`, and keep
+that scope for base and extension searches. Never register each extension as a
+separate graph project and never substitute an extension name for `project_id`:
+isolated scopes cannot represent which extension overrides the base entity.
+
+For the effective runtime view, use
+`resolve_effective_entity(object_name, entity_kind, entity_name)` and inspect the
+returned layer order, `effective`, `superseded`, `wrapping`, `extending` and any
+order warnings. For a focused diff, use
+`compare_base_and_extension(object_name, extension_name)`. A regular search hit
+shows that a version exists; it does **not** by itself prove that this version is
+the one the platform executes.
+
+Before saying an extension/object is absent, require a current ready generation
+and verify that the expected extension layer is present. A project that is only
+registered, a fast `completed` refresh, or an empty layer list is insufficient
+freshness evidence; continue to the documented MCP/disk fallback instead.
+
+---
+
 ## EDT workspaces
 
 In a project developed in 1C:EDT (`.dev.env` `USE_EDT=true`) the chain above is unchanged — the project-index servers stay the first pick. `edt-mcp`, when exposed, is an **additional** source for live-workspace questions (`get_project_errors`, `find_references`, `go_to_definition`, `read_module_source`), not a replacement for indexed search: its `search_in_code` is a literal / regex sweep that is **not** ru/en dialect aware, so it ranks with `Grep`, not with `search_code`. When the EDT model holds newer state than the files on disk, reconcile before trusting either side — `content/rules/edt-workflow.md → Model vs disk — the synchronization rule`.
@@ -114,3 +138,5 @@ One or two sentences. No bullet list of every parameter tried.
 - ✅ After a missed MCP attempt — or with servers not exposed — fallback proceeded immediately; no ritual MCP calls made only to satisfy this rule.
 - ✅ Native-tool usage on project source is justified inline.
 - ✅ No duplicated calls against unchanged state.
+- ✅ A definitive "not found" conclusion is backed by current generation / readiness evidence; otherwise the MCP miss is reported as inconclusive and the documented fallback is used.
+- ✅ In a configuration with extensions, the base `project_id` was used and effective-runtime claims came from layer-aware tools rather than an arbitrary search hit.

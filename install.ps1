@@ -608,6 +608,8 @@ function Invoke-FrontmatterOps {
     $rename = if ($Ops.rename) { $Ops.rename } else { @{} }
     $addIf = if ($Ops.addIf) { $Ops.addIf } else { @{} }
     $toolsToPermission = if ($Ops.toolsToPermission) { $Ops.toolsToPermission } else { $null }
+    $toolsToDenylist = if ($Ops.toolsToDenylist) { $Ops.toolsToDenylist } else { $null }
+    $toolsToFlag = if ($Ops.toolsToFlag) { $Ops.toolsToFlag } else { $null }
 
     # Phase 0: tools array -> permission object (OpenCode).
     # Runs BEFORE keep/drop so it can still read the source `tools` list.
@@ -637,6 +639,65 @@ function Invoke-FrontmatterOps {
                 }
             }
             if ($permission.Keys.Count -gt 0) { $src['permission'] = $permission }
+        }
+    }
+
+    # Phase 0b: tools array -> host denylist (Claude Code, Kimi Code, Qwen Code).
+    # Also runs BEFORE keep/drop so it can still read the source `tools` list.
+    # Those hosts resolve `tools` as a strict allowlist of THEIR OWN tool names,
+    # so the abstract source vocabulary (`Shell`, `MCP`) matches nothing and the
+    # subagent silently loses shell and every MCP server. Omitting `tools` makes
+    # it inherit the parent pool (MCP included) and the capabilities the source
+    # list withholds are re-imposed through the host's denylist field, which is
+    # applied to that inherited pool.
+    if ($toolsToDenylist) {
+        $srcKey = if ($toolsToDenylist.source) { $toolsToDenylist.source } else { 'tools' }
+        $targetKey = if ($toolsToDenylist.target) { $toolsToDenylist.target } else { 'disallowedTools' }
+        $map = $toolsToDenylist.map
+        if ($map -and $src.Contains($srcKey)) {
+            $granted = @($src[$srcKey])
+            $grantedHostTools = @()
+            $candidates = @()
+            foreach ($srcTool in $map.Keys) {
+                $hostTools = @($map[$srcTool])
+                if ($granted -contains $srcTool) { $grantedHostTools += $hostTools }
+                else { $candidates += $hostTools }
+            }
+            $denied = @()
+            foreach ($hostTool in $candidates) {
+                if ([string]::IsNullOrWhiteSpace([string]$hostTool)) { continue }
+                # Several source tools can map to one host tool (Write/Edit ->
+                # NotebookEdit): any granting tool keeps it out of the denylist.
+                if ($grantedHostTools -contains $hostTool) { continue }
+                if ($denied -contains $hostTool) { continue }
+                $denied += $hostTool
+            }
+            # Comma-separated string: the form all three hosts document.
+            if ($denied.Count -gt 0) { $src[$targetKey] = ($denied -join ', ') }
+            elseif ($src.Contains($targetKey)) { $src.Remove($targetKey) }
+        }
+    }
+
+    # Phase 0c: tools array -> single capability flag (Cursor `readonly`).
+    # Also runs BEFORE keep/drop. Cursor has no per-tool field for custom
+    # agents; the one documented restriction is the boolean `readonly`, which
+    # covers exactly "no file edits, no state-changing shell commands". The
+    # flag is set only when the source list grants none of `whenNoneOf`, and
+    # omitted otherwise — an agent that may write must not carry `readonly:
+    # false`, which would read as a deliberate grant rather than a default.
+    if ($toolsToFlag) {
+        $srcKey = if ($toolsToFlag.source) { $toolsToFlag.source } else { 'tools' }
+        $targetKey = $toolsToFlag.target
+        $whenNoneOf = @($toolsToFlag.whenNoneOf)
+        $value = if ($null -ne $toolsToFlag.value) { $toolsToFlag.value } else { $true }
+        if ($targetKey -and $whenNoneOf.Count -gt 0 -and $src.Contains($srcKey)) {
+            $granted = @($src[$srcKey])
+            $anyGranted = $false
+            foreach ($srcTool in $whenNoneOf) {
+                if ($granted -contains $srcTool) { $anyGranted = $true; break }
+            }
+            if (-not $anyGranted) { $src[$targetKey] = $value }
+            elseif ($src.Contains($targetKey)) { $src.Remove($targetKey) }
         }
     }
 
@@ -1138,6 +1199,7 @@ function New-Manifest {
         version       = $Version
         installedAt   = $ts
         updatedAt     = $ts
+        lastUpdatesCheckAt = $ts
         lastChannel   = $script:LastChannel
         tools         = @()
         language      = 'en'
@@ -2138,8 +2200,8 @@ function Invoke-PlaceSkill {
 #   SUBAGENT_MODEL_ANALYSIS — planning / analysis / review / testing / docs
 #                             (1c-planner, 1c-analytic, 1c-arch-reviewer,
 #                             1c-code-reviewer, 1c-doc-writer, 1c-tester);
-#   SUBAGENT_MODEL_LIGHT    — small bounded tasks: repo scouting / search /
-#                             quick fixes (1c-explorer, 1c-error-fixer).
+#   SUBAGENT_MODEL_LIGHT    — small bounded read-only tasks: repo scouting /
+#                             search / impact lists (1c-explorer).
 # All three are DEFAULTED parameters: an empty value means the model field is
 # omitted from the installed agent file and the AI client uses its default
 # model. The install never blocks on them.
@@ -2242,7 +2304,7 @@ function Resolve-ModelTiers {
 # normalised here (the LLM channel does the same by judgement, see
 # content/commands/rulesmodel.md). Matching is by family + major version:
 # case-insensitive, punctuation- and prefix-insensitive, Russian spellings
-# accepted. A name that is not one of the four supported models resolves to
+# accepted. A name that is not one of the supported models resolves to
 # an empty value — the base ruleset is model-neutral and complete without a
 # profile, so "no match" is a valid outcome, never an error.
 
@@ -2253,6 +2315,7 @@ $script:AgentModelProfiles = [ordered]@{
     sonnet5 = 'Claude Sonnet 5'
     fable5  = 'Claude Fable 5 / Mythos 5'
     gpt56   = 'GPT-5.6'
+    gpt6    = 'GPT-6 Astra'
 }
 
 function Resolve-AgentModelSlug {
@@ -2265,7 +2328,7 @@ function Resolve-AgentModelSlug {
     # Russian spellings first (before punctuation is stripped).
     $s = $s -replace 'клод', 'claude' -replace 'опус', 'opus' -replace 'соннет', 'sonnet' `
             -replace 'сонет', 'sonnet' -replace 'фейбл', 'fable' -replace 'фабл', 'fable' `
-            -replace 'мифос', 'mythos' -replace 'гпт', 'gpt' -replace 'опенаи', 'openai'
+            -replace 'мифос', 'mythos' -replace 'астра', 'astra' -replace 'гпт', 'gpt' -replace 'опенаи', 'openai'
     # Drop everything that is not a letter or a digit: spaces, dashes, dots,
     # underscores, slashes, '#'. This also collapses provider prefixes and
     # client-side variants into the same string ("anthropic/claude-opus-5#xhigh"
@@ -2282,6 +2345,7 @@ function Resolve-AgentModelSlug {
     if ($s -match 'opus5') { return 'opus5' }
     if ($s -match 'sonnet5') { return 'sonnet5' }
     if ($s -match 'gpt56') { return 'gpt56' }
+    if ($s -match 'gpt6' -or $s -match 'astra') { return 'gpt6' }
     return ''
 }
 
@@ -2294,15 +2358,17 @@ function Read-AgentModelChoice {
     Write-Info '    [2] Claude Sonnet 5             (sonnet5)'
     Write-Info '    [3] Claude Fable 5 / Mythos 5   (fable5)'
     Write-Info '    [4] GPT-5.6                     (gpt56)'
-    Write-Info '    [5] другая модель / не задавать (базовый свод правил, профиль не применяется)'
-    Write-Info '    [6] ввести название модели самому (в любом написании)'
-    $choice = Read-Required '  Выбор модели головного агента' '5'
+    Write-Info '    [5] GPT-6 Astra                 (gpt6)'
+    Write-Info '    [6] другая модель / не задавать (базовый свод правил, профиль не применяется)'
+    Write-Info '    [7] ввести название модели самому (в любом написании)'
+    $choice = Read-Required '  Выбор модели головного агента' '6'
     switch ($choice) {
         '1' { return 'opus5' }
         '2' { return 'sonnet5' }
         '3' { return 'fable5' }
         '4' { return 'gpt56' }
-        '6' {
+        '5' { return 'gpt6' }
+        '7' {
             $raw = Read-Required '  Название модели (Enter — без профиля)' ''
             $slug = Resolve-AgentModelSlug -Raw $raw
             if (-not $slug -and $raw) {
@@ -3751,7 +3817,7 @@ function Place-RootTemplates {
 #   DEBUG_FAST_PATH (empty = standard; debugging fast-path mode),
 #   VERIFICATION_DEPTH (empty = standard; code-verification depth, toggled by
 #   the /litemode command),
-#   CAVEMAN (empty = on; caveman communication-style auto-activation, toggled
+#   CAVEMAN (empty = auto; caveman communication-style auto-activation, toggled
 #   by the /caveman command),
 #   PLATFORM_ARGS / IBCMD_ARGS (empty = no extra platform arguments; passed to
 #   1cv8.exe / ibcmd by the 1c-metadata-manage db-* / epf-* tools),
@@ -4372,6 +4438,9 @@ function Invoke-Init {
     Write-Section 'Phase 10b: OpenCode agent frontmatter gate'
     Assert-OpenCodeAgentFrontmatter -Root $Root
 
+    Write-Section 'Phase 10c: Agent tool vocabulary gate'
+    Assert-AgentToolVocabulary -Root $Root
+
     Write-Section 'Phase 11: Report'
     Write-Info "Installation complete."
     Write-Info "  Version: $version (via $($script:LastChannel) channel)"
@@ -4390,6 +4459,7 @@ function Invoke-Init {
     Write-RulesModelAnnouncement -Root $Root
 
     Write-RestartRecommendation -ActiveTools $activeTools -McpCount $manifest.mcpServers.Count
+    Write-McpEffectivenessReminder -Root $Root -ExternalMcp $extMcp
     Write-InstallToolsAnnouncement
 }
 
@@ -4414,7 +4484,7 @@ function Write-RulesModelAnnouncement {
     Write-Info "Адаптация правил под модель: введите /rulesmodel <модель> в чате AI-клиента (название — в любом"
     Write-Info "написании, команда сама его распознает; /rulesmodel auto — определить текущую модель)."
     Write-Info "Поддерживаемые профили: opus5 (Claude Opus 5), sonnet5 (Claude Sonnet 5), fable5 (Claude Fable 5),"
-    Write-Info "gpt56 (GPT-5.6). Команда пишет AGENT_MODEL в .dev.env — действует на весь проект, включая новые чаты;"
+    Write-Info "gpt56 (GPT-5.6), gpt6 (GPT-6 Astra). Команда пишет AGENT_MODEL в .dev.env — действует на весь проект, включая новые чаты;"
     Write-Info "перерендер и перезапуск клиента не нужны. Профиль настраивает только стиль и инициативу (длина"
     Write-Info "отчётов, нарратив, делегирование, лишние самопроверки) и не ослабляет обязательные проверки."
     if ($current) {
@@ -4434,6 +4504,42 @@ function Write-EconomyModeAnnouncement {
     Write-Info "субагентам (модели — по ярусам из SUBAGENT_MODEL_*), оставляя себе решения и верификацию."
     Write-Info "Если модели ярусов не заданы, команда предложит выбрать их (профили по бенчу или свои слаги)."
     Write-Info "Действует на весь проект, включая новые чаты; выключение — /economymode off."
+}
+
+# Purchased / already-installed MCP bundle: the rules installer never issues
+# a key. A non-empty SUPPORT_KEY (ships with the MCP distribution) or an
+# external INSTALL.md-mode-3 tree is enough to skip the buy reminder.
+function Test-McpBundleSignal {
+    param(
+        [string]$Root,
+        $ExternalMcp = $null
+    )
+    if (-not $ExternalMcp) {
+        $ExternalMcp = Resolve-ExternalMcpMode -ProjectRoot $Root
+    }
+    if ($ExternalMcp -and $ExternalMcp.Mode -eq 'external') { return $true }
+    $envPath = Join-Path $Root $script:DevEnvFileName
+    if (Test-Path $envPath) {
+        $keys = Read-DevEnvKeys -Path $envPath
+        if ($keys.Contains('SUPPORT_KEY') -and -not [string]::IsNullOrWhiteSpace([string]$keys['SUPPORT_KEY'])) {
+            return $true
+        }
+    }
+    return $false
+}
+
+# Shown on init / update when MCP is not installed and the installer has no
+# key to hand out. Same wording as AGENT-INSTALL.md / /updaterules / /checkupdates.
+function Write-McpEffectivenessReminder {
+    param(
+        [string]$Root,
+        $ExternalMcp = $null
+    )
+    if (Test-McpBundleSignal -Root $Root -ExternalMcp $ExternalMcp) { return }
+    Write-Info ""
+    Write-Info "Правила работают наиболее эффективно с MCP-серверами для 1С: https://vibecoding1c.ru/mcp_server"
+    Write-Info "Комплект уже куплен — после перезапуска клиента запустите /installtools или /installmcp."
+    Write-Info "Нет комплекта — страница покупки по ссылке. Установщик правил ключ MCP не выдаёт."
 }
 
 # Offer the single tool-installation entry point after a first install and
@@ -4552,6 +4658,96 @@ function Assert-OpenCodeAgentFrontmatter {
     Write-Err "Fix: re-run ``install.ps1 update -Source <clone> -AssumeYes -ForcePaths .opencode/agent/*`` (PowerShell channel applies toolsToPermission)."
     Write-Err "Do NOT copy content/agents/*.md into .opencode/agent/ verbatim — that breaks OpenCode."
     throw "OpenCode agent frontmatter gate failed ($($result.Violations.Count) file(s)). See errors above."
+}
+
+# Abstract tool vocabulary that only content/agents/*.md may use. Hosts match
+# `tools` entries against their own tool registry, so any of these left in an
+# installed agent file resolves to nothing.
+$script:AbstractToolNames = @('Shell', 'MCP')
+
+# Hard gate: installed agent markdown must NOT keep the abstract `tools`
+# vocabulary. Claude Code / Kimi / Qwen read `tools` as a strict allowlist of
+# their own tool names, so `Shell` and `MCP` match nothing and the subagent
+# launches without shell and without a single MCP server (the
+# 1c-metadata-manager toolchain and the 1c-explorer MCP-first chain both die
+# there). Cursor does not document the field at all, so the abstract list is
+# an undocumented key there and its read-only intent has to go through
+# `readonly`. The adapters convert the list via `frontmatter.toolsToDenylist`
+# / `toolsToFlag` — this check catches agent-channel installs that skipped the
+# transform and copied content/agents verbatim.
+function Test-AgentToolVocabulary {
+    param([string]$Root)
+
+    $dirs = @()
+    foreach ($rel in @('.claude/agents', '.kimi-code/agents', '.qwen/agents', '.cursor/agents')) {
+        $abs = Join-Path $Root ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)
+        if (Test-Path $abs) { $dirs += @{ Abs = $abs; Rel = $rel } }
+    }
+    if ($dirs.Count -eq 0) {
+        return @{ Ok = $true; Skipped = $true; Checked = 0; Violations = @() }
+    }
+
+    $violations = @()
+    $checked = 0
+    foreach ($d in $dirs) {
+        Get-ChildItem -Path $d.Abs -Filter '*.md' -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $checked++
+            $relFile = ($d.Rel + '/' + $_.Name)
+            $text = Read-TextFile $_.FullName
+            $parts = Split-FrontmatterAndBody $text
+            $found = @()
+            foreach ($key in @('tools', 'disallowedTools')) {
+                if (-not $parts.Frontmatter -or -not $parts.Frontmatter.Contains($key)) { continue }
+                $val = $parts.Frontmatter[$key]
+                $entries =
+                    if ($val -is [System.Array]) { @($val | ForEach-Object { ([string]$_).Trim() }) }
+                    else { @(([string]$val) -split ',' | ForEach-Object { $_.Trim(' ', '[', ']', '"', "'") }) }
+                foreach ($e in $entries) {
+                    if ($script:AbstractToolNames -contains $e -and -not ($found -contains $e)) { $found += $e }
+                }
+            }
+            if ($found.Count -eq 0 -and $text -match '(?s)\A---\r?\n(.*?)\r?\n---') {
+                # Fallback: raw frontmatter text (parser miss / odd quoting).
+                # Scan the declaring line only: `MCP` and `Shell` are ordinary
+                # words in a `description`, and the body is full of both.
+                foreach ($fmLine in ($Matches[1] -split "`r?`n")) {
+                    if ($fmLine -notmatch '^\s*(tools|disallowedTools)\s*:') { continue }
+                    foreach ($abstract in $script:AbstractToolNames) {
+                        if ($fmLine -match ('(?<![\w-])' + $abstract + '(?![\w-])') -and -not ($found -contains $abstract)) {
+                            $found += $abstract
+                        }
+                    }
+                }
+            }
+            if ($found.Count -gt 0) {
+                $violations += "$relFile : frontmatter still uses the abstract tool name(s) $($found -join ', ') — no host understands them, and the ones that match tool names literally leave the subagent with no shell and no MCP server (see adapters/<tool>.yaml -> agents.frontmatter.toolsToDenylist / toolsToFlag)."
+            }
+        }
+    }
+
+    return @{
+        Ok         = ($violations.Count -eq 0)
+        Skipped    = $false
+        Checked    = $checked
+        Violations = $violations
+    }
+}
+
+function Assert-AgentToolVocabulary {
+    param([string]$Root)
+
+    $result = Test-AgentToolVocabulary -Root $Root
+    if ($result.Skipped) { return $result }
+    if ($result.Ok) {
+        Write-Info "Agent tool vocabulary OK: $($result.Checked) file(s) under .claude/.kimi-code/.qwen/.cursor agents/"
+        return $result
+    }
+
+    Write-Err "Agent tool vocabulary INVALID — $($result.Violations.Count) file(s) kept an abstract tool name:"
+    $result.Violations | ForEach-Object { Write-Err "  $_" }
+    Write-Err "Fix: re-run ``install.ps1 update -Source <clone> -AssumeYes -ForcePaths .claude/agents/*`` (substitute the affected directory; the PowerShell channel applies the adapter transform)."
+    Write-Err "Do NOT copy content/agents/*.md into a host agents directory verbatim, and do NOT just delete the tools line — that also drops the read-only guarantee."
+    throw "Agent tool vocabulary gate failed ($($result.Violations.Count) file(s)). See errors above."
 }
 
 function Invoke-Update {
@@ -4803,6 +4999,9 @@ function Invoke-Update {
     Write-Section 'OpenCode agent frontmatter gate'
     Assert-OpenCodeAgentFrontmatter -Root $Root
 
+    Write-Section 'Agent tool vocabulary gate'
+    Assert-AgentToolVocabulary -Root $Root
+
     Write-Section 'Report'
     Write-Info 'Update complete.'
     $forced = @($script:ForcedThisRun)
@@ -4818,6 +5017,7 @@ function Invoke-Update {
     if (-not $hadEconomyCommand) { Write-EconomyModeAnnouncement }
     if (-not $hadRulesModelCommand) { Write-RulesModelAnnouncement -Root $Root }
     Write-RestartRecommendation -ActiveTools $activeTools -McpCount $manifest.mcpServers.Count
+    Write-McpEffectivenessReminder -Root $Root -ExternalMcp $extMcp
     $currentToolInstallerNames = @(
         Get-ChildItem -LiteralPath (Join-Path $sourceRoot 'content\commands') -Filter 'install*.md' -File -ErrorAction SilentlyContinue |
             ForEach-Object { $_.Name } |
@@ -4897,6 +5097,9 @@ function Invoke-Add {
 
     Write-Section 'OpenCode agent frontmatter gate'
     Assert-OpenCodeAgentFrontmatter -Root $Root
+
+    Write-Section 'Agent tool vocabulary gate'
+    Assert-AgentToolVocabulary -Root $Root
 
     Write-Info "Added rules for $NewTool."
     Write-RestartRecommendation -ActiveTools $activeTools -McpCount $manifest.mcpServers.Count
