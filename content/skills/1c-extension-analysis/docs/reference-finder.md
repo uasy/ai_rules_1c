@@ -9,7 +9,7 @@ The single most error-prone step in analyzing "why does this extension modify th
 - an object whose `<ChildObjects>` is merely **open** because it contains adopted (unchanged) children, from
 - an object that genuinely has new/changed children.
 
-`cfe-diff -Mode A` already gets this right (it counts own vs. borrowed children). What it does **not** answer is the next question this project's extension-analysis workflow always needs: for an object that is adopted with **zero** real content, *why is it in the extension at all* — is there a load-bearing reason, or is it dead weight that can be excluded?
+`cfe-diff -Mode A` already gets this right (it counts own vs. borrowed children). What it does **not** answer is the next question this skill's workflow always needs: for an object that is adopted with **zero** real content, *why is it in the extension at all* — is there a load-bearing reason, or is it dead weight that can be excluded?
 
 There are exactly two mechanisms that justify adoption of an otherwise-untouched object, plus a third case that makes the question moot:
 

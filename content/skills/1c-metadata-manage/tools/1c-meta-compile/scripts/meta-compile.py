@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# meta-compile v1.68 — Compile 1C metadata object from JSON
+# meta-compile v1.69 — Compile 1C metadata object from JSON
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 
 import argparse
@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 import uuid
-import xml.etree.ElementTree as ET
 from lxml import etree
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -27,6 +26,7 @@ import support_guard  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_common"))
 import meta_dsl  # noqa: E402
+import dev_env  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Inline utilities
@@ -4184,73 +4184,219 @@ if predefined_items:
 # ---------------------------------------------------------------------------
 
 config_xml_path = os.path.join(output_dir, 'Configuration.xml')
-reg_result = None
 
 child_tag = obj_type
 
-if os.path.isfile(config_xml_path):
-    # Parse preserving whitespace via raw string manipulation
-    with open(config_xml_path, 'r', encoding='utf-8-sig') as f:
-        config_content = f.read()
 
-    ns = 'http://v8.1c.ru/8.3/MDClasses'
-    ET.register_namespace('', ns)
-    # Parse all namespaces used in the file
-    # Use iterparse to collect namespace prefixes
-    namespaces_in_file = {}
-    for evt, elem in ET.iterparse(config_xml_path, events=['start-ns']):
-        prefix, uri = elem
-        if prefix:
-            namespaces_in_file[prefix] = uri
-            ET.register_namespace(prefix, uri)
+# Куда навык ставит новую запись в <ChildObjects> — настройка NEW_OBJECT_POSITION.
+# Значения: end (по умолчанию) — после последнего объекта того же вида, так дописывает
+# Конфигуратор; byName — по имени среди объектов того же вида (АПК:1108, стандарт требует
+# алфавитного порядка в дереве).
+# 1c-rules: источник правды — .dev.env NEW_OBJECT_POSITION (через tools/_common/dev_env.py,
+# питон-двойник DevEnv.ps1); .v8-project.json остаётся запасным путём апстрима
+# (databases[].newObjectPosition базы, чей configSrc охватывает каталог конфигурации,
+# иначе корневое поле) — так же устроен SUPPORT_GUARD в tools/_shared/support_guard.py.
+# Файл ищем от рабочего каталога вверх, каталог конфигурации — запасной путь.
 
-    tree = ET.parse(config_xml_path)
-    root = tree.getroot()
+def _find_v8_project(start_dir):
+    d = start_dir
+    for _ in range(20):
+        if not d:
+            break
+        candidate = os.path.join(d, '.v8-project.json')
+        if os.path.isfile(candidate):
+            return candidate
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
 
-    child_objects = root.find(f'{{{ns}}}Configuration/{{{ns}}}ChildObjects')
-    if child_objects is None:
-        # Try direct path
-        config_elem = root.find(f'{{{ns}}}Configuration')
-        if config_elem is not None:
-            child_objects = config_elem.find(f'{{{ns}}}ChildObjects')
 
-    if child_objects is not None:
-        existing = child_objects.findall(f'{{{ns}}}{child_tag}')
-        already_exists = False
-        for e in existing:
-            if (e.text or '').strip() == obj_name:
-                already_exists = True
-                break
+def _norm_dir(path):
+    # TrimEnd('\\', '/') поверх GetFullPath — сравнение префиксов каталогов.
+    return os.path.abspath(path).rstrip('\\/')
 
-        if already_exists:
-            reg_result = 'already'
+
+def _get_new_object_position(cfg_dir):
+    try:
+        pos = (dev_env.get_value('NEW_OBJECT_POSITION') or '').strip()
+        # Значение ЗАДАНО (непусто) → .dev.env решает, .v8-project.json ниже не спрашиваем.
+        # Нераспознанное значение = документированный дефолт end, а не «как будто не задано»:
+        # иначе опечатка молча уводила бы порядок в настройку запасного файла.
+        # Пусто / ключа нет → '' от хелпера, и запасной путь апстрима остаётся в силе.
+        if pos:
+            return 'byName' if pos.lower() == 'byname' else 'end'
+        pj = _find_v8_project(os.getcwd())
+        if not pj and cfg_dir:
+            pj = _find_v8_project(_norm_dir(cfg_dir))
+        if not pj:
+            return 'end'
+        with open(pj, 'r', encoding='utf-8-sig') as fh:
+            proj = json.load(fh)
+        proj_dir = os.path.dirname(os.path.abspath(pj))
+        cfg_full = _norm_dir(cfg_dir or '.')
+        for db in (proj.get('databases') or []):
+            src = db.get('configSrc')
+            db_pos = db.get('newObjectPosition')
+            if src and db_pos:
+                src_full = _norm_dir(os.path.join(proj_dir, src))
+                if cfg_full == src_full or cfg_full.startswith(src_full + os.sep):
+                    return 'byName' if str(db_pos) == 'byName' else 'end'
+        if str(proj.get('newObjectPosition') or '') == 'byName':
+            return 'byName'
+        return 'end'
+    except Exception:  # noqa: BLE001 - сломанная настройка не должна ронять компиляцию
+        return 'end'
+
+
+# Виды, у которых порядок в дереве несёт смысл: автоматически их не упорядочиваем.
+# CommonAttribute — исключение самого стандарта (#std467): у общих реквизитов-разделителей
+# порядок в дереве задаёт порядок установки параметров сеанса. Subsystem и CommandGroup:
+# пока они не перечислены в <SubsystemsOrder> / <GroupsOrder> файла Ext/CommandInterface.xml,
+# порядок дерева задаёт порядок в интерфейсе, а платформа эти списки сама не заводит.
+# Language исключён из осторожности, без замера: языков обычно один-два, и в типовых их
+# порядок не алфавитный.
+_ORDER_SENSITIVE_TYPES = ('CommonAttribute', 'Subsystem', 'CommandGroup', 'Language')
+
+
+def _name_sort_key(name):
+    """Пары «ранг+символ»: регистр не учитывается, подчёркивание раньше цифр, цифры раньше
+    букв, буквы по кодам (латиница раньше кириллицы), ё на месте е. Культурные таблицы не
+    используются — они разные на разных ОС и в разных рантаймах, а так сравнение одинаково
+    везде."""
+    import unicodedata
+    key = []
+    for ch in name.lower():
+        if ch == 'ё':
+            ch = 'е'
+        category = unicodedata.category(ch)
+        if category == 'Nd':
+            key.append('1')
+        elif category.startswith('L'):
+            key.append('2')
         else:
-            new_elem = ET.SubElement(child_objects, f'{{{ns}}}{child_tag}')
-            new_elem.text = obj_name
+            key.append('0')
+        key.append(ch)
+    return ''.join(key)
 
-            if existing:
-                # Insert after last existing element of same type
-                last_elem = existing[-1]
-                all_children = list(child_objects)
-                idx = all_children.index(last_elem)
-                child_objects.remove(new_elem)
-                child_objects.insert(idx + 1, new_elem)
 
-            # Write back preserving BOM
-            tree.write(config_xml_path, encoding='utf-8', xml_declaration=True)
-            # Re-read to add BOM, fix declaration quotes, ensure trailing newline
-            with open(config_xml_path, 'r', encoding='utf-8') as f:
-                raw = f.read()
-            if raw.startswith("<?xml version='1.0' encoding='utf-8'?>"):
-                raw = raw.replace("<?xml version='1.0' encoding='utf-8'?>", '<?xml version="1.0" encoding="UTF-8"?>', 1)
-            if not raw.endswith('\n'):
-                raw += '\n'
-            write_utf8_bom(config_xml_path, raw)
-            reg_result = 'added'
+def _compare_metadata_names(a, b):
+    """Равные ключи разводит ordinal-сравнение исходных строк. Возвращает -1 | 0 | 1."""
+    key_a, key_b = _name_sort_key(a), _name_sort_key(b)
+    if key_a < key_b:
+        return -1
+    if key_a > key_b:
+        return 1
+    if a < b:
+        return -1
+    if a > b:
+        return 1
+    return 0
+
+# Канонический порядок видов в <ChildObjects>. Нужен, чтобы новая группа вида вставала на
+# своё место: иначе платформа переставит её при первой же выгрузке и даст диф на ровном месте.
+_CHILD_OBJECT_TYPES = (
+    'Language', 'Subsystem', 'StyleItem', 'Style',
+    'CommonPicture', 'SessionParameter', 'Role', 'CommonTemplate',
+    'FilterCriterion', 'CommonModule', 'CommonAttribute', 'ExchangePlan',
+    'XDTOPackage', 'WebService', 'HTTPService', 'WSReference',
+    'EventSubscription', 'ScheduledJob', 'SettingsStorage', 'FunctionalOption',
+    'FunctionalOptionsParameter', 'DefinedType', 'Bot', 'PaletteColor', 'CommonCommand', 'CommandGroup',
+    'Constant', 'CommonForm', 'Catalog', 'Document',
+    'DocumentNumerator', 'Sequence', 'DocumentJournal', 'Enum',
+    'Report', 'DataProcessor', 'InformationRegister', 'AccumulationRegister',
+    'ChartOfCharacteristicTypes', 'ChartOfAccounts', 'AccountingRegister',
+    'ChartOfCalculationTypes', 'CalculationRegister',
+    'BusinessProcess', 'Task', 'IntegrationService',
+)
+
+
+def register_in_child_objects(parent_xml_path, parent_tag, child_tag, child_name):
+    """Регистрация объекта в <ChildObjects> родительского XML.
+    Возвращает исход: added | already | no-childobj | no-config."""
+    if not os.path.isfile(parent_xml_path):
+        return 'no-config'
+
+    # DOM — только на чтение: найти ChildObjects и отсечь дубликат.
+    md_ns = {'md': 'http://v8.1c.ru/8.3/MDClasses'}
+    try:
+        doc = etree.parse(parent_xml_path)
+        child_objects = doc.find(f'.//md:{parent_tag}/md:ChildObjects', md_ns)
+    except etree.XMLSyntaxError:
+        child_objects = None
+    if child_objects is None:
+        return 'no-childobj'
+    for e in child_objects.findall(f'md:{child_tag}', md_ns):
+        if (e.text or '') == child_name:
+            return 'already'
+
+    # Правка по сырому тексту: сериализация DOM переписала бы файл целиком (регистр encoding,
+    # `<a />` вместо `<a/>`, EOL), а текстовая вставка хранит его байт-в-байт — дельта ровно
+    # в одну строку. Правим чужой файл, значит наследуем его стиль.
+    with open(parent_xml_path, 'rb') as fh:
+        config_content = fh.read().decode('utf-8-sig')
+    eol = '\r\n' if '\r\n' in config_content else '\n'
+    entry = f'<{child_tag}>{meta_dsl.esc_xml_text(child_name)}</{child_tag}>'
+
+    block = re.search(r'(?s)<ChildObjects\s*>.*?</ChildObjects>', config_content)
+    if not block:
+        # Самозакрытый <ChildObjects/> раскрываем первой записью
+        empty = re.search(r'<ChildObjects\s*/>', config_content)
+        if not empty:
+            return 'no-childobj'
+        replacement = f'<ChildObjects>{eol}\t\t\t{entry}{eol}\t\t</ChildObjects>'
+        write_utf8_bom(parent_xml_path,
+                       config_content[:empty.start()] + replacement + config_content[empty.end():])
+        return 'added'
+
+    # byName: перед первым объектом того же вида, чьё имя больше нового.
+    # Виды с осмысленным порядком в дереве пропускаем — см. _ORDER_SENSITIVE_TYPES.
+    if child_tag not in _ORDER_SENSITIVE_TYPES and \
+            _get_new_object_position(os.path.dirname(os.path.abspath(parent_xml_path))) == 'byName':
+        line_rx = re.compile(r'(?m)^([ \t]*)<' + re.escape(child_tag) + r'>([^<]*)</' + re.escape(child_tag) + r'>')
+        for m in line_rx.finditer(config_content, block.start(), block.end()):
+            if _compare_metadata_names(m.group(2), child_name) > 0:
+                write_utf8_bom(parent_xml_path,
+                               config_content[:m.start()] + m.group(1) + entry + eol
+                               + config_content[m.start():])
+                return 'added'
+
+    block_start, block_end = block.span()
+    close_same = f'</{child_tag}>'
+    last_same = config_content.rfind(close_same, block_start, block_end)
+    if last_same >= 0:
+        # После последнего объекта того же вида (группы по видам сохраняются)
+        insert_at = last_same + len(close_same)
+        write_utf8_bom(parent_xml_path,
+                       config_content[:insert_at] + f'{eol}\t\t\t{entry}' + config_content[insert_at:])
     else:
-        reg_result = 'no-childobj'
-else:
-    reg_result = 'no-config'
+        # Группы своего вида ещё нет: ставим её в канонический порядок видов — перед первой
+        # группой вида старше по _CHILD_OBJECT_TYPES. Дописать в конец блока нельзя: платформа
+        # переставит группу при первой же выгрузке и даст диф на ровном месте.
+        own_idx = _CHILD_OBJECT_TYPES.index(child_tag) if child_tag in _CHILD_OBJECT_TYPES else -1
+        anchor = None
+        if own_idx >= 0:
+            type_rx = re.compile(r'(?m)^([ \t]*)<(\w+)>[^<]*</\2>')
+            for tm in type_rx.finditer(config_content, block_start, block_end):
+                other_idx = _CHILD_OBJECT_TYPES.index(tm.group(2)) if tm.group(2) in _CHILD_OBJECT_TYPES else -1
+                if other_idx > own_idx:
+                    anchor = tm
+                    break
+        if anchor:
+            write_utf8_bom(parent_xml_path,
+                           config_content[:anchor.start()] + anchor.group(1) + entry + eol
+                           + config_content[anchor.start():])
+        else:
+            # Видов старше в файле нет — новая строка перед </ChildObjects>,
+            # отступ закрывающего тега переиспользуется
+            close_at = config_content.rfind('</ChildObjects>', block_start, block_end)
+            write_utf8_bom(parent_xml_path,
+                           config_content[:close_at] + f'\t{entry}{eol}\t\t' + config_content[close_at:])
+    return 'added'
+
+
+reg_result = register_in_child_objects(config_xml_path, 'Configuration', child_tag, obj_name)
 
 # ---------------------------------------------------------------------------
 # 18. Summary

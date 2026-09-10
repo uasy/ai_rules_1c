@@ -102,6 +102,12 @@ The PowerShell scripts under `tools/1c-db-ops/scripts/` were refreshed from [Nik
 - **`db-load-git`** — picks up changes to HTML help (`ru.html` and similar) via partial load even without the accompanying `Help.xml` in the commit. Previously such edits were silently dropped and the help text in the base stayed stale. Fixed search for changed files when sources live in a nested folder of the repo (`src/cf` etc.); path normalisation for the configuration directory is corrected.
 - **db-list** — already fully described in Part 1 of this doc (registry of `.v8-project.json`). It is a no-script skill in upstream — the agent reads / writes the JSON directly. No script files were added under `tools/`.
 
+## edit-preview.md
+
+### Python wrapper for the ported tools (`2026-09-09`)
+
+`Invoke-1CEdit.ps1` and `MetadataAddress.ps1` arrived with an upstream sync as PowerShell-only helpers, which left a Linux / macOS install without logical addressing, unified diff and preview — while `AGENTS.md` required the preview unconditionally. Both helpers now ship Python peers (`Invoke-1CEdit.py`, `MetadataAddress.py`, stdlib only — the runtime requirement of the ports does not grow). Same contract, one deliberate difference: the Python wrapper wraps only the tools that carry a `.py` runtime — it introspects their `argparse` declarations through the `ast` module instead of the PowerShell param-block parser (importing a port would execute it, so the AST is the only safe reader) — and refuses a PowerShell-only tool with that explanation. The rollback backends are unchanged: `git checkout` / `git clean` over a verified-clean watched path, the copy snapshot otherwise; the diff is `git diff --no-index` in both runtimes. Pinned by `tools/tests/python-ports-regression.py`.
+
 ## epf-manage.md
 
 ### Upstream sync `2026-07-30`
@@ -189,6 +195,10 @@ The PowerShell scripts under `tools/1c-interface-manage/scripts/` were refreshed
 - **`interface-validate`** — universal validator improvements (one-liner output by default, `-Detailed`, folder path auto-resolution) — see `role-manage.md` → "Recent Additions".
 
 ## meta-manage.md
+
+### Python port of `meta-compile` caught up with v1.69 (`2026-09-09`)
+
+`meta-compile.py` (v1.68) trailed `meta-compile.ps1` (v1.69) by the upstream `4aef5ca` release: `NEW_OBJECT_POSITION` was silently ignored and the registration rewrote `Configuration.xml` through `ElementTree`, restyling the whole file. The port now mirrors the PowerShell section 17 one to one — `.dev.env` is the source of truth with the `.v8-project.json` fallback (databases with a covering `configSrc`, then the root field), `byName` sorts inside the kind group by the Configurator-tree key pairs (АПК:1108), order-sensitive kinds (`Subsystem`, `CommandGroup`, `CommonAttribute`, `Language`) are never reordered, a brand-new kind group lands in canonical type order, and the registration is a raw-text insertion: the file is kept byte-for-byte except the single added line. Pinned by `tools/tests/python-ports-regression.py` (six cases against the shared `config-dump` fixture).
 
 ### Upstream sync `2026-07-30`
 
@@ -333,6 +343,10 @@ The PowerShell scripts under `tools/1c-subsystem-manage/scripts/` were refreshed
 - Validators got the universal improvements described in `role-manage.md` → "Recent Additions" (one-liner output by default, `-Detailed`, folder path auto-resolution).
 
 ## template-manage.md
+
+### Python port of `template-remove` got the safety gate (`2026-09-09`)
+
+`remove-template.py` — the Linux / macOS runtime of `template-remove` — shipped without the local hardening `remove-template.ps1` v1.3 carries: it accepted no `-DryRun` and deleted unconditionally without `-Force`, so the "preview first" workflow of [template-manage.md](template-manage.md) was impossible on a non-Windows host. The port now mirrors the PowerShell contract — preflight parse (the XML edit is planned and rendered before the tree is touched), a refusal when the template is not registered in `ChildObjects`, an atomic root-XML write through a temporary file, then the gate (`-DryRun` prints the plan and changes nothing; a real removal requires `-Force`, otherwise exit 2). Pinned by `tools/tests/python-ports-regression.py` with the new `epf-with-template` fixture; deltas recorded in [`NOTICE.md`](../NOTICE.md).
 
 ### Upstream sync `2026-07-30`
 

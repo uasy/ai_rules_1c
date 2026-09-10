@@ -14,7 +14,7 @@ and travels with every copy of this skill, including installed ones
 Vendored under `tools/`, with local modifications documented in each file's
 header and in `docs/`:
 
-**Python entry points — exactly five, all vendored from the pinned commit above.**
+**Python entry points — exactly six, all vendored from the pinned commit above.**
 Each was taken from that immutable commit, not from a moving `HEAD`, and each
 carries its downstream deltas in its own file header:
 
@@ -26,6 +26,14 @@ carries its downstream deltas in its own file header:
   transactional mutation path whose quarantine is discarded only after every
   payload is verifiably back or the transaction has committed, and
   byte-preserving `ChildObjects` editing. Upstream base: v1.4.
+- `tools/1c-template-manage/scripts/remove-template.py` — Python runtime of
+  `template-remove`. Downstream deltas: the same local hardening
+  `remove-template.ps1` carries on top of upstream v1.3 — preflight parse (the
+  root XML is parsed, planned and rendered before anything is deleted), a
+  refusal when the template is not registered in `ChildObjects`, an atomic
+  root-XML write through a temporary file, and the `-DryRun` / `-Force` safety
+  gate (upstream deletes unconditionally and accepts neither flag). Pinned by
+  `tools/tests/python-ports-regression.py`. Upstream base: v1.3.
 - `tools/1c-form-compile/scripts/form-compile.py` — Python runtime of
   `form-compile`. Downstream deltas: one event normalizer for all three DSL
   spellings (`events`, `on` + `handlers`, standalone `handlers`), an explicit
@@ -51,6 +59,10 @@ carries its downstream deltas in its own file header:
   name it declares must be the name that was registered (6d).
 - `tools/_common/dev_env.py` — not upstream code: the Python peer of the local
   `DevEnv.ps1`, so both runtimes read project parameters from `.dev.env`.
+- `tools/_common/MetadataAddress.py` and `tools/_common/Invoke-1CEdit.py` —
+  not upstream code: Python peers of the local `MetadataAddress.ps1` /
+  `Invoke-1CEdit.ps1`, so logical addressing and the preview wrapper work on a
+  Linux / macOS install for every tool that ships a `.py` runtime.
 
 Everything else under `tools/` is PowerShell-only; **no other Python port is
 shipped.** The pin above is not to be advanced without re-running

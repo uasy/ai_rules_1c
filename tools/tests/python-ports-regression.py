@@ -58,6 +58,7 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+import difflib
 import fnmatch
 import importlib.util
 import io
@@ -79,6 +80,7 @@ TOOLS_DIR = os.path.join(REPO_ROOT, "content", "skills", "1c-metadata-manage", "
 
 REMOVE_FORM_PY = os.path.join(TOOLS_DIR, "1c-form-scaffold", "scripts", "remove-form.py")
 REMOVE_FORM_PS1 = os.path.join(TOOLS_DIR, "1c-form-scaffold", "scripts", "remove-form.ps1")
+REMOVE_TEMPLATE_PY = os.path.join(TOOLS_DIR, "1c-template-manage", "scripts", "remove-template.py")
 FORM_COMPILE_PY = os.path.join(TOOLS_DIR, "1c-form-compile", "scripts", "form-compile.py")
 FORM_COMPILE_PS1 = os.path.join(TOOLS_DIR, "1c-form-compile", "scripts", "form-compile.ps1")
 FORM_ADD_PY = os.path.join(TOOLS_DIR, "1c-form-scaffold", "scripts", "form-add.py")
@@ -87,6 +89,7 @@ META_EDIT_PY = os.path.join(TOOLS_DIR, "1c-meta-edit", "scripts", "meta-edit.py"
 META_EDIT_PS1 = os.path.join(TOOLS_DIR, "1c-meta-edit", "scripts", "meta-edit.ps1")
 META_VALIDATE_PY = os.path.join(TOOLS_DIR, "1c-meta-validate", "scripts", "meta-validate.py")
 META_VALIDATE_PS1 = os.path.join(TOOLS_DIR, "1c-meta-validate", "scripts", "meta-validate.ps1")
+META_COMPILE_PY = os.path.join(TOOLS_DIR, "1c-meta-compile", "scripts", "meta-compile.py")
 DEV_ENV_PY = os.path.join(TOOLS_DIR, "_common", "dev_env.py")
 
 
@@ -1186,6 +1189,500 @@ def _(work):
                  "the two runtimes indent ChildObjects differently")
 
 
+# -------------------------------------------------------------- remove-template
+
+@case("remove-template: -DryRun prints the plan and mutates nothing")
+def _(work):
+    copy_fixture("epf-with-template", work)
+    before = snapshot_tree(work)
+
+    dry = run_python_tool(
+        REMOVE_TEMPLATE_PY,
+        ["-ObjectName", "Obrabotka", "-TemplateName", "Pechat", "-SrcDir", work, "-DryRun"],
+        work,
+    )
+    assert_equal(0, dry["exit_code"], f"dry-run exit code (stderr: {dry['stderr']})")
+    assert_true("Planned changes:" in dry["stdout"], f"plan is not printed:\n{dry['stdout']}")
+    assert_true("remove ChildObjects/Template 'Pechat'" in dry["stdout"],
+                f"plan omits the registration removal:\n{dry['stdout']}")
+    assert_true("(recursive)" in dry["stdout"],
+                f"plan omits the template directory:\n{dry['stdout']}")
+    # MainDataCompositionSchema points at the OTHER template - clearing it here
+    # would break the DCS of a template that is still in place.
+    assert_true("Clear MainDataCompositionSchema" not in dry["stdout"],
+                f"plan clears a schema slot pointing at a surviving template:\n{dry['stdout']}")
+    assert_true("[DRY-RUN] No files changed." in dry["stdout"],
+                f"no dry-run marker:\n{dry['stdout']}")
+
+    after = snapshot_tree(work)
+    assert_tree_identical(before, after, "-DryRun mutated the tree")
+
+
+@case("remove-template: a real deletion is refused without -Force, before any mutation")
+def _(work):
+    copy_fixture("epf-with-template", work)
+    before = snapshot_tree(work)
+
+    run = run_python_tool(
+        REMOVE_TEMPLATE_PY,
+        ["-ProcessorName", "Obrabotka", "-TemplateName", "Pechat", "-SrcDir", work],
+        work,
+    )
+    assert_equal(2, run["exit_code"],
+                 f"refusal exit code (stdout: {run['stdout'][:300]!r} stderr: {run['stderr'][:300]!r})")
+    assert_true("requires explicit -Force" in run["stderr"],
+                f"the refusal is not explained (stderr: {run['stderr']})")
+
+    after = snapshot_tree(work)
+    assert_tree_identical(before, after, "the refused run changed the tree")
+
+
+@case("remove-template: -Force removes the target and leaves the sibling and its references intact")
+def _(work):
+    copy_fixture("epf-with-template", work)
+    root_xml = os.path.join(work, "Obrabotka.xml")
+    before = file_facts(root_xml)
+
+    run = run_python_tool(
+        REMOVE_TEMPLATE_PY,
+        ["-ProcessorName", "Obrabotka", "-TemplateName", "OsnovnayaSKD", "-SrcDir", work, "-Force"],
+        work,
+    )
+    assert_equal(0, run["exit_code"], f"-Force run exit code (stderr: {run['stderr']})")
+    assert_true("[PLAN] Clear MainDataCompositionSchema" in run["stdout"],
+                f"the cleared schema slot is not announced:\n{run['stdout']}")
+
+    templates_dir = os.path.join(work, "Obrabotka", "Templates")
+    assert_true(not os.path.exists(os.path.join(templates_dir, "OsnovnayaSKD.xml")),
+                "the removed template's metadata survived")
+    assert_true(not os.path.isdir(os.path.join(templates_dir, "OsnovnayaSKD")),
+                "the removed template's directory survived")
+    assert_true(os.path.isfile(os.path.join(templates_dir, "Pechat.xml")),
+                "the sibling template was deleted too")
+    assert_true(os.path.isfile(os.path.join(templates_dir, "Pechat", "Ext", "Template.bin")),
+                "the sibling template's content was deleted too")
+
+    after = file_facts(root_xml)
+    assert_true("<Template>OsnovnayaSKD</Template>" not in after["text"],
+                "ChildObjects still registers the removed template")
+    assert_true("<Template>Pechat</Template>" in after["text"],
+                "the sibling registration was removed too")
+    assert_true("DataProcessor.Obrabotka.Template.OsnovnayaSKD" not in after["text"],
+                "MainDataCompositionSchema still points at the removed template")
+    assert_true(after["bom"], "root XML lost its BOM")
+    assert_equal(0, after["crlf"], "CRLF introduced into an LF file")
+    assert_true(before["lines"].count("") == after["lines"].count(""), "blank-line structure changed")
+    assert_true(not os.path.exists(root_xml + ".remove-template.tmp"), "temporary root XML left behind")
+
+
+@case("remove-template: the entry leaves and the ChildObjects block keeps its exact shape")
+def _(work):
+    """Deregistration drops one whole line and touches no other byte of the block.
+
+    In lxml the separator *before* an element lives in the previous sibling's
+    tail (or in the parent's text for the first child) and the one *after* it
+    lives in the element's own tail, which `remove` takes along. Clearing the
+    preceding separator as well drops both, and the neighbours close up:
+    removing the last entry pulls `</ChildObjects>` onto the line of the entry
+    before it, and removing the first joins the survivor to `<ChildObjects>`.
+    remove-template.ps1 drops the single preceding whitespace node, so both
+    ends are pinned here - for the last entry and for the first one.
+    """
+    for target, survivor in (("Pechat", "OsnovnayaSKD"), ("OsnovnayaSKD", "Pechat")):
+        copy_fixture("epf-with-template", work)
+        root_xml = os.path.join(work, "Obrabotka.xml")
+        before_block = childobjects_block(file_facts(root_xml)["text"])
+        assert_true(before_block is not None, "the fixture has no ChildObjects block")
+
+        run = run_python_tool(
+            REMOVE_TEMPLATE_PY,
+            ["-ObjectName", "Obrabotka", "-TemplateName", target, "-SrcDir", work, "-Force"],
+            work,
+        )
+        assert_equal(0, run["exit_code"], f"-Force run exit code (stderr: {run['stderr']})")
+
+        after_block = childobjects_block(file_facts(root_xml)["text"])
+        expected = [line for line in before_block.splitlines()
+                    if line.strip() != f"<Template>{target}</Template>"]
+        assert_equal(expected, after_block.splitlines(),
+                     f"removing '{target}' reshaped the block instead of dropping one line")
+        assert_true(any(line.strip() == f"<Template>{survivor}</Template>"
+                        for line in after_block.splitlines()),
+                    f"the surviving entry '{survivor}' lost its own line")
+
+        shutil.rmtree(work)
+        os.makedirs(work)
+
+
+@case("remove-template: a template absent from ChildObjects is refused before any mutation")
+def _(work):
+    """The preflight refusal must fire even in the mode documented as non-mutating."""
+    copy_fixture("epf-with-template", work)
+    # The orphan has metadata files on disk, so the earlier "meta not found"
+    # refusal does not shadow the registration check under test.
+    orphan_meta = os.path.join(work, "Obrabotka", "Templates", "Orphan.xml")
+    orphan_dir = os.path.join(work, "Obrabotka", "Templates", "Orphan")
+    with open(orphan_meta, "wb") as handle:
+        handle.write(b"<orphan/>")
+    os.makedirs(orphan_dir)
+    before = snapshot_tree(work)
+
+    run = run_python_tool(
+        REMOVE_TEMPLATE_PY,
+        ["-ObjectName", "Obrabotka", "-TemplateName", "Orphan", "-SrcDir", work, "-DryRun"],
+        work,
+    )
+    assert_equal(1, run["exit_code"], f"unregistered template must exit 1 (stderr: {run['stderr']})")
+    assert_true("not registered in ChildObjects" in run["stderr"],
+                f"the refusal is not explained (stderr: {run['stderr']})")
+
+    after = snapshot_tree(work)
+    assert_tree_identical(before, after, "the refused run changed the tree")
+
+
+# ------------------------------------------------- meta-compile: Configuration.xml
+
+META_COMPILE_FIXTURES = os.path.join(FIXTURES_DIR, "meta-compile")
+NEW_ENUM_NAME = "Доки_ТипыОшибокОтправкиЭПД"
+
+
+def run_meta_compile(work, definition):
+    """A full meta-compile run against the shared config-dump fixture."""
+    shutil.copyfile(os.path.join(META_COMPILE_FIXTURES, definition), os.path.join(work, definition))
+    return run_python_tool(
+        META_COMPILE_PY,
+        ["-JsonPath", os.path.join(work, definition), "-OutputDir", work],
+        work,
+    )
+
+
+def write_dev_env_file(work, text):
+    with open(os.path.join(work, ".dev.env"), "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
+def childobject_entries(root_xml_text):
+    """(tag, name) pairs inside <ChildObjects>, in file order."""
+    return re.findall(r"(?m)^\s*<(\w+)>([^<]*)</\1>", childobjects_block(root_xml_text) or "")
+
+
+def line_delta(before_text, after_text):
+    """(removed, added) line lists — the registration contract is 0 removed, 1 added."""
+    removed, added = [], []
+    before_lines, after_lines = before_text.splitlines(), after_text.splitlines()
+    matcher = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag in ("delete", "replace"):
+            removed.extend(before_lines[i1:i2])
+        if tag in ("insert", "replace"):
+            added.extend(after_lines[j1:j2])
+    return removed, added
+
+
+def assert_registration_style(before, after, what):
+    """Registration adds exactly one <Kind>Name</Kind> line; the rest of the file
+    is kept byte-for-byte (BOM, EOL, declaration case, indentation, <Tag/> form)."""
+    assert_equal(before["bom"], after["bom"], f"{what}: BOM changed")
+    assert_equal(before["crlf"], after["crlf"], f"{what}: EOL style changed")
+    assert_true(after["text"].startswith('<?xml version="1.0" encoding="utf-8"?>'),
+                f"{what}: XML declaration was rewritten:\n{after['text'][:120]!r}")
+    removed, added = line_delta(before["text"], after["text"])
+    assert_equal([], removed, f"{what}: registration removed lines: {removed}")
+    assert_equal(1, len(added), f"{what}: registration must add exactly one line, added: {added}")
+    return added[0]
+
+
+def enum_names(config_text):
+    return [name for tag, name in childobject_entries(config_text) if tag == "Enum"]
+
+
+@case("meta-compile: the default registration appends after the last object of the kind")
+def _(work):
+    copy_fixture("config-dump", work)
+    config_xml = os.path.join(work, "Configuration.xml")
+    before = file_facts(config_xml)
+
+    run = run_meta_compile(work, "new-enum.json")
+    assert_equal(0, run["exit_code"], f"meta-compile exit code (stderr: {run['stderr']})")
+
+    after = file_facts(config_xml)
+    added_line = assert_registration_style(before, after, "meta-compile default")
+    assert_equal(f"\t\t\t<Enum>{NEW_ENUM_NAME}</Enum>", added_line,
+                 "the added line is not the registration entry")
+    assert_equal(NEW_ENUM_NAME, enum_names(after["text"])[2],
+                 "default position must append after the last Enum")
+
+
+@case("meta-compile: NEW_OBJECT_POSITION=byName inserts inside the type group")
+def _(work):
+    copy_fixture("config-dump", work)
+    write_dev_env_file(work, "NEW_OBJECT_POSITION=byName\n")
+    config_xml = os.path.join(work, "Configuration.xml")
+    before = file_facts(config_xml)
+
+    run = run_meta_compile(work, "new-enum.json")
+    assert_equal(0, run["exit_code"], f"meta-compile exit code (stderr: {run['stderr']})")
+
+    after = file_facts(config_xml)
+    assert_registration_style(before, after, "meta-compile byName")
+    enums = enum_names(after["text"])
+    assert_equal(3, len(enums), "enum entry count")
+    assert_equal("Доки_ТипыЛентыСобытий", enums[0], "first enum moved")
+    assert_equal(NEW_ENUM_NAME, enums[1], "byName must place the new enum between the two existing ones")
+    assert_equal("Доки_ТипыПриглашений", enums[2], "last enum moved")
+
+
+@case("meta-compile: NEW_OBJECT_POSITION=end is the backward-compatible default")
+def _(work):
+    copy_fixture("config-dump", work)
+    write_dev_env_file(work, "NEW_OBJECT_POSITION=end\n")
+    config_xml = os.path.join(work, "Configuration.xml")
+
+    run = run_meta_compile(work, "new-enum.json")
+    assert_equal(0, run["exit_code"], f"meta-compile exit code (stderr: {run['stderr']})")
+
+    assert_equal(NEW_ENUM_NAME, enum_names(file_facts(config_xml)["text"])[2],
+                 "explicit end must behave like the default")
+
+
+@case("meta-compile: an invalid .dev.env value resolves to end, not to the fallback")
+def _(work):
+    """A typo in .dev.env must not hand the decision to .v8-project.json: the documented
+    contract is that .dev.env is authoritative and an unrecognized value means end."""
+    copy_fixture("config-dump", work)
+    write_dev_env_file(work, "NEW_OBJECT_POSITION=by-name\n")
+    with open(os.path.join(work, ".v8-project.json"), "w", encoding="utf-8") as handle:
+        handle.write('{ "newObjectPosition": "byName" }')
+    config_xml = os.path.join(work, "Configuration.xml")
+
+    run = run_meta_compile(work, "new-enum.json")
+    assert_equal(0, run["exit_code"], f"meta-compile exit code (stderr: {run['stderr']})")
+
+    assert_equal(NEW_ENUM_NAME, enum_names(file_facts(config_xml)["text"])[2],
+                 "an invalid .dev.env value must not reach the fallback")
+
+
+@case("meta-compile: a missing .dev.env key leaves the .v8-project.json fallback in charge")
+def _(work):
+    copy_fixture("config-dump", work)
+    with open(os.path.join(work, ".v8-project.json"), "w", encoding="utf-8") as handle:
+        handle.write('{ "newObjectPosition": "byName" }')
+    config_xml = os.path.join(work, "Configuration.xml")
+
+    run = run_meta_compile(work, "new-enum.json")
+    assert_equal(0, run["exit_code"], f"meta-compile exit code (stderr: {run['stderr']})")
+
+    assert_equal(NEW_ENUM_NAME, enum_names(file_facts(config_xml)["text"])[1],
+                 "missing .dev.env key must leave the .v8-project.json fallback in charge")
+
+
+@case("meta-compile: a brand-new type group lands in canonical type order")
+def _(work):
+    copy_fixture("config-dump", work)
+    config_xml = os.path.join(work, "Configuration.xml")
+    before = file_facts(config_xml)
+
+    run = run_meta_compile(work, "new-report.json")
+    assert_equal(0, run["exit_code"], f"meta-compile exit code (stderr: {run['stderr']})")
+
+    after = file_facts(config_xml)
+    assert_registration_style(before, after, "meta-compile new type group")
+    # Canonical order of kinds: ... Catalog, ... Enum, Report, ... AccumulationRegister.
+    # Appending to the end of the block would have put Report after AccumulationRegister.
+    tags = [tag for tag, _ in childobject_entries(after["text"])]
+    assert_equal("Language Catalog Enum Enum Report AccumulationRegister", " ".join(tags),
+                 "kind order in ChildObjects")
+
+
+@case("meta-compile: re-registering the same object is a no-op")
+def _(work):
+    copy_fixture("config-dump", work)
+    write_dev_env_file(work, "NEW_OBJECT_POSITION=byName\n")
+    config_xml = os.path.join(work, "Configuration.xml")
+
+    first = run_meta_compile(work, "new-enum.json")
+    assert_equal(0, first["exit_code"], f"first meta-compile exit code (stderr: {first['stderr']})")
+    after_first = file_facts(config_xml)
+
+    second = run_meta_compile(work, "new-enum.json")
+    assert_equal(0, second["exit_code"], f"second meta-compile exit code (stderr: {second['stderr']})")
+    after_second = file_facts(config_xml)
+
+    names = [name for _, name in childobject_entries(after_second["text"])]
+    assert_equal(1, names.count(NEW_ENUM_NAME), "object registered twice")
+    assert_equal(after_first["sha"], after_second["sha"], "second run rewrote Configuration.xml")
+
+
+# ------------------------------------------- metadata-address / invoke-1c-edit
+
+METADATA_ADDRESS_PY = os.path.join(TOOLS_DIR, "_common", "MetadataAddress.py")
+INVOKE_1C_EDIT_PY = os.path.join(TOOLS_DIR, "_common", "Invoke-1CEdit.py")
+
+
+def git_porcelain(work):
+    proc = subprocess.run(["git", "status", "--porcelain"], cwd=work,
+                          capture_output=True, text=True, encoding="utf-8")
+    return [line for line in proc.stdout.splitlines() if line.strip()]
+
+
+@case("metadata-address: logical addresses resolve to the paths the tools expect")
+def _(work):
+    module = load_tool_module(METADATA_ADDRESS_PY)
+    dump = os.path.join(work, "dump")
+    copy_fixture("config-dump", dump)
+    join = os.path.join
+    assert_equal(join(dump, "Catalogs", "TestCatalog.xml"),
+                 module.resolve_object_path("Catalog.TestCatalog", dump),
+                 "a plain object address must resolve to its own XML")
+    assert_equal(join(dump, "Catalogs", "TestCatalog.xml"),
+                 module.resolve_object_path("Справочник.TestCatalog", dump),
+                 "Russian kind names must resolve like English ones")
+    assert_equal(join(dump, "Catalogs", "TestCatalog", "Forms", "ФормаЭлемента", "Ext", "Form.xml"),
+                 module.resolve_object_path("Catalog.TestCatalog.Форма.ФормаЭлемента", dump),
+                 "a form address must resolve to Ext/Form.xml")
+    assert_equal(join(dump, "Catalogs", "TestCatalog", "Templates", "Печать", "Ext", "Template.xml"),
+                 module.resolve_object_path("Catalog.TestCatalog.Макет.Печать", dump),
+                 "a template address must resolve to Ext/Template.xml")
+    assert_equal(join(dump, "Catalogs", "TestCatalog", "Ext", "Rights.xml"),
+                 module.resolve_object_path("Catalog.TestCatalog.Rights", dump),
+                 "the rights member must resolve to Ext/Rights.xml")
+    assert_equal(join(dump, "Catalogs", "TestCatalog", "Ext", "ObjectModule.bsl"),
+                 module.resolve_object_path("Catalog.TestCatalog.ObjectModule", dump),
+                 "the object module member must resolve to Ext/ObjectModule.bsl")
+
+    # The dump root: explicit -Root, then EXPORT_PATH from .dev.env, then the walk-up.
+    assert_equal(dump, module.resolve_dump_root(dump),
+                 "an explicit root must answer verbatim")
+    assert_equal(dump, module.resolve_dump_root(None, start_dir=join(dump, "Catalogs")),
+                 "the walk-up must find Configuration.xml")
+    write_dev_env_file(work, f"EXPORT_PATH={dump}\n")
+    assert_equal(dump, module.resolve_dump_root(None, start_dir=work),
+                 "EXPORT_PATH from .dev.env must answer when no -Root is given")
+
+
+@case("metadata-address: an unknown kind or member is refused with the accepted list")
+def _(work):
+    module = load_tool_module(METADATA_ADDRESS_PY)
+    try:
+        module.resolve_object_path("Foo.Bar", work)
+        fail("an unknown kind was accepted")
+    except module.AddressError as exc:
+        assert_true("Unknown metadata kind 'Foo'" in str(exc), f"wrong refusal: {exc}")
+        assert_true("Catalog" in str(exc), "the refusal does not list the accepted kinds")
+    try:
+        module.resolve_object_path("Catalog.TestCatalog.ЧтоТо", work)
+        fail("an unknown member was accepted")
+    except module.AddressError as exc:
+        assert_true("Unknown member" in str(exc), f"wrong refusal: {exc}")
+    try:
+        module.resolve_object_path("Catalog.TestCatalog.Форма", work)
+        fail("a form without a name was accepted")
+    except module.AddressError as exc:
+        assert_true("needs a form name" in str(exc), f"wrong refusal: {exc}")
+
+
+@case("invoke-1c-edit: -Preview via the git backend shows a diff and restores the tree")
+def _(work):
+    copy_fixture("config-dump", work)
+    for argv in (["init", "-q", "."], ["add", "-A"],
+                 ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+        proc = subprocess.run(["git", *argv], cwd=work, capture_output=True, text=True)
+        assert_equal(0, proc.returncode, f"git {' '.join(argv)} failed: {proc.stderr}")
+    target = os.path.join(work, "Catalogs", "TestCatalog.xml")
+    before = file_facts(target)
+
+    run = run_python_tool(
+        INVOKE_1C_EDIT_PY,
+        ["-Tool", "meta-edit", "-Object", "Catalog.TestCatalog",
+         "-Operation", "add-attribute", "-Value", "ТестРеквизит: Boolean", "-NoValidate", "-Preview"],
+        work,
+    )
+    assert_equal(0, run["exit_code"], f"wrapper exit code (stderr: {run['stderr']})")
+    assert_true("diff --git" in run["stdout"], f"no diff in the output:\n{run['stdout'][:800]}")
+    assert_true("ТестРеквизит" in run["stdout"], "the diff does not show the added attribute")
+    assert_true("tree restored; nothing was applied" in run["stdout"], "no rollback marker")
+    assert_equal([], git_porcelain(work), "the preview left uncommitted changes behind")
+    assert_equal(before["sha"], file_facts(target)["sha"], "preview left the file changed")
+
+
+@case("invoke-1c-edit: a dirty watched path is refused before the run")
+def _(work):
+    copy_fixture("config-dump", work)
+    for argv in (["init", "-q", "."], ["add", "-A"],
+                 ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+        subprocess.run(["git", *argv], cwd=work, capture_output=True, text=True)
+    target = os.path.join(work, "Catalogs", "TestCatalog.xml")
+    with open(target, "ab") as handle:
+        handle.write(b"<!-- local work in progress -->")
+    before = file_facts(target)
+
+    run = run_python_tool(
+        INVOKE_1C_EDIT_PY,
+        ["-Tool", "meta-edit", "-Object", "Catalog.TestCatalog",
+         "-Operation", "add-attribute", "-Value", "ТестРеквизит: Boolean", "-NoValidate", "-Preview"],
+        work,
+    )
+    assert_equal(2, run["exit_code"], f"refusal exit code (stdout: {run['stdout'][:300]!r})")
+    assert_true("uncommitted changes" in run["stderr"], f"the refusal is not explained: {run['stderr']}")
+    assert_equal(before["sha"], file_facts(target)["sha"], "the refused run touched the file")
+
+
+@case("invoke-1c-edit: a tool with its own -DryRun is previewed through that flag")
+def _(work):
+    copy_fixture("epf-with-form", work)
+    before = snapshot_tree(work)
+    run = run_python_tool(
+        INVOKE_1C_EDIT_PY,
+        ["-Tool", "remove-form", "-Preview",
+         "-ObjectName", "Obrabotka", "-FormName", "MainForm", "-SrcDir", work],
+        work,
+    )
+    assert_equal(0, run["exit_code"], f"wrapper exit code (stderr: {run['stderr']})")
+    assert_true("preview via the tool's own -DryRun (remove-form)" in run["stdout"],
+                f"the native dry-run was not preferred:\n{run['stdout'][:500]}")
+    assert_true("[DRY-RUN] No files changed." in run["stdout"], f"no dry-run plan:\n{run['stdout']}")
+    assert_tree_identical(before, snapshot_tree(work), "native dry-run mutated the tree")
+
+
+@case("invoke-1c-edit: the copy backend previews and restores without a repository")
+def _(work):
+    copy_fixture("config-dump", work)
+    target = os.path.join(work, "Catalogs", "TestCatalog.xml")
+    before = file_facts(target)
+    run = run_python_tool(
+        INVOKE_1C_EDIT_PY,
+        ["-Tool", "meta-edit", "-Object", "Catalog.TestCatalog",
+         "-Operation", "add-attribute", "-Value", "ТестРеквизит: Boolean", "-NoValidate", "-Preview"],
+        work,
+    )
+    assert_equal(0, run["exit_code"], f"wrapper exit code (stderr: {run['stderr']})")
+    assert_true("Preview scope (copy backend)" in run["stdout"],
+                f"copy backend not announced:\n{run['stdout'][:500]}")
+    assert_true("tree restored; nothing was applied" in run["stdout"], "no rollback marker")
+    assert_equal(before["sha"], file_facts(target)["sha"], "preview left the file changed")
+
+
+@case("invoke-1c-edit: an unresolvable logical address is an error, never a wrong path")
+def _(work):
+    copy_fixture("config-dump", work)
+    run = run_python_tool(
+        INVOKE_1C_EDIT_PY,
+        ["-Tool", "meta-edit", "-Object", "Foo.Bar", "-Operation", "add-attribute",
+         "-Value", "X: Boolean", "-NoValidate"],
+        work,
+    )
+    assert_equal(1, run["exit_code"], f"exit code (stdout: {run['stdout'][:200]!r})")
+    assert_true("Unknown metadata kind 'Foo'" in run["stderr"], f"wrong refusal: {run['stderr']}")
+
+
+@case("invoke-1c-edit: a PowerShell-only tool is refused with the porting boundary explained")
+def _(work):
+    copy_fixture("config-dump", work)
+    run = run_python_tool(INVOKE_1C_EDIT_PY, ["-Tool", "web-publish", "-Preview"], work)
+    assert_equal(1, run["exit_code"], f"exit code (stderr: {run['stderr']})")
+    assert_true("no Python peer" in run["stderr"], f"wrong refusal: {run['stderr']}")
+
+
 # ---------------------------------------------------------------- licensing
 
 UPSTREAM_NOTICE_REL = "content/skills/1c-metadata-manage/NOTICE.md"
@@ -1980,11 +2477,15 @@ PORTED_COMMANDS = OrderedDict((
 ))
 
 
-@case("ports: exactly the five documented commands have a Python peer, and each one runs")
+@case("ports: the five locally hardened commands have a Python peer, and each one runs")
 def _(work):
-    """The scope claim is itself a gate. Every command documented as ported must
-    have a runnable entry point, and nothing else under ``tools/`` may have one -
-    so the day a sixth port lands, the docs are forced to grow with it."""
+    """The scope claim is itself a gate. Every command documented as locally
+    hardened must have a runnable entry point - so the day one of them
+    disappears, the docs are forced to shrink with it. Upstream ships many more
+    vendored ``.py`` files under ``tools/`` (cf-*, cfe-*, db-*, skd-*, mxl-*,
+    xdto-*, ...); they are covered by the notice and packaging cases, not by
+    this gate - requiring "exactly five on disk" died with the upstream merge
+    that vendored them."""
     found = {}
     for entry in sorted(os.listdir(TOOLS_DIR)):
         scripts = os.path.join(TOOLS_DIR, entry, "scripts")
@@ -1993,8 +2494,9 @@ def _(work):
         for name in sorted(os.listdir(scripts)):
             if name.endswith(".py"):
                 found[name[:-3]] = entry
-    assert_equal(sorted(PORTED_COMMANDS), sorted(found),
-                 "the set of Python ports on disk is not the documented set")
+    missing = sorted(set(PORTED_COMMANDS) - set(found))
+    assert_true(not missing,
+                f"documented Python ports missing from tools/: {missing}")
     for stem, tool in PORTED_COMMANDS.items():
         script = os.path.join(TOOLS_DIR, tool, "scripts", stem + ".py")
         assert_true(os.path.isfile(script), f"missing entry point: {tool}/scripts/{stem}.py")
@@ -2009,6 +2511,8 @@ def _(work):
     targets = [os.path.join(TOOLS_DIR, tool, "scripts", stem + ".py")
                for stem, tool in PORTED_COMMANDS.items()]
     targets.append(DEV_ENV_PY)
+    targets.append(METADATA_ADDRESS_PY)
+    targets.append(INVOKE_1C_EDIT_PY)
     targets.append(os.path.abspath(__file__))
     for path in targets:
         try:

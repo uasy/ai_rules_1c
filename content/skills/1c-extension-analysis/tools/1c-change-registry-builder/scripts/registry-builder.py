@@ -11,7 +11,7 @@
 # Provenance for the exact case): a document's second, differently-named own
 # interceptor (registering data into an unrelated typical register) was missed
 # by every pass that searched for a single already-known interceptor name
-# (e.g. "ИК_ПриЗаписи") across the tree instead of enumerating everything a
+# (e.g. an already-known interceptor name) across the tree instead of enumerating everything a
 # given object actually owns. A name-search can only ever find what you already
 # think to look for; this tool enumerates what is actually there.
 #
@@ -196,10 +196,42 @@ def find_own_bsl_files(ext_path, type_dir, name):
     return files
 
 
+def find_insertion_ranges(lines, start, end):
+    """Returns [(ins_start, ins_end), ...] inclusive 0-based line-index ranges for
+    every #Вставка...#КонецВставки block within [start, end]. Unclosed blocks run
+    to `end`."""
+    ranges = []
+    in_block = False
+    block_start = None
+    for k in range(start, end + 1):
+        stripped = lines[k].strip()
+        if stripped == "#Вставка":
+            in_block = True
+            block_start = k
+        elif stripped == "#КонецВставки" and in_block:
+            ranges.append((block_start, k))
+            in_block = False
+    if in_block:
+        ranges.append((block_start, end))
+    return ranges
+
+
 def scan_bsl_for_interceptors(bsl_path):
-    """Returns a list of dicts: {Type, Method, Line, DispatchBranches}.
+    """Returns a list of dicts: {Type, Method, Line, DispatchBranches, Scoped}.
     DispatchBranches > 1 means the routine's own body should be decomposed by
-    branch instead of emitted as one registry row (SKILL.md step 1 rule)."""
+    branch instead of emitted as one registry row (SKILL.md step 1 rule).
+
+    For `&ИзменениеИКонтроль` specifically, the routine body is a verbatim copy of
+    the current typical implementation with only the `#Вставка`/`#КонецВставки`
+    portions being the extension's own — comparisons living in the untouched
+    copied text are not the extension's own dispatch logic and must not inflate
+    the branch count (confirmed gap: a real `&ИзменениеИКонтроль` dispatcher had
+    ~85 total `ОбъектМетаданных = Метаданные.X` comparisons in its full copied
+    body, but only a handful were inside its own `#Вставка` blocks — the rest was
+    typical code copied in whole by the annotation's own mechanics, not new
+    dispatch branches added by the extension). For every other annotation type
+    the whole body is the extension's own by construction, so the full-body count
+    from earlier versions of this tool remains correct there."""
     lines = read_lines(bsl_path)
     results = []
     i = 0
@@ -222,14 +254,25 @@ def scan_bsl_for_interceptors(bsl_path):
             if RE_ROUTINE_END.match(strip_comment(lines[k]).strip()):
                 body_end = k
                 break
-        branch_count = 0
-        for k in range(body_start, body_end + 1):
-            branch_count += len(RE_DISPATCH_BRANCH.findall(lines[k]))
+
+        scoped = itype == "ИзменениеИКонтроль"
+        if scoped:
+            ranges = find_insertion_ranges(lines, body_start, body_end)
+            branch_count = 0
+            for (ins_start, ins_end) in ranges:
+                for k in range(ins_start, ins_end + 1):
+                    branch_count += len(RE_DISPATCH_BRANCH.findall(lines[k]))
+        else:
+            branch_count = 0
+            for k in range(body_start, body_end + 1):
+                branch_count += len(RE_DISPATCH_BRANCH.findall(lines[k]))
+
         results.append({
             "Type": itype,
             "Method": method,
             "Line": i + 1,
             "DispatchBranches": branch_count,
+            "Scoped": scoped,
         })
         i = body_end + 1
     return results
@@ -282,11 +325,16 @@ def build_registry(ext_path, only_object=None):
             if interceptors:
                 for ic in interceptors:
                     if ic["DispatchBranches"] > 1:
+                        scope_note = (
+                            " (counted inside #Вставка/#КонецВставки only — the "
+                            "surrounding copied-typical body is excluded)"
+                            if ic["Scoped"] else ""
+                        )
                         rows.append({
                             "Object": f"{type_name}.{name}",
                             "Mechanism": (
                                 f'DISPATCHER &{ic["Type"]}("{ic["Method"]}") at {rel}:{ic["Line"]} — '
-                                f'{ic["DispatchBranches"]} metadata-comparison branches, '
+                                f'{ic["DispatchBranches"]} metadata-comparison branches{scope_note}, '
                                 f'decompose by unique shape before assigning Блок'
                             ),
                             "Block": "",

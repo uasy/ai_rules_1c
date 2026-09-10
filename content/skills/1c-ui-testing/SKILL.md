@@ -86,23 +86,19 @@ python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-run.py \
 ## Step 3 — the scenario data processor
 
 An EPF with one managed form; the scenario lives in the form module and is launched from
-`ПриОткрытии`. Build it with the `1c-metadata-manage` skill (`1c-epf-scaffold` → `1c-form-scaffold`
-→ `1c-form-compile` → `1c-epf-validate` → `1c-epf-build`).
+`ПриОткрытии`. Build it with the `1c-metadata-manage` skill — `1c-epf-scaffold` → `1c-form-scaffold`
+→ `1c-form-compile` → `1c-epf-validate` → `1c-epf-build`.
+
+**Never hand-write the XML and never clone an existing scenario** — the scaffolding tools set the
+object identities and the type references that a copy would carry over from the original. What to
+ask the skill for, how to declare the handlers, and the run-time traps —
+[docs/scenario-epf-build.md](docs/scenario-epf-build.md).
 
 ### Two traps that cost hours if missed
 
-1. **Declare the form event handlers in `Form.xml`.** A handler procedure in the form module is
-   never called unless the event is declared:
-
-   ```xml
-   <Events>
-     <Event name="OnOpen">ПриОткрытии</Event>
-   </Events>
-   ```
-
-   `1c-form-scaffold` generates the form **without** this block, and the platform reports nothing —
-   no error, no event-log record, the module simply never runs. Declare it through the `events`
-   key of the `1c-form-compile` JSON DSL, never by hand-editing `Form.xml`.
+1. **A handler not declared in `Form.xml` is never called** — no error, no event-log record, the
+   module simply never runs. The scaffold does not generate the `<Events>` block; how to declare
+   events through `1c-form-compile` — [docs/scenario-epf-build.md](docs/scenario-epf-build.md).
 
 2. **`Новый ТестируемоеПриложение` is resolved at compile time.** In a session started *without*
    `/TestManager` the whole form module fails to compile, and the event log shows
@@ -202,7 +198,8 @@ Each of these costs a run to find.
   under test and its elements start failing with "Недоступный пользователю элемент управления не
   может выполнять интерактивные действия".
 - **`Окно` is a managed-form property** — a local variable of that name assigns into the form
-  instead ("Поле объекта недоступно для записи"). Same class of trap as the `url` form attribute.
+  instead ("Поле объекта недоступно для записи"). Same class of trap as `url`, `Заголовок`,
+  `Параметры`. Prefix them: `ОкноФормы`.
 - **`ПерейтиКСтроке` on an empty table throws** "Структура описания строки не совпадает со
   структурой данных в элементе управления" instead of reporting "row not found" — there is no
   row structure to compare against. Assertions of the form "the item is gone from this list"
@@ -289,8 +286,8 @@ the sources.
 
 1. `recall` for project specifics, then write the scenario steps as verifiable
    assertions (`ЗаписатьШаг(<условие>, <что проверено>)`), not as a click list.
-2. Scaffold or extend the EPF through `1c-metadata-manage`; **declare every form event in
-   `Form.xml`**.
+2. Scaffold the EPF through `1c-metadata-manage` — never by copying an existing scenario;
+   **declare every form event in `Form.xml`**. Step by step — [docs/scenario-epf-build.md](docs/scenario-epf-build.md).
 3. Check the scenario body is inside `Попытка/Исключение` with `ЗавершитьРаботуСистемы` after it —
    before running anything. Lint the module (`syntaxcheck` / `bsl_check_file`), then
    `1c-epf-validate` and `1c-epf-build`.

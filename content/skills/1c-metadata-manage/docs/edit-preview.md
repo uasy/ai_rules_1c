@@ -1,10 +1,10 @@
-# Preview, dry-run and logical addressing — `Invoke-1CEdit.ps1`
+# Preview, dry-run and logical addressing — `Invoke-1CEdit.ps1` / `Invoke-1CEdit.py`
 
-Reference for `tools/_common/Invoke-1CEdit.ps1`. The short version lives in [`SKILL.md → Preview before apply, and logical addressing`](../SKILL.md); read this file for the address grammar, the rollback backends, and what the wrapper deliberately does not promise.
+Reference for `tools/_common/Invoke-1CEdit.ps1` and its Python peer `tools/_common/Invoke-1CEdit.py`. The short version lives in [`SKILL.md → Preview before apply, and logical addressing`](../SKILL.md); read this file for the address grammar, the rollback backends, and what the wrapper deliberately does not promise.
 
 ## Why a wrapper and not thirty patches
 
-The tools under `tools/` are vendored from upstream `cc-1c-skills`. Each one opens and writes its own files; there is no shared write layer to patch. Adding a preview flag to every mutating script would mean editing thirty-odd files — including `form-compile.ps1` at 355 KB — and losing all of it at the next upstream sync. The wrapper sits in front of them instead, so preview, dry-run and logical addressing are two local files (`Invoke-1CEdit.ps1` and `MetadataAddress.ps1`) that an upstream refresh never touches.
+The tools under `tools/` are vendored from upstream `cc-1c-skills`. Each one opens and writes its own files; there is no shared write layer to patch. Adding a preview flag to every mutating script would mean editing thirty-odd files — including `form-compile.ps1` at 355 KB — and losing all of it at the next upstream sync. The wrapper sits in front of them instead, so preview, dry-run and logical addressing are four local files (`Invoke-1CEdit.ps1` / `Invoke-1CEdit.py`, `MetadataAddress.ps1` / `MetadataAddress.py`) that an upstream refresh never touches.
 
 The trade this makes: the wrapper cannot know what a tool *intends* to write, only what it *did* write. So a preview really runs the tool and then undoes it. Everything below follows from that.
 
@@ -13,6 +13,12 @@ The trade this makes: the wrapper cannot know what a tool *intends* to write, on
 ```powershell
 Invoke-1CEdit.ps1 -Tool <name> [-Object <address>] [-Root <dump>] [-Preview] [-Scope <paths>] [-NoDiff] <tool parameters…>
 ```
+
+```bash
+python3 tools/_common/Invoke-1CEdit.py -Tool <name> [-Object <address>] [-Root <dump>] [-Preview] [-Scope <paths>] [-NoDiff] <tool parameters…>
+```
+
+The table below applies to both runtimes. One difference: the PowerShell wrapper resolves `-Tool` among the `.ps1` scripts and wraps any tool of this skill; the Python wrapper resolves among the `.py` entry points and wraps only the tools that ship one — a PowerShell-only tool is refused with that explanation, because a wrapper that cannot vouch for a tool's contract must not pretend to guard it.
 
 | Parameter | Meaning |
 |---|---|
@@ -38,7 +44,7 @@ Exit code is the tool's own, with one exception: a preview whose rollback did no
 <Kind>.<Name>.МодульНабораЗаписей    -> …\Ext\RecordSetModule.bsl
 ```
 
-Kind names and member keywords are accepted in Russian and English (`Справочник` or `Catalog`, `Форма` or `Form`). The full kind table is `tools/_common/MetadataAddress.ps1`; an unknown kind is refused with the accepted list, because a mistyped kind silently resolving to a non-existent path is exactly the failure this removes.
+Kind names and member keywords are accepted in Russian and English (`Справочник` or `Catalog`, `Форма` or `Form`). The full kind table is `tools/_common/MetadataAddress.ps1` / `MetadataAddress.py`; an unknown kind is refused with the accepted list, because a mistyped kind silently resolving to a non-existent path is exactly the failure this removes.
 
 `Роль.ПолныеПрава.Права` is the useful one for `role-info` / `role-validate`: they take `Ext\Rights.xml`, which nobody remembers.
 
@@ -57,7 +63,7 @@ The backend is chosen automatically and always named in the output.
 - It is **not** a plan produced before execution. The tool runs for real; a preview differs from an apply only in what happens afterwards. Do not preview against a production dump under the assumption that nothing is written — something is written, then reverted.
 - It does **not** replace validation. `meta-edit` still runs `meta-validate` and still exits non-zero on a bad object; the preview shows the diff *and* the validator verdict, and both belong in the report.
 - It does **not** cover the `db-*` infobase family in any useful way. Those talk to an infobase, not to files, and an infobase change is not restored by putting files back. Preview them with their own switches where they have them (`db-load-git -DryRun`) and treat the rest as the destructive operations they are.
-- The Python entry points (`form-add.py`, `remove-form.py`, `form-compile.py`, `meta-edit.py`, `meta-validate.py`) are **not** wrapped: the wrapper is PowerShell. On Linux / macOS use the tools' own `-DryRun` where it exists, and `git diff` after the run otherwise.
+- `Invoke-1CEdit.py` (the Linux / macOS wrapper) wraps only the tools that ship a `.py` runtime — that is whose parameter contract it can introspect and vouch for. A PowerShell-only tool (`web-ops`, the `cfe-patch-method` resync modes, the `_shared` helpers) is refused with that explanation; on Windows `Invoke-1CEdit.ps1` still wraps it. For a wrapped Python tool whose own `-DryRun` does not exist the rollback is real, exactly as for the PowerShell wrapper.
 
 ## Reporting
 

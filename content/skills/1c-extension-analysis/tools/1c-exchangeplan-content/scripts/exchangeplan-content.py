@@ -22,7 +22,7 @@
 #     or diff its content. It only detects the template's presence and flags candidate BSL
 #     locations (literal plan-name mentions) for manual reading. Treating "no template" or
 #     "no code mention found" as proof of "no registration mechanism" would be exactly the
-#     kind of unverified claim this project's tooling is built to avoid — don't do that.
+#     kind of unverified claim this skill's tooling is built to avoid — don't do that.
 #
 # Companion to 1c-reference-finder (composite-type / code-query adoption reasons) and
 # cfe-diff -Mode A (per-child ObjectBelonging). Neither of those tools reads exchange-plan
