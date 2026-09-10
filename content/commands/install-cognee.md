@@ -1,12 +1,12 @@
 ---
-description: Install Cognee MCP as optional persistent agent memory and register it in the active AI client
+description: Install Cognee MCP as the preferred persistent memory write provider and register it in the active AI client
 ---
 
 # /install-cognee — install Cognee persistent memory
 
 Installs the official `cognee/cognee-mcp` server and exposes the focused memory API (`remember`, `recall`, `forget`) to the active AI client.
 
-Use Cognee for general cross-session or cross-client memory. It is optional: the purchased 1C MCP bundle already provides project-scoped vector memory through `1c-templates-mcp`. Keep the server id `cognee-memory` so the two memory providers remain distinguishable.
+Use Cognee for general cross-session or cross-client memory. Installation is optional, but whenever its MCP tools are connected, Cognee is the primary write destination. Search all connected memory providers, including OpenViking and `1c-templates-mcp`; keep them enabled. Without Cognee, writes go to OpenViking when connected, otherwise to templates MCP memory. The canonical routing and failure policy is `content/rules/project-memory.md`. Keep the server id `cognee-memory` so provider namespaces remain distinguishable.
 
 Official sources:
 

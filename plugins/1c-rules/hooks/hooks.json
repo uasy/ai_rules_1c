@@ -1,0 +1,16 @@
+{
+  "description": "Run install.ps1 for 1C projects. ensure never auto-updates and skips non-1C or CLI-config directories.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/invoke-install.sh\" ensure claude-code"
+          }
+        ]
+      }
+    ]
+  }
+}

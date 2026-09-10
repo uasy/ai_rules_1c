@@ -2,8 +2,9 @@
 
 This file is the working project memory for AI agents.
 
-Eligibility, routing between this file and `1c-templates-mcp` (`remember` / `recall`),
-fallback when the MCP server is unavailable — see `AGENTS.md → Project memory`.
+Eligibility, Cognee-first writes (then OpenViking, then templates MCP), search
+across all connected memory providers and local fallback — see
+`content/rules/project-memory.md` (`AGENTS.md → Project memory`).
 There are no permanent entries yet.
 
 Entry format (one entry = one self-contained rule). Use English for narrative,

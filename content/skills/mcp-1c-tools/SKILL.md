@@ -19,7 +19,9 @@ Single source of truth for the server catalog, task → server routing and param
 |---|---|---|
 | **1c-graph-metadata-mcp** | Graph metadata (Neo4j / Cypher): structural object passport, impact analysis, call graph, usage search, business semantic search | [`docs/1c-graph-metadata-mcp.md`](docs/1c-graph-metadata-mcp.md) |
 | **1c-code-metadata-mcp** | Metadata and BSL code search, navigation (modules, procedures, functions, call hierarchy), forms, XSD schemas, validation | [`docs/1c-code-metadata-mcp.md`](docs/1c-code-metadata-mcp.md) |
-| **1c-templates-mcp** | Code template library + project vector memory (`remember` / `recall`) | [`docs/1c-templates-mcp.md`](docs/1c-templates-mcp.md) |
+| **1c-templates-mcp** | Code templates + memory search; fallback memory writes after Cognee / OpenViking | [`docs/1c-templates-mcp.md`](docs/1c-templates-mcp.md) |
+| **cognee / cognee-memory** *(optional)* | Primary durable memory writes when connected; include in every memory search | [`docs/memory-providers.md`](docs/memory-providers.md) |
+| **openviking** *(optional)* | Memory search alongside all connected providers; primary writes when Cognee is unavailable | [`docs/memory-providers.md`](docs/memory-providers.md) |
 | **1c-ssl-mcp** | Standard Subsystems Library (БСП / SSL) search | [`docs/1c-ssl-mcp.md`](docs/1c-ssl-mcp.md) |
 | **1C-docs-mcp** | 1C platform documentation (by description / by exact name), the platform-capability check, and the `1c-standards` corpus (`standards` tool) | [`docs/1C-docs-mcp.md`](docs/1C-docs-mcp.md) |
 | **1c-code-check-mcp** | 1С:Напарник — code review, technical check, AI rewrite / modify, ITS documentation | [`docs/1c-code-check-mcp.md`](docs/1c-code-check-mcp.md) |
@@ -60,7 +62,7 @@ If `docs/<server>.md` conflicts with the descriptor exposed by the current envir
 
 **External knowledge** — no `Grep` equivalent; call only when the knowledge is needed:
 
-1. `1c-templates-mcp` — templates (`templatesearch`: task text verbatim, reuse the hit — `docs/1c-templates-mcp.md`) and project memory (`recall` / `remember` — `content/rules/project-memory.md`).
+1. `1c-templates-mcp` — templates (`templatesearch`: task text verbatim, reuse the hit — `docs/1c-templates-mcp.md`). Project memory is separate: search all connected Cognee, OpenViking and templates memory providers; write priority Cognee → OpenViking → templates (`content/rules/project-memory.md`, tool mappings in `docs/memory-providers.md`).
 2. `1c-ssl-mcp` — БСП / SSL reusable APIs and patterns.
 3. `1C-docs-mcp` — versioned platform documentation; the mandatory platform-capability check before hand-rolling a specialized mechanism (`docs/1C-docs-mcp.md → Platform capability discovery`); the routed project standards (`standards(name=…)`, `content/rules/help-corpus-retrieval.md`).
 4. `1c-code-check-mcp` — 1С:Напарник checks, ITS standards (`its_help` → `fetch_its` for every document used), AI drafts (non-deterministic — re-validate).

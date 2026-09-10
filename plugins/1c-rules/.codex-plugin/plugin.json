@@ -1,0 +1,18 @@
+{
+  "name": "1c-rules",
+  "version": "1.0.0",
+  "description": "Installs 1c-rules into the current 1C project by calling install.ps1. Adapters still rewrite rules, agents and MCP for Codex.",
+  "author": {
+    "name": "comol"
+  },
+  "homepage": "https://github.com/comol/ai_rules_1c",
+  "repository": "https://github.com/comol/ai_rules_1c",
+  "keywords": ["1c", "1c-enterprise", "bsl", "rules", "codex"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "1c-rules",
+    "shortDescription": "1C rules installer for Codex",
+    "developerName": "comol",
+    "category": "Coding"
+  }
+}

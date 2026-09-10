@@ -22,8 +22,10 @@
     2. **Unified diff.** Whatever the run changed is printed as a diff, so an
        agent can show the change instead of claiming it.
 
-    3. **Preview.** `-Preview` runs the real tool and then puts the tree back.
-       When the tool ships its own `-DryRun` (meta-remove, remove-form,
+    3. **Preview (optional).** `-Preview` runs the real tool and then puts the
+       tree back. Default is apply immediately; `METADATA_PREVIEW=auto` limits
+       it to the risky cases (see docs/edit-preview.md). When
+       the tool ships its own `-DryRun` (meta-remove, remove-form,
        remove-template, web-unpublish, db-load-git) that native flag is used
        instead: it is a plan the tool itself vouches for, and nothing is written
        that would need rolling back.
@@ -69,11 +71,12 @@
     Apply without printing the diff. For batch callers that diff themselves.
 
 .EXAMPLE
-    # preview an attribute addition, then apply it
-    Invoke-1CEdit.ps1 -Tool meta-edit -Object Справочник.Контрагенты -Preview `
+    # apply an attribute addition (default)
+    Invoke-1CEdit.ps1 -Tool meta-edit -Object Справочник.Контрагенты `
         -Operation add-attribute -Value '{"name":"ИНН","type":"String","length":12}'
 
-    Invoke-1CEdit.ps1 -Tool meta-edit -Object Справочник.Контрагенты `
+    # optional preview: show the diff and restore the tree
+    Invoke-1CEdit.ps1 -Tool meta-edit -Object Справочник.Контрагенты -Preview `
         -Operation add-attribute -Value '{"name":"ИНН","type":"String","length":12}'
 
 .EXAMPLE

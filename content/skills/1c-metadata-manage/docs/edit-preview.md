@@ -1,12 +1,49 @@
 # Preview, dry-run and logical addressing — `Invoke-1CEdit.ps1` / `Invoke-1CEdit.py`
 
-Reference for `tools/_common/Invoke-1CEdit.ps1` and its Python peer `tools/_common/Invoke-1CEdit.py`. The short version lives in [`SKILL.md → Preview before apply, and logical addressing`](../SKILL.md); read this file for the address grammar, the rollback backends, and what the wrapper deliberately does not promise.
+Reference for `tools/_common/Invoke-1CEdit.ps1`. The short version lives in [`SKILL.md → Logical addressing and optional preview`](../SKILL.md); read this file for the address grammar, the rollback backends, and what the wrapper deliberately does not promise.
+
+Its Python peer `tools/_common/Invoke-1CEdit.py` carries the same contract for the tools that ship a `.py` runtime; the one difference is described under *Invocation*.
 
 ## Why a wrapper and not thirty patches
 
 The tools under `tools/` are vendored from upstream `cc-1c-skills`. Each one opens and writes its own files; there is no shared write layer to patch. Adding a preview flag to every mutating script would mean editing thirty-odd files — including `form-compile.ps1` at 355 KB — and losing all of it at the next upstream sync. The wrapper sits in front of them instead, so preview, dry-run and logical addressing are four local files (`Invoke-1CEdit.ps1` / `Invoke-1CEdit.py`, `MetadataAddress.ps1` / `MetadataAddress.py`) that an upstream refresh never touches.
 
-The trade this makes: the wrapper cannot know what a tool *intends* to write, only what it *did* write. So a preview really runs the tool and then undoes it. Everything below follows from that.
+The trade this makes: the wrapper cannot know what a tool *intends* to write, only what it *did* write. So a preview really runs the tool and then undoes it. Everything below follows from that. That is why preview is **not** a default step of the development cycle.
+
+## When preview runs
+
+`METADATA_PREVIEW` in `.dev.env` (`dev-standards-env.md → Process-tuning parameters`) is **Defaulted** — empty / invalid = `auto`. The agent must not ask for the value; the editor is `/previewmode`.
+
+| Value | Meaning |
+|---|---|
+| `auto` (default / empty) | Preview only in the four cases below. Every other write applies immediately. |
+| `on` | Preview before every wrapper-driven write, minus the skips below. |
+| `off` | Never automatic. Preview only when the user asks (`/previewmode once` or "покажи, что изменится"). |
+
+### The cases that earn a preview (`auto`)
+
+Preview is worth its second run only when **the shape of the write cannot be predicted from the call** and **finding the damage afterwards is expensive**. That is these four, and deliberately not "a metadata change":
+
+1. **Generation from a DSL, not a single field edit** — `form-compile`, `meta-compile`, `role-compile`, an `skd-edit` batch: one call writes many elements or files, and the input does not tell you what comes out.
+2. **An object of a typical configuration while the support gate is not denying** — `SUPPORT_GUARD=warn` or `off` (`dev-standards-env.md → "SUPPORT_GUARD"`). The write proceeds against an object "на замке", where a wrong edit surfaces at the next vendor update rather than now.
+3. **The lock list is not obvious in repository mode** — a preview on a **clean tree, before `lock`**, names the files the operation touches, which is the object list to lock (`1c-repository-manage/docs/repo-sdlc.md`). Never preview while locks are held.
+4. **A tool or `-Operation` this project has not run before**, when its blast radius is genuinely unknown. One preview, then proceed normally; unfamiliarity is not a permanent state.
+
+Outside these, apply immediately. A single attribute, a synonym, a flag, one form field — the post-apply diff and `git diff` already answer "what changed", and a second run buys nothing.
+
+### Skips — in every mode, including `on`
+
+1. **The git backend would refuse** (dirty watched path). Apply and say so in one line. Do not stash or commit the user's work to force a preview.
+2. **The edit is made by the host's own file tools**, not by a skill script — the hand-edit exceptions, BSL modules, anything applied through the agent's Write / Edit with Cursor apply/reject or Claude Code rewrite in front of it. That UI is the review. Script writes are different: the host shows no card for them, which is why this wrapper prints a unified diff **after** the apply. Do not fork a host-specific dry-run — the skip is the same everywhere.
+3. **`rewrite_1c_code` / `modify_1c_code`** — BSL proposals, not metadata mutations. They never go through this wrapper. Re-validate the applied BSL; they neither replace nor require `-Preview`.
+
+**Still required regardless of `METADATA_PREVIEW`:** native `-DryRun` then `-Force` on deletions (`remove-form`, `meta-remove`, `remove-template`, `web-unpublish`). That prints a plan without writing; it is not this wrapper.
+
+### Fit with the existing cycle
+
+The cycle is unchanged: triage → [repository `status` / `lock`] → mutate → verify → [repository `commit`] → report. Preview is an extra mutate+undo **inside** the mutate step, not a new stage and not a verification gate — `meta-validate`, `verify_xml` and `syntaxcheck` run exactly as before.
+
+Two properties keep it from becoming a mandatory step. After the first real apply the git backend sees a dirty tree and refuses the next `-Preview`, so a blanket two-step cannot survive a multi-object task. And holding repository locks across a "show me, then apply" pause blocks teammates while the diff says nothing `repo-ops diff` would not. Hence case 3 above sits **before** the lock, not after it.
 
 ## Invocation
 
@@ -67,8 +104,10 @@ The backend is chosen automatically and always named in the output.
 
 ## Reporting
 
-A change shown through the wrapper is worth naming in the delivery report, on the existing `Metadata tooling:` line:
+Name a preview on the existing `Metadata tooling:` line only when one actually ran:
 
 ```
 Metadata tooling: Invoke-1CEdit -Tool meta-edit -Object Справочник.Контрагенты (preview shown, then applied)
 ```
+
+An immediate apply cites the tool without a preview clause.

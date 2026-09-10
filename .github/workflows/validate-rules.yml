@@ -52,6 +52,11 @@ jobs:
         shell: powershell
         run: .\tools\tests\metadata-tools-regression.ps1
 
+      # Marketplace wrapper: DryRun plans only, no network, no install.ps1 write.
+      - name: Marketplace bootstrap
+        shell: powershell
+        run: .\tools\tests\marketplace-bootstrap.ps1
+
       # Full Python suite: the port safety contract plus the two gates that need a
       # PowerShell host — remove-form PS/Python parity and installer packaging.
       # -B keeps CI from writing __pycache__ into the checked-out tree.

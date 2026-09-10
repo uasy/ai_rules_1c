@@ -20,7 +20,7 @@ Parse the argument: empty — full pass (collect → cluster → propose → app
 Gather friction signals from, in order:
 
 1. **Current session** — corrections and steers the user gave in this chat that contradict or refine behavior mandated by the active ruleset.
-2. **`recall`** (`1c-templates-mcp`, only when exposed) — query for `rule-friction` notes; refine with behavior keywords if the first query is too broad. Respect the no-blind-chaining discipline of `AGENTS.md → MCP Tool Calling → C`.
+2. **Memory search** (all connected providers per `content/rules/project-memory.md`) — query for `rule-friction` notes and deduplicate across providers; refine with behavior keywords if the first query is too broad. Respect the no-blind-chaining discipline of `AGENTS.md → MCP Tool Calling → C`. All memory writes in this command use the same rule's Cognee → OpenViking → templates priority.
 3. **`memory.md` fallback entries** — behavior-steering entries recorded there while `remember` was unavailable.
 4. **User input** passed with the command invocation.
 
@@ -79,7 +79,7 @@ Entry format (English, imperative, original 1C identifiers as-is, no secrets / P
 
 ## note <text>
 
-Record one friction signal without running the pass: a single self-contained `remember` note prefixed `rule-friction:` — target behavior / rule, what happened, date (fallback when `remember` is not exposed: a dated entry in `memory.md`). Confirm in one line; no other writes.
+Record one friction signal without running the pass: a single self-contained memory note prefixed `rule-friction:` — target behavior / rule, what happened, date. Follow `content/rules/project-memory.md` for the write provider and dated local fallback when no provider can save. Confirm in one line; no other writes.
 
 ## show
 

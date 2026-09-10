@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./scripts/invoke-install.sh ensure cursor"
+      }
+    ],
+    "workspaceOpen": [
+      {
+        "command": "./scripts/invoke-install.sh ensure cursor"
+      }
+    ]
+  }
+}

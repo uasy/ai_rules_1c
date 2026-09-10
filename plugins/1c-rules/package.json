@@ -1,0 +1,12 @@
+{
+  "name": "1c-rules",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "1c-rules marketplace plugin. Invokes install.ps1 so rules are adapted per host.",
+  "main": "./plugin.mjs",
+  "exports": {
+    ".": "./plugin.mjs",
+    "./server": "./plugin.mjs"
+  }
+}

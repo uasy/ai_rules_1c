@@ -15,13 +15,16 @@ Always show tools in this order. The 1C MCP bundle is always first.
 | # | Tool | Purpose | Recommend when | Standalone command |
 |---|---|---|---|---|
 | 1 | 1C MCP server bundle | Documentation, metadata and code search, syntax checks, templates/project memory, BSP search, graph analysis and code review | Recommended for every 1C project; this is the primary ruleset tool bundle and requires a purchased distribution | `/installmcp` (`/installmcp beta` for the beta image channel) |
-| 2 | Cognee memory MCP | General persistent agent memory with `remember`, `recall` and `forget` | Useful for cross-session or cross-client memory; optional when project memory from `1c-templates-mcp` is sufficient | `/install-cognee` |
-| 3 | EDT-MCP | Live access to the EDT workspace, errors, native refactoring, metadata/forms, launches, tests and debugging | Recommended only when the user develops in a locally installed 1C:EDT | `/install-edt-mcp` |
-| 4 | agent-browser | Token-efficient browser automation based on accessibility snapshots | Recommended for automated tests of a published 1C web client | `/install-agent-browser` |
-| 5 | Windows-MCP | Windows desktop, mouse and keyboard automation | Last resort for thick-client or other non-web UI flows | `/install-windows-mcp` |
-| 6 | rtk | Third-party, user-global shell-output compression proxy — fewer tokens on every shell call (git, tests, docker, platform commands) | Optional; only on explicit selection — also offered by `/economymode` | `/install-rtk` |
+| 2 | Cognee memory MCP | Persistent agent memory; primary write destination whenever connected | Recommended when the user wants general cross-session memory; optional to install | `/install-cognee` |
+| 3 | OpenViking memory MCP | Persistent agent memory and context retrieval; searched alongside Cognee and other connected memory providers | Recommended when the user wants OpenViking context retrieval or a primary memory store without Cognee | `/install-openviking` |
+| 4 | EDT-MCP | Live access to the EDT workspace, errors, native refactoring, metadata/forms, launches, tests and debugging | Recommended only when the user develops in a locally installed 1C:EDT | `/install-edt-mcp` |
+| 5 | agent-browser | Token-efficient browser automation based on accessibility snapshots | Recommended for automated tests of a published 1C web client | `/install-agent-browser` |
+| 6 | Windows-MCP | Windows desktop, mouse and keyboard automation | Last resort for thick-client or other non-web UI flows | `/install-windows-mcp` |
+| 7 | rtk | Third-party, user-global shell-output compression proxy — fewer tokens on every shell call (git, tests, docker, platform commands) | Optional; only on explicit selection — also offered by `/economymode` | `/install-rtk` |
 
 Do not list an optional tool as required merely because its installer exists.
+
+Memory routing follows `content/rules/project-memory.md`: write first to Cognee when connected, otherwise OpenViking, otherwise `1c-templates-mcp` memory. Search every connected memory provider, including templates memory; installing one provider does not disable the others. A configured entry alone does not make a provider connected: its tools must be exposed in the active session.
 
 ## Steps
 
@@ -36,7 +39,8 @@ Read `USE_EDT` from the project `.dev.env` before evaluating EDT tools. It is a 
 - missing, empty or invalid — in the normal interactive command, ask once whether the project uses EDT and persist `USE_EDT=true|false` without changing any other `.dev.env` key. In `/installtools status`, report `USE_EDT: unknown` and do not ask or write.
 
 - **1C MCP bundle:** check the current tool schema for known 1C MCP tools; then check client MCP configuration, `BASESAI_MCP_GLOBAL_ROOT` / `MCP_GLOBAL_ROOT` plus `install.manifest.json`, and relevant Docker containers. A ruleset-generated MCP config alone does not prove the purchased servers are installed or running.
-- **Cognee:** check for a `cognee` / `cognee-memory` MCP entry, a `cognee-mcp` container, and the configured health endpoint (the standalone command defaults to `http://127.0.0.1:8010/health`).
+- **Cognee:** check for exposed Cognee memory tools, a `cognee` / `cognee-memory` MCP entry, a `cognee-mcp` container, and the configured health endpoint (the standalone command defaults to `http://127.0.0.1:8010/health`).
+- **OpenViking:** check for exposed OpenViking memory tools and an `openviking` MCP entry; inspect the configured installation manifest, `openviking-server --version` when already installed, and the configured health endpoint (default `http://127.0.0.1:1933/health`). For Docker inspect the existing container; for a remote endpoint do not require a local package/container. A healthy HTTP process alone does not verify model access or MCP memory operations. Do not install packages or start the service during detection.
 - **EDT-MCP:** check for an `edt-mcp` / `EDT MCP Server` client entry and `http://127.0.0.1:8765/health`. A stopped EDT makes health inconclusive; do not report the plugin missing solely because EDT is closed.
 - **agent-browser:** check `agent-browser --version` and the client MCP entry.
 - **Windows-MCP:** on Windows, check the client MCP entry and `uvx windows-mcp --help`. On non-Windows, mark it `not applicable`.
@@ -46,7 +50,7 @@ Never expose secrets found in MCP configuration or environment files.
 
 ### 2. Show the compact menu
 
-Show all six tools with status, the one-line purpose, recommendation, and standalone command. Keep the MCP bundle first even when it is already installed.
+Show all seven tools with status, the one-line purpose, recommendation, and standalone command. Keep the MCP bundle first even when it is already installed. Distinguish memory tools that are connected now from installed providers awaiting startup or client restart.
 
 If the 1C MCP bundle is not clearly installed, always ask first:
 
@@ -61,6 +65,7 @@ Then ask one consolidated question for all remaining `not installed` or `uncerta
 Treat `recommended` contextually:
 
 - Cognee: select only if the user wants general memory beyond `1c-templates-mcp` project memory.
+- OpenViking: select when the user requests OpenViking or its context retrieval. Do not infer a request to install both memory servers from a request for general memory alone.
 - EDT-MCP: select when `USE_EDT=true`. If the flag is `false`, select only on an explicit numbered choice; a detected local EDT installation alone does not change the project preference.
 - agent-browser: select when a published web-client URL or web UI testing is expected.
 - Windows-MCP: never include automatically; it requires an explicit selection.
@@ -72,10 +77,11 @@ Execute selected installers sequentially in catalog order by loading and followi
 
 1. `installmcp.md`
 2. `install-cognee.md`
-3. `install-edt-mcp.md`
-4. `install-agent-browser.md`
-5. `install-windows-mcp.md`
-6. `install-rtk.md`
+3. `install-openviking.md`
+4. `install-edt-mcp.md`
+5. `install-agent-browser.md`
+6. `install-windows-mcp.md`
+7. `install-rtk.md`
 
 If a slash-command dispatcher cannot invoke another slash command directly, execute that command file as the procedure. Do not tell the user to repeat the same selection manually.
 

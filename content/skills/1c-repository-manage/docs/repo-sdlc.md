@@ -20,9 +20,11 @@ status ─→ lock(-Revised) ─→ [standard cycle: mutate → verify → updat
 |---|---|
 | `/update1cbase` (sources → IB, `/UpdateDBCfg`) | Loading changed objects into a repository-bound IB requires those objects **locked first**; otherwise the load fails or silently skips read-only objects. Lock before running; a "configuration is read-only / object locked" error in its log routes here, not to a retry loop. |
 | `/loadfrom1cbase`, `/getconfigfiles` (IB → sources) | Read-only with respect to the repository — no locks needed. |
-| `1c-metadata-manage` mutating tools | Same gate: the XML they edit corresponds to configuration objects that must be locked before the change lands in the IB. The mutation itself stays in that skill; this skill owns only the lock/commit envelope. |
+| `1c-metadata-manage` mutating tools | Same gate: the XML they edit corresponds to configuration objects that must be locked before the change lands in the IB. The mutation itself stays in that skill; this skill owns only the lock/commit envelope. Wrapper `-Preview` is not a repository step (`METADATA_PREVIEW`, default `auto`). |
 | `/build-release` | Prefer `dump -Version <N>` from the repository (fixed, team-visible version) over the local working copy when the release must match what the team committed. |
 | `/deploy-and-test` | Deploy steps inherit the `/update1cbase` rule above; test steps are unaffected. |
+
+**Preview and the lock list.** When the plan does not make the object list obvious, one `Invoke-1CEdit -Preview` on a **clean tree, before `lock`**, names the files the operation touches — that is the list to lock. Do not hold locks across a write-then-rollback: after the first real apply the git backend refuses a dirty tree, so a two-step does not survive a multi-object repository task, and a pause with locks held blocks teammates while telling you nothing `diff` would not. Canon — `content/skills/1c-metadata-manage/docs/edit-preview.md → When preview runs`.
 
 ## Conflict and divergence handling
 

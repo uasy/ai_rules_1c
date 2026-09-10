@@ -1,0 +1,19 @@
+{
+  "name": "1c-rules",
+  "interface": {
+    "displayName": "1c-rules"
+  },
+  "plugins": [
+    {
+      "name": "1c-rules",
+      "source": {
+        "source": "local",
+        "path": "./plugins/1c-rules"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Coding"
+    }
+  ]
+}

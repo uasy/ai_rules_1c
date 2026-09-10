@@ -3819,6 +3819,8 @@ function Place-RootTemplates {
 #   the /litemode command),
 #   CAVEMAN (empty = auto; caveman communication-style auto-activation, toggled
 #   by the /caveman command),
+#   METADATA_PREVIEW (empty = auto; when the wrapper -Preview runs before a
+#   metadata write, toggled by the /previewmode command),
 #   PLATFORM_ARGS / IBCMD_ARGS (empty = no extra platform arguments; passed to
 #   1cv8.exe / ibcmd by the 1c-metadata-manage db-* / epf-* tools),
 #   SUPPORT_GUARD (empty = deny; reaction of the vendor-support guard in the
@@ -4552,7 +4554,7 @@ function Write-InstallToolsAnnouncement {
     if (@($NewInstallers).Count -gt 0) {
         Write-Info "Добавлены новые установщики инструментов: $(@($NewInstallers) -join ', ')."
     }
-    Write-Info "После перезапуска AI-клиента запустите /installtools — команда сначала предложит установить приобретённый комплект 1С MCP, затем покажет Cognee, EDT-MCP и инструменты UI-автоматизации."
+    Write-Info "После перезапуска AI-клиента запустите /installtools — команда сначала предложит установить приобретённый комплект 1С MCP, затем покажет Cognee, OpenViking, EDT-MCP и инструменты UI-автоматизации."
     Write-Info "Каждый пункт устанавливается только после подтверждения; отдельные команды установки также доступны."
 }
 

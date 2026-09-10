@@ -1,6 +1,6 @@
 # 1c-templates-mcp — tool catalog
 
-Code template library (`templatesearch`) and project vector memory (`remember` / `recall`). Memory routing rules live in `AGENTS.md → Project memory`.
+Code template library (`templatesearch`) and project vector memory (`remember` / `recall`). Search this memory alongside every other connected memory provider; use it for writes after Cognee and OpenViking are unavailable. Memory routing rules live in `content/rules/project-memory.md`; provider tool mappings are in `content/skills/mcp-1c-tools/docs/memory-providers.md`.
 
 > Load this file only if `1c-templates-mcp` is actually available in the current session. The expanded catalogue below is published in beta; stable tags expose an older surface. `tools/list` is authoritative.
 

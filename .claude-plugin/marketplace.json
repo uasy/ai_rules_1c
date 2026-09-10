@@ -1,0 +1,30 @@
+{
+  "name": "1c-rules",
+  "owner": {
+    "name": "comol"
+  },
+  "metadata": {
+    "description": "Git marketplace for 1c-rules. The plugin wraps install.ps1 so rules stay adapted per host."
+  },
+  "plugins": [
+    {
+      "name": "1c-rules",
+      "source": "./plugins/1c-rules",
+      "description": "Project-scoped 1C rules installer for Claude Code, OpenCode and Kilo CLI. Calls install.ps1; does not dump on-demand rules into .claude/rules/.",
+      "version": "1.0.0",
+      "author": {
+        "name": "comol"
+      },
+      "homepage": "https://github.com/comol/ai_rules_1c",
+      "repository": "https://github.com/comol/ai_rules_1c",
+      "keywords": [
+        "1c",
+        "1c-enterprise",
+        "bsl",
+        "rules",
+        "mcp"
+      ],
+      "category": "development"
+    }
+  ]
+}

@@ -4,10 +4,11 @@ This document describes the installation, update and migration mechanics of the 
 
 ## Installation channels
 
-`1c-rules` ships with two equivalent channels. They produce the **same** on-disk layout and the **same** `.ai-rules.json` manifest:
+`1c-rules` ships with three equivalent channels. They produce the **same** on-disk layout and the **same** `.ai-rules.json` manifest:
 
 1. **Agent-driven channel (default).** The AI agent reads this document and `adapters/*.yaml`, then places files into the project. No external CLI required. This is the default when the user asks the agent to install rules.
 2. **PowerShell channel (fallback).** `install.ps1` implements the same protocol deterministically through a CLI. Use it when the agent is unavailable, the environment is restricted, or you want a reproducible CI/CD-friendly run.
+3. **Git marketplace wrapper.** Hosts that can add a git catalog (Cursor team marketplace, Claude Code, Codex, OpenCode / Kilo CLI) install the thin plugin in `plugins/1c-rules/`. That plugin **must call** `install.ps1` (`plugins/1c-rules/scripts/invoke-install.ps1`). It must not copy `content/` into the host plugin cache or dump on-demand rules into `.claude/rules/` / `.kilo/rules/`. `ensure` may `init` or `add` on a 1C project; it never auto-updates.
 
 A project installed by one channel can later be updated by the other.
 
@@ -177,7 +178,7 @@ After the MCP config is written (init / update / add), **recommend that the user
 
 ### Offer optional tool installation
 
-After a first rules installation, invoke the `/installtools` procedure as the single tool-setup entry point. On the interactive agent channel, load `content/commands/installtools.md` and present its menu in the same installation task; do not wait for the user to discover the new slash command. On the PowerShell channel, which cannot start an AI slash-command turn, print an explicit instruction to restart the client and run `/installtools`. The procedure must always put the purchased 1C MCP server bundle first, then offer Cognee memory, EDT-MCP, `agent-browser`, and Windows-MCP with descriptions, recommendations, current status, and an explicit install/skip choice. Do not invoke `/installmcp` as a separate post-install branch: the general command owns that question and dispatches to the standalone installer when selected.
+After a first rules installation, invoke the `/installtools` procedure as the single tool-setup entry point. On the interactive agent channel, load `content/commands/installtools.md` and present its menu in the same installation task; do not wait for the user to discover the new slash command. On the PowerShell channel, which cannot start an AI slash-command turn, print an explicit instruction to restart the client and run `/installtools`. The procedure must always put the purchased 1C MCP server bundle first, then offer Cognee memory, OpenViking memory, EDT-MCP, `agent-browser`, Windows-MCP, and rtk with descriptions, recommendations, current status, and an explicit install/skip choice. Do not invoke `/installmcp` as a separate post-install branch: the general command owns that question and dispatches to the standalone installer when selected.
 
 On update, compare the pre-update manifest's installed `install*.md` command names with the updated source. Invoke `/installtools` only when at least one installer command is new. The PowerShell channel performs this comparison and prints the new filenames plus the post-restart command; the interactive agent channel performs the comparison and runs the procedure in the same update task. Routine updates with no new tool installer must not open the menu again.
 

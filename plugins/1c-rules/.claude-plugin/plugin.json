@@ -1,0 +1,11 @@
+{
+  "name": "1c-rules",
+  "description": "Installs 1c-rules into the current 1C project by calling install.ps1. Adapters still rewrite rules, agents and MCP for Claude Code.",
+  "version": "1.0.0",
+  "author": {
+    "name": "comol"
+  },
+  "homepage": "https://github.com/comol/ai_rules_1c",
+  "repository": "https://github.com/comol/ai_rules_1c",
+  "keywords": ["1c", "1c-enterprise", "bsl", "rules"]
+}

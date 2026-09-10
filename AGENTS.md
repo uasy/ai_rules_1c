@@ -113,7 +113,7 @@ Before writing/reviewing BSL or metadata, load `content/rules/coding-standards.m
 
 ## Skills and Subagents
 
-- **Metadata mutations:** `content/skills/1c-metadata-manage/SKILL.md` → domain tool, or `1c-metadata-manager`. Hand edits only within that skill's explicit exceptions; verify schema/form context before and XML after. Preview the diff first (`_common/Invoke-1CEdit.ps1`; on Linux / macOS `_common/Invoke-1CEdit.py` for the tools that ship a Python peer). Report `Metadata tooling:` and any exception.
+- **Metadata mutations:** `content/skills/1c-metadata-manage/SKILL.md` → domain tool, or `1c-metadata-manager`. Hand edits only within that skill's explicit exceptions; verify schema/form context before and XML after. Report `Metadata tooling:` and any exception.
 - **Infobase operations:** matching command procedure or metadata skill `db-ops`/`web-ops`. No ad-hoc `1cv8.exe`/`ibcmd` from memory when available procedures cover the operation. Preserve escaping, logs, session handling and retry discipline (`content/commands/update1cbase.md`). Report `IB tooling:`.
 - **Configuration repository:** when `REPOSITORY_PATH` is set, use `content/skills/1c-repository-manage/SKILL.md` and lock-before-edit/commit-after-verify. Never bypass locks by unbinding or clearing the setting, including on request. Report `Repository tooling:`. Empty setting = inactive.
 - **Vendor support:** never bypass a locked-object refusal with XML edits. Prefer an extension; deliberate support changes use `support-edit` with reasons reported (`content/skills/1c-metadata-manage/docs/support-manage.md`).
@@ -129,7 +129,7 @@ Skills live at `content/skills/<name>/SKILL.md`; availability means exposed in t
 
 ## Project memory
 
-Load `content/rules/project-memory.md` on non-trivial 1C tasks and user corrections. **Recall-first:** task notes before design, plus standing conditions on the first task. **Correction-capture:** save relevant corrections in the same turn. `memory.md` is the strict long-term store; exposed `remember`/`recall` hold scoped notes. Unavailable/unauthorized server → documented dated-entry fallback. No secrets/PII. Report the applicable `Memory:` line.
+Load `content/rules/project-memory.md` on non-trivial 1C tasks and user corrections. **Recall-first:** search all connected memory providers before design; standing conditions on the first task. **Correction-capture:** save corrections in the same turn. Write priority: Cognee → OpenViking → templates MCP. `memory.md` is the strict long-term store and dated fallback when no provider can save. No secrets/PII. Report the `Memory:` line.
 
 ## Rules self-improvement (`/evolve` + `LLM-RULES.md`)
 
