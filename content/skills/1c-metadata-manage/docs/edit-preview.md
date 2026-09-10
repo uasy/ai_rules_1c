@@ -20,6 +20,8 @@ The trade this makes: the wrapper cannot know what a tool *intends* to write, on
 | `on` | Preview before every wrapper-driven write, minus the skips below. |
 | `off` | Never automatic. Preview only when the user asks (`/previewmode once` or "покажи, что изменится"). |
 
+The policy is the same for both wrappers: on Linux / macOS the preview is `Invoke-1CEdit.py -Preview`, for the tools it wraps (see *Invocation*).
+
 ### The cases that earn a preview (`auto`)
 
 Preview is worth its second run only when **the shape of the write cannot be predicted from the call** and **finding the damage afterwards is expensive**. That is these four, and deliberately not "a metadata change":

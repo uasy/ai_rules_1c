@@ -19,11 +19,12 @@
 #   2. **Unified diff.** Whatever the run changed is printed as a diff, so an
 #      agent can show the change instead of claiming it.
 #
-#   3. **Preview.** `-Preview` runs the real tool and then puts the tree back.
-#      When the tool ships its own `-DryRun` (meta-remove, remove-form,
-#      remove-template, db-load-git) that native flag is used instead: it is a
-#      plan the tool itself vouches for, and nothing is written that would need
-#      rolling back.
+#   3. **Preview (optional).** `-Preview` runs the real tool and then puts the
+#      tree back. Default is apply immediately; `METADATA_PREVIEW=auto` limits
+#      it to the risky cases (see docs/edit-preview.md). When the tool ships its
+#      own `-DryRun` (meta-remove, remove-form, remove-template, db-load-git)
+#      that native flag is used instead: it is a plan the tool itself vouches
+#      for, and nothing is written that would need rolling back.
 #
 # Two rollback backends, chosen automatically:
 #
