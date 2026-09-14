@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # remove-template v1.3 — Remove template from 1C object
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
-# Local: the same hardening remove-template.ps1 carries on top of upstream
-#        v1.3 — preflight parse (the root XML is parsed, planned and rendered
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# Local: the same hardening remove-template.ps1 carries on top of the
+#        original v1.3 — preflight parse (the root XML is parsed, planned and rendered
 #        before anything is deleted, so a parse failure cannot leave a
 #        half-removed tree), a refusal when the template is not registered in
 #        ChildObjects, an atomic root-XML write through a temporary file, and
-#        the -DryRun / -Force safety gate. Upstream deletes unconditionally
-#        and accepts neither flag.
+#        the -DryRun / -Force safety gate. The original deleted unconditionally
+#        and accepted neither flag.
 
 import argparse
 import os

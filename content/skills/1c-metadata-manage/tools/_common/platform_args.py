@@ -3,7 +3,7 @@
 
 Sources, in precedence order:
   1. `.dev.env` PLATFORM_ARGS / IBCMD_ARGS  (1c-rules single source of truth)
-  2. `.v8-project.json` v8args / ibcmdargs  (upstream cc-1c-skills fallback)
+  2. `.v8-project.json` v8args / ibcmdargs  (legacy fallback)
   3. the caller's -AdditionalV8Arguments / -AdditionalIbcmdArguments
 
 Keys the skill drives itself are rejected: the platform accepts only one batch

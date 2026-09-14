@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # xdto-edit v1.0 — Point edits of a 1C XDTO package
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 #
 # Python port of xdto-edit.ps1 v1.0. Deviations from the .ps1:
 #   * the support guard lives centrally in tools/_shared/support_guard.py;
 #   * sibling scripts are looked up in this directory first (the 1c-rules bundle
 #     merges xdto-decompile / xdto-compile / xdto-validate into one skill), with
-#     the upstream ../../<skill>/scripts/ layout kept as a fallback;
+#     the original ../../<skill>/scripts/ layout kept as a fallback;
 #   * XML rewrites preserve the prologue / epilogue / newline style of the
 #     original file byte for byte (lxml, unlike .NET XmlWriter, drops them).
 # Model operations still go through the decompile → edit XSD → compile
-# round-trip — the same deliberate exception to skill autonomy as upstream:
+# round-trip — the same deliberate exception to skill autonomy as the original tools:
 # a second emitter would drift from the first and break byte fidelity.
 
 import argparse

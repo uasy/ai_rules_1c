@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # role-validate v1.1 — Validate 1C role Rights.xml structure
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 """Validates role Rights.xml: root element, global flags, objects, rights, RLS, templates."""
 import sys, os, argparse, re
 from lxml import etree

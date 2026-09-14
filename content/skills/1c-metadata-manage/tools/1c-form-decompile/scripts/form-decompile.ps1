@@ -1,5 +1,5 @@
 ﻿# form-decompile v0.147 — Decompile 1C managed Form.xml to JSON DSL (draft)
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 # ВНИМАНИЕ: раундтрип не гарантируется. Навык исключён из авто-использования моделью.
 param(
 	[Parameter(Mandatory)]

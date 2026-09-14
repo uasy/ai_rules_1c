@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # subsystem-compile v1.9 — Create 1C subsystem from JSON definition
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 # Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
 #        an existing XML file (tools/_shared/xml_eol.py).
 import argparse

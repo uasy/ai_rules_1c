@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # db-dump-cf v1.12 — Dump 1C configuration to CF file
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 
 import argparse
 import atexit
@@ -58,7 +58,7 @@ def resolve_v8path(v8path):
     """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly)."""
     if not v8path:
         # 1c-rules: .dev.env is the single source of truth and wins over
-        # .v8-project.json, which stays supported as the upstream fallback.
+        # .v8-project.json, which stays supported as the legacy fallback.
         v8path = dev_env.get_value('PLATFORM_PATH') or _find_project_v8path()
     if not v8path:
         if os.name == "nt":

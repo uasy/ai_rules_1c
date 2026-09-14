@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # img-grid v1.1 — Overlay numbered grid on image
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 """Overlay a numbered grid on an image to help determine column/row proportions.
 
 Usage: python overlay-grid.py <image> [-c COLS] [-r ROWS] [-o OUTPUT]

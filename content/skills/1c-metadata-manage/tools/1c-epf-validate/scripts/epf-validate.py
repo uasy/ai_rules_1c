@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # epf-validate v1.2 — Validate 1C external data processor / report structure
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 # Works for both EPF (ExternalDataProcessor) and ERF (ExternalReport) — auto-detects
 
 import argparse

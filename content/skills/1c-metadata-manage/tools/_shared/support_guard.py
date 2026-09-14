@@ -4,16 +4,15 @@
 # Import Assert-EditAllowed (write path) as assert_edit_allowed(), or the read-only
 # status line as get_support_status_for_path().
 #
-# Deviation from upstream (https://github.com/Nikolay-Shirokov/cc-1c-skills): upstream
-# resolves the guard policy from .v8-project.json's editingAllowedCheck. Here the policy
+# Deviation from the original tools, which resolve the guard policy from .v8-project.json's editingAllowedCheck. Here the policy
 # comes from .dev.env's SUPPORT_GUARD instead (legacy SUPPORT_EDIT_POLICY still read) — .dev.env is this project's single
 # source of truth for operational parameters (see AGENTS.md / dev-standards-core.md §1).
 # .v8-project.json in this project is documentation-only for the guard (no script reads
 # it for this purpose — see docs/db-manage.md; it remains in legitimate use as the
 # optional multi-base registry for 1c-db-ops / 1c-epf-build / 1c-epf-dump, a separate
-# concern). Same directory walk-up algorithm as upstream (up to 20 levels), same default
+# concern). Same directory walk-up algorithm as the original tools (up to 20 levels), same default
 # ('deny') when the file or field is absent. Everything else (Ext/ParentConfigurations.bin
-# parsing, block/flag semantics) is unchanged from upstream.
+# parsing, block/flag semantics) is unchanged from the original tools.
 #
 # Centralized here (mirrors the .ps1 side, which is also centralized rather than
 # duplicated per script) so every 1c-metadata-manage Python tool shares one implementation.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # cf-info v1.4 — Compact summary of 1C configuration root
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 
 import argparse
 import os

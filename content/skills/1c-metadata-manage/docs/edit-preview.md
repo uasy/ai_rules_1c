@@ -6,7 +6,7 @@ Its Python peer `tools/_common/Invoke-1CEdit.py` carries the same contract for t
 
 ## Why a wrapper and not thirty patches
 
-The tools under `tools/` are vendored from upstream `cc-1c-skills`. Each one opens and writes its own files; there is no shared write layer to patch. Adding a preview flag to every mutating script would mean editing thirty-odd files — including `form-compile.ps1` at 355 KB — and losing all of it at the next upstream sync. The wrapper sits in front of them instead, so preview, dry-run and logical addressing are four local files (`Invoke-1CEdit.ps1` / `Invoke-1CEdit.py`, `MetadataAddress.ps1` / `MetadataAddress.py`) that an upstream refresh never touches.
+The tool scripts under `tools/` come with the upstream package. Each one opens and writes its own files; there is no shared write layer to patch. Adding a preview flag to every mutating script would mean editing thirty-odd files — including `form-compile.ps1` at 355 KB — and losing all of it at the next upstream sync. The wrapper sits in front of them instead, so preview, dry-run and logical addressing are four local files (`Invoke-1CEdit.ps1` / `Invoke-1CEdit.py`, `MetadataAddress.ps1` / `MetadataAddress.py`) that an upstream refresh never touches.
 
 The trade this makes: the wrapper cannot know what a tool *intends* to write, only what it *did* write. So a preview really runs the tool and then undoes it. Everything below follows from that. That is why preview is **not** a default step of the development cycle.
 

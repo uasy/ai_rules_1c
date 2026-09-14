@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # subsystem-validate v1.2 — Validate 1C subsystem XML structure
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 """Validates subsystem XML file structure, properties, content items, child objects."""
 import sys, os, argparse, re
 from lxml import etree

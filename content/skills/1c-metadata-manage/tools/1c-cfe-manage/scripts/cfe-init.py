@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # cfe-init v1.2 — Create 1C configuration extension scaffold (CFE)
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 """Generates minimal XML source files for a 1C configuration extension."""
 import sys, os, argparse, uuid
 from xml.etree import ElementTree as ET

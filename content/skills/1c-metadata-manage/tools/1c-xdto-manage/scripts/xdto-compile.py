@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # xdto-compile v1.1 — Build a 1C XDTO package from an XML Schema (XSD)
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 #
 # Python port of xdto-compile.ps1 v1.1. Deviations from the .ps1:
 #   * the support guard lives centrally in tools/_shared/support_guard.py

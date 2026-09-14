@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # stub-db-create v1.7 — Create temp 1C infobase with metadata stubs for EPF/ERF build
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 
 import argparse
 import os

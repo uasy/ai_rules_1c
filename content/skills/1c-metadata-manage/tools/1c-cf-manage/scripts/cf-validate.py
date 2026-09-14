@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # cf-validate v1.4 — Validate 1C configuration XML structure
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 """Validates Configuration.xml: root structure, InternalInfo, properties, ChildObjects, languages."""
 import sys, os, argparse, re
 from lxml import etree

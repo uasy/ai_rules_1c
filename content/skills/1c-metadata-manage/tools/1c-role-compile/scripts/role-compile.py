@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # role-compile v1.8 — Compile 1C role from JSON
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 import argparse
 import json
 import os

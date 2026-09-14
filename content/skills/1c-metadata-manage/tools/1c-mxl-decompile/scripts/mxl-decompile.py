@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # mxl-decompile v1.0 — Decompile 1C spreadsheet to JSON
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 
 import argparse
 import json

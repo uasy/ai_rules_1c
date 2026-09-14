@@ -64,20 +64,23 @@ carries its downstream deltas in its own file header:
   `Invoke-1CEdit.ps1`, so logical addressing and the preview wrapper work on a
   Linux / macOS install for every tool that ships a `.py` runtime.
 
-The other `.py` files under `tools/` are vendored from the same pin without local
-changes, except these, which carry the XML-layout fix the downstream PowerShell
-writers already have:
+The other `.py` files under `tools/` are maintained in this repository at the
+versions of their `.ps1` peers; twenty of them go through the local support guard
+(`tools/_shared/support_guard.py`). These also carry the XML-layout fix the
+PowerShell writers have:
 
 - `cf-edit.py`, `cfe-borrow.py`, `subsystem-compile.py`, `subsystem-edit.py`,
   `interface-edit.py`, `form-edit.py`, `add-help.py`, `add-template.py` — keep the
   target file's CRLF / LF style when rewriting an existing XML file, and never
-  write the indentation they insert as a literal `&#13;` (upstream parses with
-  lxml, which normalises CRLF to LF, and inserts `\r\n`, which lxml serialises
-  as `&#13;`). Shared helper: `tools/_shared/xml_eol.py`, not upstream code.
+  write the indentation they insert as a literal `&#13;` (lxml normalises CRLF
+  to LF on parsing and serialises an inserted CR as `&#13;`). Shared helper: `tools/_shared/xml_eol.py`, not upstream code.
   `add-template.py` also accepts the object's XML path in `-ObjectName`, as the
   downstream `add-template.ps1` does.
 - `form-compile.py` (above) — registering a compiled form in its object keeps the
   object file's line endings.
+
+This notice also covers `scripts/overlay-grid.py` of the `img-grid-analysis`
+skill, which is derived from the same project.
 
 All of them are pinned by `tools/tests/python-ports-regression.py` (an LF and a
 CRLF run per tool). The pin above is not to be advanced without re-running

@@ -2,7 +2,7 @@
 # cfe-patch-method v2.5-partial — Source-aware method interceptor for 1C extension (CFE)
 # Generation is ported in full; the -Check / -Actualize resync of controlled
 # (&ИзменениеИКонтроль) methods is NOT yet ported and exits with a notice.
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 
 import argparse
 import os

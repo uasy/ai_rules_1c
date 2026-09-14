@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # cfe-diff v1.0 — Analyze and compare 1C configuration extension (CFE)
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 
 import argparse
 import os

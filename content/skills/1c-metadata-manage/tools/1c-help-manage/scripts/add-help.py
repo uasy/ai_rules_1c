@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # add-help v1.9 — Add built-in help to 1C object
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 # Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
 #        an existing XML file (tools/_shared/xml_eol.py).
 

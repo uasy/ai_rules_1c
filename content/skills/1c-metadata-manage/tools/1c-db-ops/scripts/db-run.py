@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # db-run v1.7 — Launch 1C:Enterprise
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 #
-# Deviation from db-run.ps1 (py twin only): two opt-in flags absent upstream.
+# Deviation from db-run.ps1 (py twin only): two opt-in flags the PowerShell twin does not have.
 #   -Out <file>  passes /Out. In batch startup mode (/DisableStartupDialogs, always
 #                added below) the platform writes startup errors ONLY to this file —
 #                without it a failed /Execute run is completely silent.
@@ -63,7 +63,7 @@ def resolve_v8path(v8path):
     """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly)."""
     if not v8path:
         # 1c-rules: .dev.env is the single source of truth and wins over
-        # .v8-project.json, which stays supported as the upstream fallback.
+        # .v8-project.json, which stays supported as the legacy fallback.
         v8path = dev_env.get_value('PLATFORM_PATH') or _find_project_v8path()
     if not v8path:
         if os.name == "nt":

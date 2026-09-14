@@ -1,19 +1,19 @@
 # support-guard v1.0 — shared support-state guard for 1c-metadata-manage tools
-# Adapted from https://github.com/Nikolay-Shirokov/cc-1c-skills (cf-edit.ps1 write-guard,
-# meta-info.ps1 read-only status reporting). Dot-source this file, then call
+# Adapted from the write guard of cf-edit.ps1 and the read-only status reporting of
+# meta-info.ps1. Dot-source this file, then call
 # Assert-EditAllowed (write path) or Get-SupportStatusForPath (read-only status line).
 #
-# Deviation from upstream: upstream resolves the guard policy from .v8-project.json's
+# Deviation from the original tools: they resolve the guard policy from .v8-project.json's
 # editingAllowedCheck. Here the policy comes from .dev.env's SUPPORT_EDIT_POLICY
 # instead — .dev.env is this project's single source of truth for operational
 # parameters (see AGENTS.md / dev-standards-core.md §1), and .v8-project.json in this
 # project is documentation-only (no script reads it — see docs/db-manage.md). Same
-# directory walk-up algorithm as upstream (up to 20 levels), same default ('deny')
+# directory walk-up algorithm as the original tools (up to 20 levels), same default ('deny')
 # when the file or field is absent. Everything else (Ext/ParentConfigurations.bin
-# parsing, block/flag semantics) is unchanged from upstream — see
+# parsing, block/flag semantics) is unchanged from the original tools — see
 # docs/support-manage.md for the full format spec.
 #
-# Centralized here (unlike upstream, which duplicates this block in every script)
+# Centralized here (unlike the original tools, which duplicate this block in every script)
 # so all 1c-metadata-manage write/info tools share one implementation.
 
 function Get-RootUuid([string]$xmlPath) {

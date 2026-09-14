@@ -1,5 +1,5 @@
 # meta-info v1.4 — Compact summary of 1C metadata object (Python port)
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 import argparse
 import os
 import re

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # epf-init v1.1 — Init 1C external data processor scaffold
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 """Generates minimal XML source files for a 1C external data processor."""
 import sys, os, argparse, uuid
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # mxl-compile v1.4 — Compile 1C spreadsheet from JSON
-# Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 import argparse
 import json
 import math
