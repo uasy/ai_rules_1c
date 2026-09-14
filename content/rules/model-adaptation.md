@@ -14,7 +14,7 @@ The base ruleset (`AGENTS.md` + every on-demand rule) is written **model-neutral
 
 A **model profile** is a thin delta that tunes those documented behaviours to the running model. It exists so the same ruleset produces the same outcome on Claude Opus 5, Claude Sonnet 5, Claude Fable 5, GPT-5.6 and GPT-6 Astra without the base rules being rewritten for a particular vendor's quirks.
 
-Sources of the deltas: the Anthropic prompting best-practices set (`platform.claude.com/docs/en/build-with-claude/prompt-engineering/…`, including the per-model pages for Opus 5 / Sonnet 5 / Fable 5), the Anthropic context-engineering guide for the Claude 5 generation (`claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models`, July 2026 — lean context, judgement over hard style constraints, described interfaces over worked examples, progressive disclosure, code-form references) and the OpenAI latest-model guide (`developers.openai.com/api/docs/guides/latest-model` → *Prompting best practices*). Only the **model-specific** parts of those guides are allowed into profiles; everything a guide states for all models belongs to §5 below and is always in force.
+Sources of the deltas: the Anthropic prompting best-practices set (`platform.claude.com/docs/en/build-with-claude/prompt-engineering/…`, including the per-model pages for Opus 5 / Sonnet 5 / Fable 5), the Anthropic context-engineering guide for the Claude 5 generation (`claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models`, July 2026 — lean context, judgement over hard style constraints, described interfaces over worked examples, progressive disclosure, code-form references), the OpenAI latest-model guide (`developers.openai.com/api/docs/guides/latest-model` → *Prompting best practices*) and [Rethinking skills and prompts for GPT-6 Astra](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra). Only the **model-specific** parts of those guides are allowed into profiles; everything a guide states for all models belongs to §5 below and is always in force.
 
 ## 2. Selecting the profile
 
@@ -43,7 +43,7 @@ Users write model names however they like. `/rulesmodel` and any manual `.dev.en
 | `sonnet5` | `sonnet5`, `sonnet 5`, `claude-sonnet-5`, `Claude Sonnet 5`, `сонет 5`, `соннет 5` |
 | `fable5` | `fable5`, `fable 5`, `claude-fable-5`, `Claude Fable 5`, `mythos5`, `claude-mythos-5`, `фейбл 5`, `фабл 5`, `мифос 5` |
 | `gpt56` | `gpt56`, `gpt5.6`, `gpt-5.6`, `GPT 5.6`, `openai gpt-5.6`, `гпт 5.6`, `гпт-5.6` |
-| `gpt6` | `gpt6`, `gpt-6`, `GPT 6`, `gpt-6-astra`, `gpt6astra`, `astra`, `openai gpt-6`, `гпт 6`, `гпт-6`, `астра` |
+| `gpt6` | `gpt6`, `gpt-6`, `GPT 6`, `gpt-6-astra`, `gpt6astra`, `astra`, `astra6`, `astra 6`, `openai gpt-6`, `гпт 6`, `гпт-6`, `астра`, `астра6`, `астра 6` |
 
 Rules for the resolution:
 
@@ -89,3 +89,5 @@ These are the parts of both vendor guides that apply to **every** model. They ar
 - **Define success criteria and verify against them.** Turn imperative tasks into verifiable goals (`AGENTS.md → Development Procedure → 4`).
 - **Keep instructions non-contradictory.** Conflicting instructions degrade every model; resolve a conflict explicitly (`CONFUSION`, or the precedence chain above) instead of averaging the two readings.
 - **User task vs on-demand skill process.** The user's current-task instruction outranks an on-demand skill's process guidance, except hard gates and the MUST NOT list. A skill must not turn an already authorized task into an approval loop.
+- **Author skills with precise triggers and progressive disclosure.** When asked to create or maintain a skill, keep its description short and specific to the workflow that requires it. A multi-workflow root should route to supporting docs and scripts by task; avoid broad keyword triggers, competing activation demands and unrelated required reading. Existing mandatory tool routes remain explicit.
+- **Describe outcomes and decision boundaries.** In task prompts and workflow guidance, state the result, constraints, completion checks and where to stop. Prescribe exact steps when correctness, tool contracts or safety depend on their order. Keep shared instructions usable by different models; put model-specific changes to initiative in the matching profile. Apply this during authorized rules maintenance, not as permission for unsolicited rewrites.

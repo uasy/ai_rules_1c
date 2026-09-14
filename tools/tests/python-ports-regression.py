@@ -2045,6 +2045,23 @@ def _(work):
                 "the refusal names no Python entry point to use instead")
 
 
+@case("support: meta-edit add-template refuses inline and mixed JSON before mutation")
+def _(work):
+    directory, target = catalog_target(work, "add-template-refusal")
+    definition = write_definition(directory, {
+        "modify": {"properties": {"Comment": "must not apply"}},
+        "\u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c": {"\u043c\u0430\u043a\u0435\u0442\u044b": ["Print"]},
+    })
+    before = snapshot_tree(directory)
+    for arguments in (["-Operation", "add-template", "-Value", "Print"],
+                      ["-DefinitionFile", definition]):
+        run = run_python_tool(META_EDIT_PY, ["-ObjectPath", target, *arguments], directory)
+        assert_equal(2, run["exit_code"], f"add-template refusal: {run['stdout'][-400:]}")
+        assert_tree_identical(before, snapshot_tree(directory), "refused add-template")
+        assert_true("add-template.ps1" in run["stderr"] and "TemplateType" in run["stderr"],
+                    "missing actionable template command")
+
+
 # Every spelling the production dispatcher resolves to the "add" operation, and
 # every spelling it resolves to the "forms" child type. The gate has to refuse all
 # of them: they are not exotic input, they are what meta-edit documents and what

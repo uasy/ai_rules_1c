@@ -702,6 +702,9 @@ if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring
 $text = $text.Replace('encoding="utf-8"', 'encoding="UTF-8"')
 
 $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+$text = [regex]::Replace($text, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+$targetEol = if ([System.IO.File]::ReadAllText($resolvedPath) -match "`r`n") { "`r`n" } else { "`n" }
+$text = ($text -replace "`r`n", "`n") -replace "`n", $targetEol
 [System.IO.File]::WriteAllText($resolvedPath, $text, $utf8Bom)
 Info "Saved: $resolvedPath"
 

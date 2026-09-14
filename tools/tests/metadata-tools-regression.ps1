@@ -1084,6 +1084,196 @@ Register-Case 'Invoke-1CEdit: a tool with its own -DryRun is previewed by that f
     Assert-DumpIdentical $before (Get-DumpFacts $src) 'the native dry-run wrote to the tree'
 }
 
+Register-Case 'support: meta-edit refuses add-template before any mutation' {
+    param($work)
+    Copy-Fixture 'config-dump' $work
+    $target = Join-Path $work 'Catalogs\TestCatalog.xml'
+    $definition = Join-Path $work 'template.json'
+    [IO.File]::WriteAllText($definition, '{"modify":{"properties":{"Comment":"must not apply"}},"Add":{"Templates":["Print"]}}')
+    $before = Get-TreeSnapshot $work
+    foreach ($caseArgs in @(@('-Operation', 'add-template', '-Value', 'Print'), @('-DefinitionFile', $definition))) {
+        $run = Invoke-Tool $MetaEdit (@('-ObjectPath', $target) + $caseArgs) $work
+        Assert-Equal 2 $run.ExitCode "add-template refusal (stdout: $($run.StdOut))"
+        Assert-True ($run.StdErr -match 'add-template.ps1' -and $run.StdErr -match 'TemplateType') 'missing actionable template command'
+        Assert-TreeIdentical $before (Get-TreeSnapshot $work) 'refused add-template'
+    }
+}
+
+Register-Case 'support: add-template accepts object XML paths and keeps name lookup' {
+    param($work)
+    Copy-Fixture 'config-dump' $work
+    $target = Join-Path $work 'Catalogs\TestCatalog.xml'
+    $addTemplate = Join-Path $ToolsDir '1c-template-manage\scripts\add-template.ps1'
+    foreach ($scenario in @(
+        @{ Path = $target; Name = 'Absolute' },
+        @{ Path = 'Catalogs\TestCatalog.xml'; Name = 'Relative' },
+        @{ Path = 'TestCatalog'; Name = 'ByName' }
+    )) {
+        $run = Invoke-Tool $addTemplate @('-ObjectName', $scenario.Path, '-TemplateName', $scenario.Name, '-TemplateType', 'Text', '-SrcDir', $work) $work
+        Assert-Equal 0 $run.ExitCode "template creation (stderr: $($run.StdErr))"
+        [xml]$xml = [IO.File]::ReadAllText($target)
+        $registration = $xml.SelectNodes("//*[local-name()='Catalog']/*[local-name()='ChildObjects']/*[local-name()='Template'][text()='$($scenario.Name)']")
+        Assert-Equal 1 $registration.Count 'scalar template registration'
+        $templateDir = Join-Path $work 'Catalogs\TestCatalog\Templates'
+        [xml]$descriptor = [IO.File]::ReadAllText((Join-Path $templateDir "$($scenario.Name).xml"))
+        Assert-Equal 'TextDocument' $descriptor.SelectSingleNode("//*[local-name()='TemplateType']").InnerText 'template type'
+        Assert-True (Test-Path -LiteralPath (Join-Path $templateDir "$($scenario.Name)\Ext\Template.txt")) 'missing template content'
+    }
+    Copy-Fixture 'epf-with-form' (Join-Path $work 'epf')
+    $run = Invoke-Tool $addTemplate @('-ProcessorName', 'Obrabotka', '-TemplateName', 'Legacy', '-TemplateType', 'Text', '-SrcDir', (Join-Path $work 'epf')) $work
+    Assert-Equal 0 $run.ExitCode "legacy EPF alias (stderr: $($run.StdErr))"
+}
+
+Register-Case 'support: form-edit command keeps compact tags, EOL and literal XML text' {
+    param($work)
+    $formEdit = Join-Path $ToolsDir '1c-form-edit\scripts\form-edit.ps1'
+    $definition = Join-Path $work 'command.json'
+    [IO.File]::WriteAllText($definition, '{"commands":[{"name":"X","action":"X"}]}')
+    foreach ($eol in @("`n", "`r`n")) {
+        $target = Join-Path $work 'Form.xml'
+        $before = '<?xml version="1.0" encoding="UTF-8"?>' + $eol +
+            '<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" version="2.17">' + $eol +
+            "`t<AutoCommandBar name=`"FormCommandBar`" id=`"-1`"/>" + $eol +
+            "`t<!-- literal <Comment /> -->" + $eol +
+            "`t<?probe literal <PI /> ?>" + $eol +
+            "`t<Title><![CDATA[literal <Text />]]></Title>" + $eol +
+            "`t<Commands>" + $eol + "`t`t<Command name=`"Existing`" id=`"1`"><Action>Existing</Action></Command>" + $eol +
+            "`t</Commands>" + $eol + '</Form>' + $eol
+        [IO.File]::WriteAllText($target, $before, (New-Object Text.UTF8Encoding($true)))
+        $run = Invoke-Tool $formEdit @('-FormPath', $target, '-JsonPath', $definition) $work
+        Assert-Equal 0 $run.ExitCode "form edit (stderr: $($run.StdErr))"
+        $after = Get-FileFacts $target
+        Assert-True $after.Bom 'UTF-8 BOM lost'
+        [xml]$xml = $after.Text
+        Assert-Equal 1 $xml.SelectNodes("//*[local-name()='Commands']/*[local-name()='Command'][@name='X']").Count 'added command'
+        $withoutAdded = [regex]::Replace($after.Text, '(?s)[\r\n]+\t\t<Command name="X".*?</Command>', '')
+        Assert-Equal $before $withoutAdded 'unrelated form text changed'
+    }
+}
+
+function Assert-CompactXml([string]$Path) {
+    $facts = Get-FileFacts $Path
+    [xml]$parsed = $facts.Text
+    $tags = [regex]::Replace($facts.Text, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>', '')
+    Assert-True ($tags -notmatch ' />') "serializer expanded empty tags in $Path"
+    Assert-Equal 0 $facts.Crlf "LF input acquired CRLF in $Path"
+    Assert-True $facts.Bom "UTF-8 BOM lost in $Path"
+}
+
+Register-Case 'support xml: form-add preserves compact tags in parent' {
+    param($work)
+    Copy-Fixture 'epf-with-form' $work
+    $target = Join-Path $work 'Obrabotka.xml'
+    $run = Invoke-Tool $FormAdd @('-ObjectPath', $target, '-FormName', 'Added', '-Purpose', 'Object') $work
+    Assert-Equal 0 $run.ExitCode "form-add: $($run.StdErr)"
+    Assert-CompactXml $target
+}
+
+Register-Case 'support xml: remove-form preserves compact tags in parent' {
+    param($work)
+    Copy-Fixture 'epf-with-form' $work
+    $run = Invoke-Tool $RemoveForm @('-ObjectName', 'Obrabotka', '-FormName', 'AuxForm', '-SrcDir', $work, '-Force') $work
+    Assert-Equal 0 $run.ExitCode "remove-form: $($run.StdErr)"
+    Assert-CompactXml (Join-Path $work 'Obrabotka.xml')
+}
+
+Register-Case 'support xml: form-compile registration preserves compact tags in parent' {
+    param($work)
+    Copy-Fixture 'epf-with-form' $work
+    $definition = Join-Path $work 'form.json'
+    [IO.File]::WriteAllText($definition, '{"title":"Test","elements":[]}')
+    $target = Join-Path $work 'Obrabotka\Forms\Added\Ext\Form.xml'
+    $run = Invoke-Tool $FormCompile @('-JsonPath', $definition, '-OutputPath', $target) $work
+    Assert-Equal 0 $run.ExitCode "form-compile: $($run.StdErr)"
+    Assert-CompactXml (Join-Path $work 'Obrabotka.xml')
+}
+
+Register-Case 'support xml: cf-edit preserves compact tags' {
+    param($work)
+    Copy-Fixture 'config-dump' $work
+    $target = Join-Path $work 'Configuration.xml'
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-cf-manage\scripts\cf-edit.ps1') @('-ConfigPath', $target, '-Operation', 'modify-property', '-Value', 'Comment=Probe', '-NoValidate') $work
+    Assert-Equal 0 $run.ExitCode "cf-edit: $($run.StdErr)"
+    Assert-CompactXml $target
+}
+
+Register-Case 'support xml: subsystem registration and edit preserve compact tags' {
+    param($work)
+    Copy-Fixture 'config-dump' $work
+    $definition = Join-Path $work 'subsystem.json'
+    [IO.File]::WriteAllText($definition, '{"name":"Probe"}')
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-subsystem-manage\scripts\subsystem-compile.ps1') @('-DefinitionFile', $definition, '-OutputDir', $work, '-NoValidate') $work
+    Assert-Equal 0 $run.ExitCode "subsystem-compile: $($run.StdErr)"
+    Assert-CompactXml (Join-Path $work 'Configuration.xml')
+    $target = Join-Path $work 'Subsystems\Probe.xml'
+    $text = (Get-FileFacts $target).Text -replace "`r`n", "`n"
+    [IO.File]::WriteAllText($target, $text, (New-Object Text.UTF8Encoding($true)))
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-subsystem-manage\scripts\subsystem-edit.ps1') @('-SubsystemPath', $target, '-Operation', 'add-content', '-Value', 'Catalog.TestCatalog', '-NoValidate') $work
+    Assert-Equal 0 $run.ExitCode "subsystem-edit: $($run.StdErr)"
+    Assert-CompactXml $target
+}
+
+Register-Case 'support xml: interface-edit preserves compact tags' {
+    param($work)
+    $target = Join-Path $work 'CommandInterface.xml'
+    $text = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n<CommandInterface xmlns=`"http://v8.1c.ru/8.3/xcf/extrnprops`" version=`"2.17`">`n`t<CommandsVisibility/>`n`t<CommandsOrder/>`n</CommandInterface>`n"
+    [IO.File]::WriteAllText($target, $text, (New-Object Text.UTF8Encoding($true)))
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-interface-manage\scripts\interface-edit.ps1') @('-CIPath', $target, '-Operation', 'hide', '-Value', 'Catalog.TestCatalog.StandardCommand.OpenList', '-NoValidate') $work
+    Assert-Equal 0 $run.ExitCode "interface-edit: $($run.StdErr)"
+    Assert-CompactXml $target
+}
+
+Register-Case 'support xml: add-template preserves compact tags in parent' {
+    param($work)
+    Copy-Fixture 'epf-with-form' $work
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-template-manage\scripts\add-template.ps1') @('-ObjectName', 'Obrabotka', '-TemplateName', 'Probe', '-TemplateType', 'Text', '-SrcDir', $work) $work
+    Assert-Equal 0 $run.ExitCode "add-template: $($run.StdErr)"
+    Assert-CompactXml (Join-Path $work 'Obrabotka.xml')
+}
+
+Register-Case 'support xml: add-help preserves compact tags in form descriptor' {
+    param($work)
+    Copy-Fixture 'epf-with-form' $work
+    $target = Join-Path $work 'Obrabotka\Forms\MainForm.xml'
+    $text = (Get-FileFacts $target).Text -replace '\s*<IncludeHelpInContents>.*?</IncludeHelpInContents>', ''
+    [IO.File]::WriteAllText($target, $text, (New-Object Text.UTF8Encoding($true)))
+    New-Item -ItemType Directory -Path (Join-Path $work 'Obrabotka\Ext') -Force | Out-Null
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-help-manage\scripts\add-help.ps1') @('-ObjectName', 'Obrabotka', '-SrcDir', $work) $work
+    Assert-Equal 0 $run.ExitCode "add-help: $($run.StdErr)"
+    Assert-True ((Get-FileFacts $target).Text -match '<IncludeHelpInContents>false</IncludeHelpInContents>') 'help flag was not added'
+    Assert-CompactXml $target
+}
+
+Register-Case 'support xml: cfe-borrow preserves compact tags in extension' {
+    param($work)
+    $base = Join-Path $work 'base'
+    Copy-Fixture 'config-dump' $base
+    $extension = Join-Path $work 'extension'
+    New-Item -ItemType Directory -Path $extension -Force | Out-Null
+    $target = Join-Path $extension 'Configuration.xml'
+    $text = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n<MetaDataObject xmlns=`"http://v8.1c.ru/8.3/MDClasses`" version=`"2.17`">`n`t<Configuration uuid=`"11111111-1111-1111-1111-111111111111`">`n`t`t<Properties><Name>Probe</Name><NamePrefix/><Comment/></Properties>`n`t`t<ChildObjects/>`n`t</Configuration>`n</MetaDataObject>`n"
+    # The borrowed-tool version probe reads 2000 characters from nontrivial dumps.
+    $text = $text.Replace('</MetaDataObject>', ('<!--' + ('x' * 2100) + '-->' + "`n</MetaDataObject>"))
+    [IO.File]::WriteAllText($target, $text, (New-Object Text.UTF8Encoding($true)))
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-cfe-manage\scripts\cfe-borrow.ps1') @('-ExtensionPath', $extension, '-ConfigPath', $base, '-Object', 'Catalog.TestCatalog') $work
+    Assert-Equal 0 $run.ExitCode "cfe-borrow: $($run.StdErr)"
+    Assert-CompactXml $target
+}
+
+Register-Case 'support xml: skd-edit keeps compact tags without changing literal XML text' {
+    param($work)
+    $target = Join-Path $work 'Template.xml'
+    $text = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n<DataCompositionSchema xmlns=`"http://v8.1c.ru/8.1/data-composition-system/schema`">`n`t<dataSource><name><![CDATA[literal <Text />]]></name><dataSourceType>Local</dataSourceType></dataSource>`n`t<parameter><name>Probe</name><valueType/></parameter>`n`t<!-- literal <Comment /> -->`n`t<?probe literal <PI /> ?>`n</DataCompositionSchema>`n"
+    [IO.File]::WriteAllText($target, $text, (New-Object Text.UTF8Encoding($true)))
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-skd-edit\scripts\skd-edit.ps1') @('-TemplatePath', $target, '-Operation', 'remove-parameter', '-Value', 'Probe') $work
+    Assert-Equal 0 $run.ExitCode "skd-edit: $($run.StdErr)"
+    Assert-CompactXml $target
+    $after = (Get-FileFacts $target).Text
+    foreach ($literal in @('<![CDATA[literal <Text />]]>', '<!-- literal <Comment /> -->', '<?probe literal <PI /> ?>')) {
+        Assert-True $after.Contains($literal) "XML literal changed: $literal"
+    }
+}
+
 # ---------------------------------------------------------------- run
 
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ("1c-rules-regr-" + [guid]::NewGuid().ToString('N').Substring(0, 8))

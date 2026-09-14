@@ -997,6 +997,9 @@ function Register-FormInObject {
 	$text2 = $text2.Replace('encoding="utf-8"', 'encoding="UTF-8"')
 
 	$utf8Bom2 = New-Object System.Text.UTF8Encoding($true)
+	$text2 = [regex]::Replace($text2, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+	$targetEol = if ([System.IO.File]::ReadAllText($objFile) -match "`r`n") { "`r`n" } else { "`n" }
+	$text2 = ($text2 -replace "`r`n", "`n") -replace "`n", $targetEol
 	[System.IO.File]::WriteAllText($objFile, $text2, $utf8Bom2)
 	Info "  Registered form in: $objFile"
 }
@@ -1386,6 +1389,9 @@ function Merge-AttributesIntoObject {
 		$text3 = $text3 -replace '</ChildObjects>', "${allAttrXml}`r`n`t`t</ChildObjects>"
 
 		$utf8Bom3 = New-Object System.Text.UTF8Encoding($true)
+		$text3 = [regex]::Replace($text3, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+		$targetEol = if ([System.IO.File]::ReadAllText($objFile) -match "`r`n") { "`r`n" } else { "`n" }
+		$text3 = ($text3 -replace "`r`n", "`n") -replace "`n", $targetEol
 		[System.IO.File]::WriteAllText($objFile, $text3, $utf8Bom3)
 		Info "  Merged $added attribute(s) into: $objFile"
 	}
@@ -1851,6 +1857,9 @@ if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring
 $text = $text.Replace('encoding="utf-8"', 'encoding="UTF-8"')
 
 $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+$text = [regex]::Replace($text, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+$targetEol = if ([System.IO.File]::ReadAllText($extResolvedPath) -match "`r`n") { "`r`n" } else { "`n" }
+$text = ($text -replace "`r`n", "`n") -replace "`n", $targetEol
 [System.IO.File]::WriteAllText($extResolvedPath, $text, $utf8Bom)
 Info "Saved: $extResolvedPath"
 

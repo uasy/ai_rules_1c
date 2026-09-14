@@ -130,6 +130,12 @@ The PowerShell script `tools/1c-epf-validate/scripts/epf-validate.ps1` was refre
 
 ## form-manage.md
 
+### Local fix `2026-09-14` — compact XML across the reported writers
+
+`form-edit.ps1` normalizes empty tags to Configurator's `<Tag/>` spelling and retains the input EOL. The same save-time behavior covers `form-add`, `remove-form`, parent registration by `form-compile`, `cf-edit`, object registration/merge by `cfe-borrow`, `subsystem-edit`, parent registration by `subsystem-compile`, `interface-edit`, `add-template` and `add-help`. `skd-edit` already normalized tags; its normalization now protects CDATA, comments and processing instructions. No shared runtime dependency was added.
+
+Focused regressions exercise each reported writer on temporary fixtures. Command-add checks compare unrelated form text byte-for-byte for LF and CRLF; template checks cover absolute/relative XML paths and the existing name/EPF lookup. The remove-form quarantine and rollback remain intact.
+
 ### Python runtime for `form-remove` (`2026-09-04`)
 
 `remove-form.py` is vendored from the same upstream repository, pinned at commit `ecd289fe11733028d87b55284ea9fb5feff8f513` — the state the PowerShell family below was synced from, so both runtimes are the same tool generation. It exists so a Linux / macOS install is not left with a script it cannot run.
@@ -138,7 +144,7 @@ The upstream port needed the same local hardening the PowerShell script carries,
 
 The safety hardening is applied to **both** runtimes, so a Windows user is not left with the weaker tool: identifier validation, path containment and the transactional mutation path live in `remove-form.ps1` as well.
 
-Known runtime difference, not a contract difference: the Python port keeps upstream's round-trip style preservation (BOM, EOL, `encoding` case, `<Tag/>`), while `remove-form.ps1` re-serializes through `System.Xml.XmlWriter` and restyles the whole root XML. The `ChildObjects` indentation is identical in both. The remaining metadata tools are still PowerShell-only — their ports land in follow-up units.
+The Python port keeps upstream's round-trip style preservation (BOM, EOL, `encoding` case, `<Tag/>`). Since the local 2026-09-14 fix, `remove-form.ps1` also keeps the input EOL and compact empty tags when it stages the parent XML; the quarantine and rollback sequence is unchanged. The `ChildObjects` indentation is identical in both.
 
 Licence: the vendored upstream code is MIT; the full notice ships with the skill as [`NOTICE.md`](../NOTICE.md) and is installed alongside it.
 
@@ -195,6 +201,10 @@ The PowerShell scripts under `tools/1c-interface-manage/scripts/` were refreshed
 - **`interface-validate`** — universal validator improvements (one-liner output by default, `-Detailed`, folder path auto-resolution) — see `role-manage.md` → "Recent Additions".
 
 ## meta-manage.md
+
+### Local fix `2026-09-13` — refuse false-success template additions
+
+Both `meta-edit` runtimes refuse `add-template` before any write, including aliases and mixed JSON. The error points to the existing PowerShell template scaffold and requires an explicit template type. No partial registration is presented as a completed template.
 
 ### Python port of `meta-compile` caught up with v1.69 (`2026-09-09`)
 
@@ -343,6 +353,10 @@ The PowerShell scripts under `tools/1c-subsystem-manage/scripts/` were refreshed
 - Validators got the universal improvements described in `role-manage.md` → "Recent Additions" (one-liner output by default, `-Detailed`, folder path auto-resolution).
 
 ## template-manage.md
+
+### Local fix `2026-09-13` — object XML paths
+
+`add-template.ps1 -ObjectName` accepts absolute and relative object XML paths and places the template beside the resolved object. Name-only configuration lookup and the EPF `ProcessorName` alias remain supported.
 
 ### Python port of `template-remove` got the safety gate (`2026-09-09`)
 

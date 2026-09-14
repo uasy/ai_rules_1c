@@ -280,14 +280,11 @@ if (Test-Path $formsDir) {
 					$parent.AppendChild($newElem) | Out-Null
 				}
 
-				$settings = New-Object System.Xml.XmlWriterSettings
-				$settings.Encoding = $encBom
-				$settings.Indent = $false
-				$stream = New-Object System.IO.FileStream($formMeta.FullName, [System.IO.FileMode]::Create)
-				$writer = [System.Xml.XmlWriter]::Create($stream, $settings)
-				$xmlDoc.Save($writer)
-				$writer.Close()
-				$stream.Close()
+				$xmlText = $xmlDoc.OuterXml
+				$xmlText = [regex]::Replace($xmlText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+				$targetEol = if ([System.IO.File]::ReadAllText($formMeta.FullName) -match "`r`n") { "`r`n" } else { "`n" }
+				$xmlText = ($xmlText -replace "`r`n", "`n") -replace "`n", $targetEol
+				[System.IO.File]::WriteAllText($formMeta.FullName, $xmlText, $encBom)
 
 				Write-Host "     IncludeHelpInContents добавлен: $($formMeta.Name)"
 			}

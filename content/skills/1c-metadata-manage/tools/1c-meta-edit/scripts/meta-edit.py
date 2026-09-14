@@ -3176,7 +3176,7 @@ def add_predefined_items(items):
     add_count += len(item_list)
 
 
-def definition_add_form_targets(definition):
+def definition_add_form_targets(definition, child_type="forms"):
     """Every add-form request in a definition, in whatever spelling it was written.
 
     The preflight has to see exactly what the dispatcher will act on, so it goes
@@ -3198,7 +3198,7 @@ def definition_add_form_targets(definition):
         if not isinstance(payload, dict):
             continue
         for child_key in payload:
-            if resolve_child_type_key(str(child_key)) == "forms":
+            if resolve_child_type_key(str(child_key)) == child_type:
                 targets.append(f"{operation_key}/{child_key}")
     return targets
 
@@ -3314,6 +3314,21 @@ def main():
     # and name the working command. Removal (remove-form) is untouched.
     if definition_adds_form(definition) or args.Operation == "add-form":
         deny_add_form(args.ObjectPath)
+
+    # Templates require their scaffold and an explicit type, not the generic
+    # child builder that reported success without creating any template files.
+    if definition_add_form_targets(definition, "templates") or args.Operation == "add-template":
+        template_add = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "..",
+            "1c-template-manage", "scripts", "add-template.ps1"))
+        sys.stderr.write(
+            "[ERROR] Операция add-template в meta-edit не поддерживается: генератор не "
+            "создаёт дескриптор и содержимое макета. Ничего не изменено.\n"
+            f'        Используйте PowerShell: powershell -NoProfile -File "{template_add}" '
+            f'-ObjectName "{args.ObjectPath}" -TemplateName ИмяМакета -TemplateType ТипМакета\n'
+            "        TemplateType: HTML, Text, SpreadsheetDocument, BinaryData, DataCompositionSchema.\n"
+            "        Python-версия add-template пока не поставляется.\n")
+        sys.exit(2)
 
     # --- Local gate 2: the validator has to exist *before* the edit, not after ---
     validate_script = require_validate_script() if not args.NoValidate else None

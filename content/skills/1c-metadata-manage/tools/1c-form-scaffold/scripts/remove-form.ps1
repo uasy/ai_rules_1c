@@ -250,13 +250,12 @@ try {
 
 	# Serialize into the quarantine first, then swap the file in atomically.
 	$encBom = New-Object System.Text.UTF8Encoding($true)
-	$settings = New-Object System.Xml.XmlWriterSettings
-	$settings.Encoding = $encBom
-	$settings.Indent = $false
 	$staged = Join-Path $quarantine "root-new.xml"
-	$stream = New-Object System.IO.FileStream($staged, [System.IO.FileMode]::Create)
-	$writer = [System.Xml.XmlWriter]::Create($stream, $settings)
-	try { $xmlDoc.Save($writer) } finally { $writer.Close(); $stream.Close() }
+	$xmlText = $xmlDoc.OuterXml
+	$xmlText = [regex]::Replace($xmlText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+	$targetEol = if ([System.IO.File]::ReadAllText($rootTarget) -match "`r`n") { "`r`n" } else { "`n" }
+	$xmlText = ($xmlText -replace "`r`n", "`n") -replace "`n", $targetEol
+	[System.IO.File]::WriteAllText($staged, $xmlText, $encBom)
 	Move-Item -LiteralPath $staged -Destination $rootTarget -Force
 }
 catch {

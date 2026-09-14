@@ -203,8 +203,23 @@ $objectTypeFolders = @(
 	"BusinessProcesses", "Tasks", "ExchangePlans"
 )
 
-$rootXmlPath = Join-Path $SrcDir "$ObjectName.xml"
-if (-not (Test-Path $rootXmlPath)) {
+$isObjectPath = $ObjectName.EndsWith('.xml', [StringComparison]::OrdinalIgnoreCase)
+if ($isObjectPath) {
+	$rootXmlPath = $ObjectName
+	if (-not [System.IO.Path]::IsPathRooted($rootXmlPath) -and -not (Test-Path -LiteralPath $rootXmlPath -PathType Leaf)) {
+		$rootXmlPath = Join-Path $SrcDir $ObjectName
+	}
+	if (-not (Test-Path -LiteralPath $rootXmlPath -PathType Leaf)) {
+		Write-Error "Корневой файл объекта не найден: $rootXmlPath"
+		exit 1
+	}
+	$rootXmlPath = (Resolve-Path -LiteralPath $rootXmlPath).Path
+	$SrcDir = Split-Path $rootXmlPath -Parent
+	$ObjectName = [System.IO.Path]::GetFileNameWithoutExtension($rootXmlPath)
+} else {
+	$rootXmlPath = Join-Path $SrcDir "$ObjectName.xml"
+}
+if (-not (Test-Path -LiteralPath $rootXmlPath)) {
 	$candidates = @()
 	foreach ($folder in $objectTypeFolders) {
 		$probe = Join-Path (Join-Path $SrcDir $folder) "$ObjectName.xml"
@@ -413,15 +428,11 @@ if ($TemplateType -eq "DataCompositionSchema") {
 }
 
 # Сохранить с BOM
-$settings = New-Object System.Xml.XmlWriterSettings
-$settings.Encoding = $encBom
-$settings.Indent = $false
-
-$stream = New-Object System.IO.FileStream($rootXmlFull.Path, [System.IO.FileMode]::Create)
-$writer = [System.Xml.XmlWriter]::Create($stream, $settings)
-$xmlDoc.Save($writer)
-$writer.Close()
-$stream.Close()
+$xmlText = $xmlDoc.OuterXml
+$xmlText = [regex]::Replace($xmlText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+$targetEol = if ([System.IO.File]::ReadAllText($rootXmlFull.Path) -match "`r`n") { "`r`n" } else { "`n" }
+$xmlText = ($xmlText -replace "`r`n", "`n") -replace "`n", $targetEol
+[System.IO.File]::WriteAllText($rootXmlFull.Path, $xmlText, $encBom)
 
 Write-Host "[OK] Создан макет: $TemplateName ($TemplateType)"
 if ($alreadyRegistered) {

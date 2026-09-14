@@ -680,6 +680,9 @@ if ($parentXmlPath -and (Test-Path $parentXmlPath)) {
 			$text = [System.Text.Encoding]::UTF8.GetString($bytes)
 			if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
 			$text = $text.Replace('encoding="utf-8"', 'encoding="UTF-8"')
+			$text = [regex]::Replace($text, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+			$targetEol = if ([System.IO.File]::ReadAllText($parentXmlPath) -match "`r`n") { "`r`n" } else { "`n" }
+			$text = ($text -replace "`r`n", "`n") -replace "`n", $targetEol
 			[System.IO.File]::WriteAllText($parentXmlPath, $text, $utf8Bom)
 
 			Write-Host "[OK] Registered in: $parentXmlPath"

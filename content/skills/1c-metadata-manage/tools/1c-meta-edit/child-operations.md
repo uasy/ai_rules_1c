@@ -105,14 +105,19 @@ JSON — строки и/или объекты (для групп с вложе�
 Ключи объекта: `name`, `code`, `description`, `isFolder`, `childItems` (дерево). Тип кода (строковый/числовой)
 берётся из объекта автоматически.
 
-## add-enumValue / add-template / add-command
+## add-enumValue / add-command
 
 Просто имена (batch через `;;`):
 ```powershell
 -Operation add-enumValue -Value "Значение1 ;; Значение2 ;; Значение3"
--Operation add-template -Value "ПечатнаяФорма"
 -Operation add-command -Value "Команда1"
 ```
+
+## add-template — use the template scaffold
+
+`meta-edit -Operation add-template` exits `2` before any write. The generic child builder does not create the descriptor and template content. The same refusal covers JSON `add/templates`, accepted aliases such as `добавить/макеты`, and the whole mixed definition.
+
+Use `1c-template-manage/scripts/add-template.ps1 -ObjectName "<object.xml>" -TemplateName "<name>" -TemplateType <type>`; see [template-manage.md](../../docs/template-manage.md). Select the type explicitly. The scaffold currently ships as PowerShell only.
 
 ## add-form — не поддерживается, используйте form-add
 

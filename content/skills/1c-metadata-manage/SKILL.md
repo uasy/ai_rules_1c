@@ -30,6 +30,8 @@ The same convention applies to `docs/*.md` references like `skills/1c-metadata-m
 
 ## Runtime selection — Windows / Linux / macOS
 
+XML saving in `form-edit`, `form-add`, `remove-form`, `form-compile` registration, `meta-edit`, `cf-edit`, `cfe-borrow` registration/merge, `skd-edit`, `subsystem-edit`, `subsystem-compile` registration, `interface-edit`, `add-template` and `add-help` retains the input CRLF/LF style and uses Configurator's compact empty tags (`<Tag/>`). Formatting-only changes should not be repaired by a global replacement that can alter literal XML in comments or CDATA.
+
 Each tool of this skill ships as a PowerShell script (`*.ps1`). Nearly all of them also ship a **Python entry point** (`*.py`) next to it — same directory, same file name, same PowerShell-style `-Param` spelling (`-ObjectPath`, `-OutputDir`, `-Force`, `-NoValidate`), so a documented command line ports by swapping `powershell.exe -File …ps1` for `python3 …py`. One shell caveat: a value that itself starts with `-` must be passed as `-Flag=value`.
 
 The `.py` files do **not** all carry the same guarantees, and the difference matters when a run misbehaves:

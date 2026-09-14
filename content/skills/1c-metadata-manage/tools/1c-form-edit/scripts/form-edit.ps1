@@ -1412,6 +1412,11 @@ if ($def.elementEvents -and $def.elementEvents.Count -gt 0) {
 $content = $xmlDoc.OuterXml
 # Ensure encoding declaration is uppercase UTF-8
 $content = $content -replace '^<\?xml version="1.0" encoding="utf-8"\?>', '<?xml version="1.0" encoding="UTF-8"?>'
+# Match Configurator's compact empty tags without altering literal XML text.
+# PreserveWhitespace alone does not preserve the self-closing tag spelling.
+$content = [regex]::Replace($content, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+$targetEol = if ([System.IO.File]::ReadAllText($resolvedFormPath) -match "`r`n") { "`r`n" } else { "`n" }
+$content = ($content -replace "`r`n", "`n") -replace "`n", $targetEol
 
 $enc = New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($resolvedFormPath, $content, $enc)

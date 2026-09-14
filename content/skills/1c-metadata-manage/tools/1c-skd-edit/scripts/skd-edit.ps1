@@ -4075,7 +4075,7 @@ if ($script:RawRootOpening) {
 
 #   (2) normalize self-closing tags: `.NET XmlDocument` adds a space before `/>`
 #       (`<foo bar="x" />`) but 1C-Designer writes `<foo bar="x"/>`. Strip the space.
-$content = [regex]::Replace($content, '(?<=\S) />', '/>')
+$content = [regex]::Replace($content, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
 
 #   (3) normalize line endings to match source — operations may mix LF (from new
 #       fragments) with whatever the source used (CRLF on Windows, LF on Linux/git).

@@ -3199,7 +3199,7 @@ if (-not $def) {
 # silent success. Fixing the builder means reimplementing the whole managed
 # scaffold that 1c-form-scaffold already owns, so the contract here is: refuse,
 # and name the working command. Removal (remove-form) is untouched.
-function Test-DefinitionAddsForm($definition) {
+function Test-DefinitionAddsForm($definition, [string]$childType = 'forms') {
 	# The gate has to see exactly what the dispatcher below will act on, so it walks
 	# every top-level operation through the same Resolve-OperationKey /
 	# Resolve-ChildTypeKey normalizers. Matching the literal 'add' let the accepted
@@ -3212,7 +3212,7 @@ function Test-DefinitionAddsForm($definition) {
 		if ((Resolve-OperationKey $op.Name) -ne 'add') { continue }
 		if (-not $op.Value) { continue }
 		foreach ($child in $op.Value.PSObject.Properties) {
-			if ((Resolve-ChildTypeKey $child.Name) -eq 'forms') { return $true }
+			if ((Resolve-ChildTypeKey $child.Name) -eq $childType) { return $true }
 		}
 	}
 	return $false
@@ -3228,6 +3228,17 @@ if (Test-DefinitionAddsForm $def) {
 	[Console]::Error.WriteLine("          Linux/macOS: python3 `"$formAddPy`" -ObjectPath `"$resolvedPath`" -FormName ИмяФормы -Purpose Object -SetDefault")
 	[Console]::Error.WriteLine("        -Purpose выбирается по слоту формы (Object/List/Choice/Record); -SetDefault перезапишет уже назначенную форму по умолчанию — проверьте её перед запуском.")
 	[Console]::Error.WriteLine("        Ничего не изменено.")
+	exit 2
+}
+
+# Template creation belongs to its scaffold too: the generic builder does not
+# create a descriptor or content, yet reports success. Refuse mixed definitions
+# before any writes; the scaffold requires an explicit TemplateType.
+if (Test-DefinitionAddsForm $def 'templates') {
+	$templateAdd = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\1c-template-manage\scripts\add-template.ps1'))
+	[Console]::Error.WriteLine("[ERROR] Операция add-template в meta-edit не поддерживается: генератор не создаёт дескриптор и содержимое макета. Ничего не изменено.")
+	[Console]::Error.WriteLine("        Используйте: powershell -NoProfile -File `"$templateAdd`" -ObjectName `"$resolvedPath`" -TemplateName ИмяМакета -TemplateType ТипМакета")
+	[Console]::Error.WriteLine("        TemplateType: HTML, Text, SpreadsheetDocument, BinaryData, DataCompositionSchema.")
 	exit 2
 }
 

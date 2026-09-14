@@ -6773,14 +6773,11 @@ if ($formsLeaf -eq 'Forms') {
 				}
 
 				$regEnc = New-Object System.Text.UTF8Encoding($true)
-				$regSettings = New-Object System.Xml.XmlWriterSettings
-				$regSettings.Encoding = $regEnc
-				$regSettings.Indent = $false
-				$regStream = New-Object System.IO.FileStream($objectXmlPath, [System.IO.FileMode]::Create)
-				$regWriter = [System.Xml.XmlWriter]::Create($regStream, $regSettings)
-				$objDoc.Save($regWriter)
-				$regWriter.Close()
-				$regStream.Close()
+				$xmlText = $objDoc.OuterXml
+				$xmlText = [regex]::Replace($xmlText, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+				$targetEol = if ([System.IO.File]::ReadAllText($objectXmlPath) -match "`r`n") { "`r`n" } else { "`n" }
+				$xmlText = ($xmlText -replace "`r`n", "`n") -replace "`n", $targetEol
+				[System.IO.File]::WriteAllText($objectXmlPath, $xmlText, $regEnc)
 
 				Write-Host "     Registered: <Form>$formName</Form> in $objectName.xml"
 			}

@@ -21,14 +21,14 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-meta-edit/scr
         { "name": "Номенклатура", "type": "CatalogRef.Номенклатура" },
         { "name": "Количество", "type": "Число(15,3)" }
       ]
-    }],
-    "forms": ["ФормаЭлемента"],
-    "templates": ["ПечатнаяФорма"]
+    }]
   }
 }
 ```
 
 Реквизиты можно задавать shorthand-строками: `"Сумма: Число(15,2) | req, index"`.
+
+Adding `forms` or `templates` (including accepted aliases) is refused with exit `2` before any mutation of the whole definition. Use the dedicated form or template scaffold; see [child-operations.md](child-operations.md).
 
 ## remove — удалить элементы
 
