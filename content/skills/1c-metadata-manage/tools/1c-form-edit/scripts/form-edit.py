@@ -1,5 +1,7 @@
 # form-edit v1.5 — Edit 1C managed form elements (Python port)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
+#        an existing XML file (tools/_shared/xml_eol.py).
 import argparse
 import json
 import os
@@ -19,6 +21,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 # ============================================================
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
 import support_guard  # noqa: E402
+import xml_eol  # noqa: E402
 
 
 # ── arg parsing ──────────────────────────────────────────────
@@ -1309,11 +1312,14 @@ if elem_events_list:
 
 # ── 13. Save ────────────────────────────────────────────────
 
+form_eol = xml_eol.target_eol(resolved_form_path)
+xml_eol.normalise_layout(tree)
 xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
 # Fix XML declaration quotes
 xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
 if not xml_bytes.endswith(b"\n"):
     xml_bytes += b"\n"
+xml_bytes = xml_eol.apply(xml_bytes, form_eol)
 # Write with BOM
 with open(resolved_form_path, "wb") as f:
     f.write(b'\xef\xbb\xbf')

@@ -1340,6 +1340,191 @@ def _(work):
     assert_tree_identical(before, after, "the refused run changed the tree")
 
 
+# ------------------------------------------- xml layout: Python writers keep EOL
+#
+# The Python peers of the metadata writers parse with lxml, which normalises
+# CRLF to LF on the way in, and the indentation they insert by hand carried
+# "\r\n", which lxml serialises as a literal "&#13;". Each case below runs one
+# writer against an LF and a CRLF copy of a fixture and pins the rewritten,
+# pre-existing XML files: the input line endings survive, no "&#13;" appears,
+# and no spaced empty tag replaces Configurator's compact "<Tag/>".
+
+CF_EDIT_PY = os.path.join(TOOLS_DIR, "1c-cf-manage", "scripts", "cf-edit.py")
+CFE_INIT_PY = os.path.join(TOOLS_DIR, "1c-cfe-manage", "scripts", "cfe-init.py")
+CFE_BORROW_PY = os.path.join(TOOLS_DIR, "1c-cfe-manage", "scripts", "cfe-borrow.py")
+SUBSYSTEM_COMPILE_PY = os.path.join(TOOLS_DIR, "1c-subsystem-manage", "scripts", "subsystem-compile.py")
+SUBSYSTEM_EDIT_PY = os.path.join(TOOLS_DIR, "1c-subsystem-manage", "scripts", "subsystem-edit.py")
+INTERFACE_EDIT_PY = os.path.join(TOOLS_DIR, "1c-interface-manage", "scripts", "interface-edit.py")
+FORM_EDIT_PY = os.path.join(TOOLS_DIR, "1c-form-edit", "scripts", "form-edit.py")
+ADD_HELP_PY = os.path.join(TOOLS_DIR, "1c-help-manage", "scripts", "add-help.py")
+ADD_TEMPLATE_PY = os.path.join(TOOLS_DIR, "1c-template-manage", "scripts", "add-template.py")
+
+
+def _to_eol(path, eol):
+    with open(path, "rb") as handle:
+        raw = handle.read()
+    bom = raw[:3] == b"\xef\xbb\xbf"
+    body = (raw[3:] if bom else raw).replace(b"\r\n", b"\n")
+    if eol == "\r\n":
+        body = body.replace(b"\n", b"\r\n")
+    with open(path, "wb") as handle:
+        handle.write((b"\xef\xbb\xbf" if bom else b"") + body)
+
+
+def _run_ok(script, args, work_dir, what):
+    run = run_python_tool(script, args, work_dir)
+    assert_equal(0, run["exit_code"],
+                 f"{what}: {os.path.basename(script)} failed (stderr: {run['stderr'][-400:]})")
+    return run
+
+
+def _xml_snapshot(root):
+    return {rel: data for rel, data in snapshot_tree(root).items() if rel.endswith(".xml")}
+
+
+def _layout_case(work, label, fixture, steps, prepare=None):
+    """Run *steps* against an LF and a CRLF copy of *fixture*; pin every rewritten XML file."""
+    for eol, tag in (("\n", "LF"), ("\r\n", "CRLF")):
+        root = os.path.join(work, f"{label}-{tag.lower()}")
+        src = os.path.join(root, "src")
+        copy_fixture(fixture, src, eol=eol)
+        if prepare:
+            prepare(root, src, eol)
+        before = _xml_snapshot(root)
+        for script, args in steps(root, src):
+            _run_ok(script, args, root, f"{label} {tag}")
+        after = _xml_snapshot(root)
+        rewritten = sorted(rel for rel in before if after.get(rel, before[rel]) != before[rel])
+        assert_true(rewritten, f"{label} {tag}: no existing XML file was rewritten")
+        for rel in rewritten:
+            data, old = after[rel], before[rel]
+            crlf = data.count(b"\r\n")
+            lone = data.count(b"\n") - crlf
+            kept = lone == 0 if eol == "\r\n" else crlf == 0
+            assert_true(kept, f"{label} {tag}: {rel} lost its {tag} line endings "
+                              f"({crlf} CRLF, {lone} lone LF)")
+            assert_true(data.count(b"&#13;") <= old.count(b"&#13;"),
+                        f"{label} {tag}: {rel} gained a literal &#13;")
+            assert_true(data.count(b" />") <= old.count(b" />"),
+                        f"{label} {tag}: {rel} gained a spaced empty tag")
+
+
+@case("xml layout: cf-edit add-childObject keeps EOL and writes no &#13;")
+def _(work):
+    def prepare(root, src, eol):
+        shutil.copyfile(os.path.join(src, "Catalogs", "TestCatalog.xml"),
+                        os.path.join(src, "Catalogs", "Проба.xml"))
+    _layout_case(work, "cf-edit", "config-dump", prepare=prepare, steps=lambda root, src: [
+        (CF_EDIT_PY, ["-ConfigPath", os.path.join(src, "Configuration.xml"),
+                      "-Operation", "add-childObject", "-Value", "Catalog.Проба", "-NoValidate"])])
+
+
+@case("xml layout: cfe-borrow keeps the extension's EOL and writes no &#13;")
+def _(work):
+    def prepare(root, src, eol):
+        ext = os.path.join(root, "ext")
+        _run_ok(CFE_INIT_PY, ["-Name", "Расш", "-OutputDir", ext, "-ConfigPath", src], root, "cfe-init")
+        for dirpath, _dirs, files in os.walk(ext):
+            for name in files:
+                if name.endswith(".xml"):
+                    _to_eol(os.path.join(dirpath, name), eol)
+    _layout_case(work, "cfe-borrow", "config-dump", prepare=prepare, steps=lambda root, src: [
+        (CFE_BORROW_PY, ["-ExtensionPath", os.path.join(root, "ext"), "-ConfigPath", src,
+                         "-Object", "Catalog.TestCatalog"])])
+
+
+@case("xml layout: subsystem-compile registration keeps EOL")
+def _(work):
+    _layout_case(work, "subsystem-compile", "config-dump", steps=lambda root, src: [
+        (SUBSYSTEM_COMPILE_PY, ["-Value", '{"name":"Проба"}', "-OutputDir", src, "-NoValidate"])])
+
+
+@case("xml layout: subsystem-edit add-content keeps EOL and writes no &#13;")
+def _(work):
+    def prepare(root, src, eol):
+        _run_ok(SUBSYSTEM_COMPILE_PY, ["-Value", '{"name":"Проба"}', "-OutputDir", src, "-NoValidate"],
+                root, "subsystem-compile")
+        _to_eol(os.path.join(src, "Subsystems", "Проба.xml"), eol)
+    _layout_case(work, "subsystem-edit", "config-dump", prepare=prepare, steps=lambda root, src: [
+        (SUBSYSTEM_EDIT_PY, ["-SubsystemPath", os.path.join(src, "Subsystems", "Проба.xml"),
+                             "-Operation", "add-content", "-Value", "Catalog.TestCatalog", "-NoValidate"])])
+
+
+@case("xml layout: interface-edit creates and edits CommandInterface.xml without &#13;")
+def _(work):
+    def prepare(root, src, eol):
+        ci = os.path.join(src, "Ext", "CommandInterface.xml")
+        _run_ok(INTERFACE_EDIT_PY, ["-CIPath", ci, "-CreateIfMissing", "-Operation", "hide",
+                                    "-Value", "Catalog.TestCatalog.StandardCommand.OpenList", "-NoValidate"],
+                root, "interface-edit -CreateIfMissing")
+        with open(ci, "rb") as handle:
+            assert_true(b"&#13;" not in handle.read(), "a freshly created CommandInterface.xml carries &#13;")
+        _to_eol(ci, eol)
+    _layout_case(work, "interface-edit", "config-dump", prepare=prepare, steps=lambda root, src: [
+        (INTERFACE_EDIT_PY, ["-CIPath", os.path.join(src, "Ext", "CommandInterface.xml"), "-Operation", "hide",
+                             "-Value", "Catalog.TestCatalog.StandardCommand.Create", "-NoValidate"])])
+
+
+@case("xml layout: form-edit keeps the form's EOL")
+def _(work):
+    def prepare(root, src, eol):
+        with open(os.path.join(root, "edit.json"), "w", encoding="utf-8") as handle:
+            json.dump({"attributes": [{"name": "Проба", "type": "string"}]}, handle, ensure_ascii=False)
+    _layout_case(work, "form-edit", "epf-with-form", prepare=prepare, steps=lambda root, src: [
+        (FORM_EDIT_PY, ["-FormPath", os.path.join(src, "Obrabotka", "Forms", "MainForm", "Ext", "Form.xml"),
+                        "-JsonPath", os.path.join(root, "edit.json")])])
+
+
+@case("xml layout: add-help keeps the form descriptors' EOL")
+def _(work):
+    def prepare(root, src, eol):
+        os.makedirs(os.path.join(src, "Obrabotka", "Ext"), exist_ok=True)
+    _layout_case(work, "add-help", "epf-with-form", prepare=prepare, steps=lambda root, src: [
+        (ADD_HELP_PY, ["-ObjectName", "Obrabotka", "-SrcDir", src])])
+
+
+@case("xml layout: add-template keeps the object's EOL")
+def _(work):
+    _layout_case(work, "add-template", "epf-with-template", steps=lambda root, src: [
+        (ADD_TEMPLATE_PY, ["-ObjectName", "Obrabotka", "-TemplateName", "Проба",
+                           "-TemplateType", "Text", "-SrcDir", src])])
+
+
+@case("xml layout: form-compile registration keeps the object's EOL")
+def _(work):
+    _layout_case(work, "form-compile", "config-dump", steps=lambda root, src: [
+        (FORM_COMPILE_PY, ["-FromObject", "-ObjectPath", os.path.join(src, "Catalogs", "TestCatalog.xml"),
+                           "-OutputPath", os.path.join(src, "Catalogs", "TestCatalog", "Forms",
+                                                       "ФормаПроба", "Ext", "Form.xml")])])
+
+
+@case("add-template: -ObjectName takes the object's XML path, as meta-edit's refusal advises")
+def _(work):
+    src = os.path.join(work, "src")
+    copy_fixture("config-dump", src)
+    catalog = os.path.join(src, "Catalogs", "TestCatalog.xml")
+    for spelling, name in ((catalog, "ПоАбсолютному"), (os.path.join("Catalogs", "TestCatalog.xml"), "ПоОтносительному")):
+        _run_ok(ADD_TEMPLATE_PY, ["-ObjectName", spelling, "-TemplateName", name,
+                                  "-TemplateType", "Text", "-SrcDir", src], work, f"add-template {name}")
+        assert_true(os.path.isfile(os.path.join(src, "Catalogs", "TestCatalog", "Templates", f"{name}.xml")),
+                    f"{name}: the template descriptor is not beside the object")
+        with open(catalog, encoding="utf-8-sig") as handle:
+            assert_true(f"<Template>{name}</Template>" in handle.read(),
+                        f"{name}: the object does not register the template")
+    before = snapshot_tree(src)
+    run = run_python_tool(ADD_TEMPLATE_PY, ["-ObjectName", os.path.join(src, "Нет.xml"), "-TemplateName", "X",
+                                            "-TemplateType", "Text"], work)
+    assert_equal(1, run["exit_code"], "a missing object XML path must be refused")
+    assert_tree_identical(before, snapshot_tree(src), "refused add-template")
+
+    # The refusal meta-edit prints on a POSIX host has to name a command that runs there.
+    directory, target = catalog_target(work, "template-advice")
+    run = run_python_tool(META_EDIT_PY, ["-ObjectPath", target, "-Operation", "add-template", "-Value", "X"], directory)
+    assert_equal(2, run["exit_code"], "meta-edit add-template must be refused")
+    assert_true("add-template.py" in run["stderr"],
+                f"the refusal names no Python command for Linux / macOS: {run['stderr'][-400:]}")
+
+
 # ------------------------------------------------- meta-compile: Configuration.xml
 
 META_COMPILE_FIXTURES = os.path.join(FIXTURES_DIR, "meta-compile")

@@ -6717,6 +6717,9 @@ def main():
         if os.path.exists(object_xml_path):
             with open(object_xml_path, 'r', encoding='utf-8-sig') as f:
                 raw_text = f.read()
+            # Local: text-mode reading turned CRLF into LF; keep the object file's own style.
+            with open(object_xml_path, 'rb') as f:
+                object_eol = '\r\n' if b'\r\n' in f.read() else '\n'
 
             # Check if already registered
             if f'<Form>{form_name}</Form>' not in raw_text:
@@ -6728,6 +6731,7 @@ def main():
                     replacement = f'<ChildObjects>\n\t\t\t<Form>{form_name}</Form>\n\t\t</ChildObjects>'
                     raw_text = raw_text.replace('<ChildObjects/>', replacement, 1)
 
+                raw_text = raw_text.replace('\r\n', '\n').replace('\n', object_eol)
                 write_utf8_bom(object_xml_path, raw_text)
                 print(f"     Registered: <Form>{form_name}</Form> in {object_name}.xml")
 

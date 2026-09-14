@@ -3321,13 +3321,15 @@ def main():
         template_add = os.path.normpath(os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "..",
             "1c-template-manage", "scripts", "add-template.ps1"))
+        template_add_py = os.path.splitext(template_add)[0] + ".py"
         sys.stderr.write(
             "[ERROR] Операция add-template в meta-edit не поддерживается: генератор не "
             "создаёт дескриптор и содержимое макета. Ничего не изменено.\n"
             f'        Используйте PowerShell: powershell -NoProfile -File "{template_add}" '
             f'-ObjectName "{args.ObjectPath}" -TemplateName ИмяМакета -TemplateType ТипМакета\n'
             "        TemplateType: HTML, Text, SpreadsheetDocument, BinaryData, DataCompositionSchema.\n"
-            "        Python-версия add-template пока не поставляется.\n")
+            f'        На Linux / macOS: python3 "{template_add_py}" -ObjectName "{args.ObjectPath}" '
+            "-TemplateName ИмяМакета -TemplateType ТипМакета\n")
         sys.exit(2)
 
     # --- Local gate 2: the validator has to exist *before* the edit, not after ---

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # add-template v1.10 — Add template to 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
+#        an existing XML file (tools/_shared/xml_eol.py).
+#        -ObjectName also takes the object's XML path, like add-template.ps1.
 
 import argparse
 import json
@@ -22,6 +25,7 @@ NSMAP = {"md": "http://v8.1c.ru/8.3/MDClasses"}
 # ============================================================
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
 import support_guard  # noqa: E402
+import xml_eol  # noqa: E402
 
 TYPE_MAP = {
     "HTML": {"TemplateType": "HTMLDocument", "Ext": ".html"},
@@ -34,10 +38,13 @@ TYPE_MAP = {
 
 def save_xml_with_bom(tree, path):
     """Save XML tree to file with UTF-8 BOM."""
+    eol = xml_eol.target_eol(path)
+    xml_eol.normalise_layout(tree)
     xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
     xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
     if not xml_bytes.endswith(b"\n"):
         xml_bytes += b"\n"
+    xml_bytes = xml_eol.apply(xml_bytes, eol)
     with open(path, "wb") as f:
         f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)
@@ -98,7 +105,23 @@ def main():
         "BusinessProcesses", "Tasks", "ExchangePlans",
     ]
 
-    root_xml_path = os.path.join(src_dir, f"{object_name}.xml")
+    # Local: like add-template.ps1, -ObjectName may be the object's XML path
+    # (absolute, or relative to the working directory or to -SrcDir); the
+    # template then goes beside the resolved object. A bare name still goes
+    # through the SrcDir lookup below.
+    if object_name.lower().endswith(".xml"):
+        root_xml_path = object_name
+        if not os.path.isabs(root_xml_path) and not os.path.isfile(root_xml_path):
+            root_xml_path = os.path.join(src_dir, object_name)
+        if not os.path.isfile(root_xml_path):
+            print(f"Корневой файл объекта не найден: {root_xml_path}", file=sys.stderr)
+            sys.exit(1)
+        root_xml_path = os.path.abspath(root_xml_path)
+        src_dir = os.path.dirname(root_xml_path)
+        object_name = os.path.splitext(os.path.basename(root_xml_path))[0]
+        format_version = detect_format_version(src_dir)
+    else:
+        root_xml_path = os.path.join(src_dir, f"{object_name}.xml")
     if not os.path.exists(root_xml_path):
         candidates = []
         for folder in object_type_folders:

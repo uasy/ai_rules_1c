@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # cfe-borrow v1.9 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
+#        an existing XML file (tools/_shared/xml_eol.py).
 
 import argparse
 import os
@@ -8,6 +10,9 @@ import re
 import sys
 import uuid
 from lxml import etree
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import xml_eol  # noqa: E402
 
 MD_NS = "http://v8.1c.ru/8.3/MDClasses"
 XR_NS = "http://v8.1c.ru/8.3/xcf/readable"
@@ -350,18 +355,26 @@ def expand_self_closing(container, parent_indent):
 
 
 def save_xml_bom(tree, path):
+    eol = xml_eol.target_eol(path)
+    xml_eol.normalise_layout(tree)
     xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
     xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
     if not xml_bytes.endswith(b"\n"):
         xml_bytes += b"\n"
+    xml_bytes = xml_eol.apply(xml_bytes, eol)
     with open(path, "wb") as f:
         f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)
 
 
 def save_text_bom(path, text):
-    with open(path, "w", encoding="utf-8-sig") as fh:
-        fh.write(text)
+    eol = xml_eol.target_eol(path)
+    if eol is None:
+        with open(path, "w", encoding="utf-8-sig") as fh:
+            fh.write(text)
+        return
+    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+        fh.write(xml_eol.apply(text, eol))
 
 
 def new_guid():

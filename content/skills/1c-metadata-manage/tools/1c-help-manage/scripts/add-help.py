@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # add-help v1.9 — Add built-in help to 1C object
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
+#        an existing XML file (tools/_shared/xml_eol.py).
 
 import argparse
 import json
@@ -21,6 +23,7 @@ NSMAP = {"md": "http://v8.1c.ru/8.3/MDClasses"}
 # ============================================================
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
 import support_guard  # noqa: E402
+import xml_eol  # noqa: E402
 
 
 def detect_format_version(d):
@@ -41,10 +44,13 @@ def detect_format_version(d):
 
 def save_xml_with_bom(tree, path):
     """Save XML tree to file with UTF-8 BOM."""
+    eol = xml_eol.target_eol(path)
+    xml_eol.normalise_layout(tree)
     xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
     xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
     if not xml_bytes.endswith(b"\n"):
         xml_bytes += b"\n"
+    xml_bytes = xml_eol.apply(xml_bytes, eol)
     with open(path, "wb") as f:
         f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)

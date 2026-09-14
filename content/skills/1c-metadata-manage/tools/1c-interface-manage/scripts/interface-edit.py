@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # interface-edit v1.8 — Edit 1C CommandInterface.xml
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
+#        an existing XML file (tools/_shared/xml_eol.py).
 
 import argparse
 import json
@@ -19,6 +21,7 @@ from lxml import etree
 # ============================================================
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
 import support_guard  # noqa: E402
+import xml_eol  # noqa: E402
 
 
 def detect_format_version(d):
@@ -122,10 +125,13 @@ def parse_value_list(val):
 
 
 def save_xml_bom(tree, path):
+    eol = xml_eol.target_eol(path)
+    xml_eol.normalise_layout(tree)
     xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
     xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
     if not xml_bytes.endswith(b"\n"):
         xml_bytes += b"\n"
+    xml_bytes = xml_eol.apply(xml_bytes, eol)
     with open(path, "wb") as f:
         f.write(b"\xef\xbb\xbf")
         f.write(xml_bytes)

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # subsystem-compile v1.9 — Create 1C subsystem from JSON definition
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
+#        an existing XML file (tools/_shared/xml_eol.py).
 import argparse
 import json
 import os
@@ -20,6 +22,7 @@ from lxml import etree
 # ============================================================
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
 import support_guard  # noqa: E402
+import xml_eol  # noqa: E402
 
 
 def detect_format_version(d):
@@ -59,6 +62,7 @@ def new_uuid():
 
 
 def write_utf8_bom(path, content):
+    content = xml_eol.apply(content, xml_eol.target_eol(path))
     with open(path, 'w', encoding='utf-8-sig', newline='') as f:
         f.write(content)
 

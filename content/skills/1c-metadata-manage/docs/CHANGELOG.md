@@ -136,6 +136,10 @@ The PowerShell script `tools/1c-epf-validate/scripts/epf-validate.ps1` was refre
 
 Focused regressions exercise each reported writer on temporary fixtures. Command-add checks compare unrelated form text byte-for-byte for LF and CRLF; template checks cover absolute/relative XML paths and the existing name/EPF lookup. The remove-form quarantine and rollback remain intact.
 
+### Python peers keep line endings (`2026-09-14`)
+
+The Python peers of the writers above parse with lxml, which normalises CRLF to LF on the way in, so a rewrite came out LF whatever the file had been; indentation they inserted by hand still carried `\r\n`, which lxml serialises as a literal `&#13;` — LF files included. `cf-edit`, `cfe-borrow`, `subsystem-compile`, `subsystem-edit`, `interface-edit`, `form-edit`, `add-help`, `add-template` and the `form-compile` registration now restore the target file's CRLF / LF style and drop CR from inserted indentation (`tools/_shared/xml_eol.py`; `form-compile` inline). Compact tags needed nothing on this side: lxml writes `<Tag/>`. Pinned by `tools/tests/python-ports-regression.py`, an LF and a CRLF run per tool.
+
 ### Python runtime for `form-remove` (`2026-09-04`)
 
 `remove-form.py` is vendored from the same upstream repository, pinned at commit `ecd289fe11733028d87b55284ea9fb5feff8f513` — the state the PowerShell family below was synced from, so both runtimes are the same tool generation. It exists so a Linux / macOS install is not left with a script it cannot run.
@@ -353,6 +357,10 @@ The PowerShell scripts under `tools/1c-subsystem-manage/scripts/` were refreshed
 - Validators got the universal improvements described in `role-manage.md` → "Recent Additions" (one-liner output by default, `-Detailed`, folder path auto-resolution).
 
 ## template-manage.md
+
+### Python `add-template` accepts object XML paths (`2026-09-14`)
+
+`add-template.py -ObjectName` takes an absolute path, or one relative to the working directory or to `-SrcDir`, to the object's `.xml` and places the template beside the resolved object, as `add-template.ps1` does; a bare name still goes through the `-SrcDir` lookup. The `meta-edit` refusal for `add-template` now names this Python command next to the PowerShell one instead of stating that no Python version ships.
 
 ### Local fix `2026-09-13` — object XML paths
 
