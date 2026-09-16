@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # support_guard v1.0 — shared support-state guard for 1c-metadata-manage tools (Python port)
-# Mirrors tools/_shared/support-guard.ps1 — see docs/support-manage.md for the full spec.
+# Python counterpart of the guard built into the PowerShell scripts — see docs/support-manage.md for the full spec.
 # Import Assert-EditAllowed (write path) as assert_edit_allowed(), or the read-only
 # status line as get_support_status_for_path().
 #
 # Deviation from the original tools, which resolve the guard policy from .v8-project.json's editingAllowedCheck. Here the policy
-# comes from .dev.env's SUPPORT_GUARD instead (legacy SUPPORT_EDIT_POLICY still read) — .dev.env is this project's single
+# comes from .dev.env's SUPPORT_GUARD instead — .dev.env is this project's single
 # source of truth for operational parameters (see AGENTS.md / dev-standards-core.md §1).
 # .v8-project.json in this project is documentation-only for the guard (no script reads
 # it for this purpose — see docs/db-manage.md; it remains in legitimate use as the
@@ -14,10 +14,10 @@
 # ('deny') when the file or field is absent. Everything else (Ext/ParentConfigurations.bin
 # parsing, block/flag semantics) is unchanged from the original tools.
 #
-# Centralized here (mirrors the .ps1 side, which is also centralized rather than
-# duplicated per script) so every 1c-metadata-manage Python tool shares one implementation.
+# Centralized here so every 1c-metadata-manage Python tool shares one implementation
+# (the PowerShell scripts carry the same guard inline).
 #
-# Callers import it via sys.path (mirrors dot-sourcing in the .ps1 counterpart):
+# Callers import it via sys.path:
 #   sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
 #   import support_guard
 
@@ -61,20 +61,14 @@ def find_dev_env(start_dir):
 
 
 def get_edit_mode(cfg_dir):
-    """Guard policy: deny | warn | off. Default 'deny' when unset.
-
-    Upstream renamed the .dev.env key SUPPORT_EDIT_POLICY -> SUPPORT_GUARD
-    (DevEnv.ps1, 2026-08); the old name stays supported so a project that still
-    carries it is not silently switched back to 'deny'.
-    """
+    """Guard policy from .dev.env SUPPORT_GUARD: deny | warn | off. Default 'deny' when unset."""
     try:
         for start in (os.getcwd(), cfg_dir):
             if not start:
                 continue
-            for key in ("SUPPORT_GUARD", "SUPPORT_EDIT_POLICY"):
-                val = dev_env.get_value(key, start).strip().lower()
-                if val:
-                    return val if val in ("deny", "warn", "off") else "deny"
+            val = dev_env.get_value("SUPPORT_GUARD", start).strip().lower()
+            if val:
+                return val if val in ("deny", "warn", "off") else "deny"
         # No .dev.env, or the key is absent / empty in every candidate -> the
         # documented default. (The .ps1 falls through to .v8-project.json here;
         # in this project that file is documentation-only for the guard.)

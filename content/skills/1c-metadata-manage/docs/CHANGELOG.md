@@ -296,7 +296,7 @@ Scripts refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikola
 
 ### Earlier Additions (upstream sync `w-2026-05-31`)
 
-The PowerShell scripts under `tools/1c-skd-{compile,edit,info,validate}/scripts/` were refreshed again from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills) (`skd-compile` → v1.107, `skd-edit` → v1.28, `skd-info` → v1.7, `skd-validate` → v1.2), and the new `1c-skd-decompile` tool (draft, v0.90 — see section 5) was added. `skd-compile` and `skd-edit` now go through the project's `tools/_shared/support-guard.ps1` before writing (see `support-manage.md`); `skd-info` appends a `"Поддержка: ..."` status line. Highlights from the prior `w-2026-05-17` batch still apply:
+The PowerShell scripts under `tools/1c-skd-{compile,edit,info,validate}/scripts/` were refreshed again from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills) (`skd-compile` → v1.104, `skd-edit` → v1.24, `skd-info` → v1.5, `skd-validate` → v1.2), and the new `1c-skd-decompile` tool (draft, v0.90 — see section 5) was added. Highlights from the prior `w-2026-05-17` batch still apply:
 
 #### `skd-edit` — new operations and flags
 

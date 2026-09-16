@@ -44,8 +44,6 @@ Background reference: `standards(name="dev-standards-architecture") §2` (Extens
 
 ### ПродолжитьВызов inside &ИзменениеИКонтроль
 
-Note the different failure mode under `&ИзменениеИКонтроль`: there `ПродолжитьВызов()` is never used at all (the typical body is already copied inline), so there is nothing to "forget" — instead, forgetting to keep the untouched text identical to the current typical implementation makes the extension **fail to apply**, loudly, rather than silently skip the original.
-
 ### No prefix in extension method names
 
 ## Extension purpose tag

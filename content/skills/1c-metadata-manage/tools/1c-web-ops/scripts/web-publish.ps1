@@ -152,7 +152,7 @@ if (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
 
 # --- Resolve ApachePath ---
 if (-not $ApachePath) {
-    $projectRoot = (Get-Item $PSScriptRoot).Parent.Parent.Parent.Parent.FullName
+    $projectRoot = (Get-Location).Path  # consolidated skill layout: project root = current working directory
     $ApachePath = Join-Path $projectRoot "tools\apache24"
 }
 # Ensure absolute path (agent may pass relative like "tools/apache24")

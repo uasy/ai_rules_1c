@@ -17,8 +17,8 @@ from lxml import etree
 
 # ============================================================
 # Support guard (Ext/ParentConfigurations.bin) — see docs/support-manage.md
-# Shared implementation: tools/_shared/support_guard.py (Python port of
-# tools/_shared/support-guard.ps1 — same .dev.env SUPPORT_EDIT_POLICY source,
+# Shared implementation: tools/_shared/support_guard.py (Python counterpart of the
+# guard built into the PowerShell scripts — same .dev.env SUPPORT_GUARD key,
 # .v8-project.json is documentation-only for this guard, see docs/db-manage.md).
 # ============================================================
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
