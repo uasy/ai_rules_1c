@@ -1237,11 +1237,16 @@ if form_events_list:
         # Insert after AutoCommandBar (Events come after AutoCommandBar in 1C)
         acb_node = root.find("f:AutoCommandBar", NS)
         if acb_node is not None:
+            # The separator that followed AutoCommandBar now follows Events.
             acb_idx = list(root).index(acb_node)
-            acb_node.tail = (acb_node.tail or "") + "\r\n\t"
+            events_section.tail = acb_node.tail
+            acb_node.tail = "\n\t"
             root.insert(acb_idx + 1, events_section)
         else:
-            root.append(events_section)
+            # No AutoCommandBar: Events goes first, ahead of every other child.
+            events_section.tail = root.text or "\n"
+            root.text = "\n\t"
+            root.insert(0, events_section)
 
     evt_child_indent = get_child_indent(events_section)
     if not evt_child_indent:

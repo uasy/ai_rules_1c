@@ -1498,6 +1498,72 @@ def _(work):
                                                        "ФормаПроба", "Ext", "Form.xml")])])
 
 
+NO_CHILD_OBJECT_TYPES = ("CommonAttribute", "CommonCommand", "CommonForm", "CommonPicture", "CommonTemplate",
+                         "CommandGroup", "DocumentNumerator", "FunctionalOption", "FunctionalOptionsParameter",
+                         "SessionParameter", "WSReference")
+
+
+@case("meta-compile: types without child objects emit no ChildObjects; CommonForm gets its form scaffold")
+def _(work):
+    """The platform refuses a dump whose object of these types carries <ChildObjects/>.
+    A CommonForm also needs Ext/Form.xml and Ext/Form/Module.bsl for form-compile / form-edit
+    to fill, and an existing Form.xml is left as it is."""
+    out = os.path.join(work, "cfg")
+    for kind in NO_CHILD_OBJECT_TYPES:
+        definition = os.path.join(work, kind + ".json")
+        with open(definition, "w", encoding="utf-8") as handle:
+            json.dump({"type": kind, "name": "Тест" + kind}, handle, ensure_ascii=False)
+        _run_ok(META_COMPILE_PY, ["-JsonPath", definition, "-OutputDir", out], work, "meta-compile " + kind)
+        found = [os.path.join(dp, f) for dp, _dirs, files in os.walk(out) for f in files if f == "Тест" + kind + ".xml"]
+        assert_equal(1, len(found), kind + ": object file")
+        with open(found[0], encoding="utf-8-sig") as handle:
+            assert_true("ChildObjects" not in handle.read(), kind + ": the object carries ChildObjects")
+
+    ext = os.path.join(out, "CommonForms", "ТестCommonForm", "Ext")
+    with open(os.path.join(ext, "Form.xml"), encoding="utf-8-sig") as handle:
+        form = handle.read()
+    assert_true("<AutoCommandBar" in form and "<ChildItems/>" in form, "the CommonForm scaffold is not an empty managed form")
+    assert_true(os.path.isfile(os.path.join(ext, "Form", "Module.bsl")), "the CommonForm module was not created")
+
+    kept_root = os.path.join(work, "kept")
+    kept = os.path.join(kept_root, "CommonForms", "Готовая", "Ext")
+    os.makedirs(kept)
+    with open(os.path.join(kept, "Form.xml"), "w", encoding="utf-8") as handle:
+        handle.write("MARKER")
+    definition = os.path.join(work, "kept.json")
+    with open(definition, "w", encoding="utf-8") as handle:
+        json.dump({"type": "CommonForm", "name": "Готовая"}, handle, ensure_ascii=False)
+    _run_ok(META_COMPILE_PY, ["-JsonPath", definition, "-OutputDir", kept_root], work, "meta-compile over an existing form")
+    with open(os.path.join(kept, "Form.xml"), encoding="utf-8") as handle:
+        assert_equal("MARKER", handle.read(), "an existing Form.xml was overwritten")
+    assert_true(os.path.isfile(os.path.join(kept, "Form", "Module.bsl")), "the module was not created next to an existing form")
+
+
+@case("xml layout: form-edit puts a new Events section on its own lines")
+def _(work):
+    """After AutoCommandBar when there is one, first otherwise; no blank line, nothing joined."""
+    events = {"formEvents": [{"name": "OnOpen", "handler": "ПриОткрытии"}]}
+    head = '<?xml version="1.0" encoding="UTF-8"?>\n<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" version="2.17">\n'
+    bar = '\t<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">\n\t\t<Autofill>true</Autofill>\n\t</AutoCommandBar>\n'
+    section = '\t<Events>\n\t\t<Event name="OnOpen">ПриОткрытии</Event>\n\t</Events>\n'
+    for eol, eol_tag in (("\n", "lf"), ("\r\n", "crlf")):
+        for with_bar in (True, False):
+            label = f"{eol_tag}-{'bar' if with_bar else 'no-bar'}"
+            root = os.path.join(work, label)
+            os.makedirs(root)
+            form = os.path.join(root, "Form.xml")
+            with open(form, "wb") as handle:
+                handle.write((head + (bar if with_bar else "") + "\t<ChildItems/>\n</Form>\n").replace("\n", eol).encode("utf-8"))
+            definition = os.path.join(root, "events.json")
+            with open(definition, "w", encoding="utf-8") as handle:
+                json.dump(events, handle, ensure_ascii=False)
+            _run_ok(FORM_EDIT_PY, ["-FormPath", form, "-JsonPath", definition], root, "form-edit " + label)
+            with open(form, "rb") as handle:
+                text = handle.read().decode("utf-8-sig")
+            expected = ((bar if with_bar else "") + section + "\t<ChildItems/>\n</Form>\n").replace("\n", eol)
+            assert_true(text.endswith(expected), f"form-edit {label}: Events is not on its own lines:\n{text[-300:]!r}")
+
+
 @case("auto-validation: cf-edit, interface-edit and subsystem-* run their sibling validator")
 def _(work):
     """Each port calls the validator that sits next to it. The upstream .ps1 path

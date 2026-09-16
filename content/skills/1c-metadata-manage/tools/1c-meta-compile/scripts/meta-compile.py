@@ -3761,11 +3761,6 @@ if obj_type in ('FilterCriterion', 'SettingsStorage'):
     else:
         X('\t\t<ChildObjects/>')
 
-if obj_type in ('CommonAttribute', 'CommonCommand', 'CommonForm', 'CommonPicture',
-                'CommonTemplate', 'CommandGroup', 'DocumentNumerator', 'FunctionalOption',
-                'FunctionalOptionsParameter', 'SessionParameter', 'WSReference'):
-    X('\t\t<ChildObjects/>')
-
 # --- CommonModule: no ChildObjects ---
 
 X(f'\t</{obj_type}>')
@@ -4133,6 +4128,29 @@ if obj_type in types_with_module:
         ensure_ext_dir()
         write_utf8_bom(module_path, '')
         modules_created.append(module_path)
+
+# CommonForm: an empty managed form and its module for form-compile / form-edit to fill.
+# Existing files are never overwritten.
+if obj_type == 'CommonForm':
+    ensure_ext_dir()
+    cf_form_xml_path = os.path.join(ext_dir, 'Form.xml')
+    if not os.path.isfile(cf_form_xml_path):
+        cf_form_ns = 'xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+        write_utf8_bom(cf_form_xml_path,
+                       '<?xml version="1.0" encoding="UTF-8"?>\n'
+                       f'<Form {cf_form_ns} version="{format_version}">\n'
+                       '\t<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">\n'
+                       '\t\t<Autofill>true</Autofill>\n'
+                       '\t</AutoCommandBar>\n'
+                       '\t<ChildItems/>\n'
+                       '</Form>\n')
+        modules_created.append(cf_form_xml_path)
+    cf_module_dir = os.path.join(ext_dir, 'Form')
+    os.makedirs(cf_module_dir, exist_ok=True)
+    cf_module_path = os.path.join(cf_module_dir, 'Module.bsl')
+    if not os.path.isfile(cf_module_path):
+        write_utf8_bom(cf_module_path, '')
+        modules_created.append(cf_module_path)
 
 # Special files
 if obj_type == 'ExchangePlan':
