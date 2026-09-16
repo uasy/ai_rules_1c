@@ -691,7 +691,7 @@ Info "Saved: $resolvedPath"
 
 # --- Auto-validate ---
 if (-not $NoValidate) {
-	$validateScript = Join-Path $PSScriptRoot "subsystem-validate.ps1"
+	$validateScript = Join-Path (Join-Path $PSScriptRoot "..\..\subsystem-validate") "scripts\subsystem-validate.ps1"
 	$validateScript = [System.IO.Path]::GetFullPath($validateScript)
 	if (Test-Path $validateScript) {
 		Write-Host ""

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # img-grid v1.1 — Overlay numbered grid on image
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# Local: rejects --cols <= 0 and --rows < 0, keeps at least one grid row, and writes UTF-8
+#        output; upstream accepts both values and can compute zero rows.
 """Overlay a numbered grid on an image to help determine column/row proportions.
 
 Usage: python overlay-grid.py <image> [-c COLS] [-r ROWS] [-o OUTPUT]

@@ -1020,7 +1020,7 @@ Info "Saved: $resolvedPath"
 
 # --- Auto-validate ---
 if (-not $NoValidate) {
-	$validateScript = Join-Path $PSScriptRoot "cf-validate.ps1"
+	$validateScript = Join-Path (Join-Path $PSScriptRoot "..\..\cf-validate") "scripts\cf-validate.ps1"
 	$validateScript = [System.IO.Path]::GetFullPath($validateScript)
 	if (Test-Path $validateScript) {
 		Write-Host ""

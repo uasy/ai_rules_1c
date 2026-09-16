@@ -78,6 +78,10 @@ PowerShell writers have:
   downstream `add-template.ps1` does.
 - `form-compile.py` (above) — registering a compiled form in its object keeps the
   object file's line endings.
+- `cf-edit.py`, `interface-edit.py`, `subsystem-compile.py`, `subsystem-edit.py` —
+  auto-validation calls the sibling validator. The PowerShell peers look for
+  `../../<validator>/scripts/<validator>.ps1`, which does not exist in this layout,
+  so their auto-validation is skipped.
 
 This notice also covers `scripts/overlay-grid.py` of the `img-grid-analysis`
 skill, which is derived from the same project.

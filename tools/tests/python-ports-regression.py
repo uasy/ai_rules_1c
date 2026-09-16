@@ -1498,6 +1498,28 @@ def _(work):
                                                        "ФормаПроба", "Ext", "Form.xml")])])
 
 
+@case("auto-validation: cf-edit, interface-edit and subsystem-* run their sibling validator")
+def _(work):
+    """Each port calls the validator that sits next to it. The upstream .ps1 path
+    (../../<name>/scripts/<name>.ps1) does not exist in this layout, so there the
+    auto-validation is skipped without a word; the Python side must not skip it."""
+    src = os.path.join(work, "src")
+    copy_fixture("config-dump", src)
+    steps = [
+        (CF_EDIT_PY, ["-ConfigPath", os.path.join(src, "Configuration.xml"),
+                      "-Operation", "modify-property", "-Value", "Version=1.0.0.2"], "cf-validate"),
+        (SUBSYSTEM_COMPILE_PY, ["-Value", '{"name":"Проба"}', "-OutputDir", src], "subsystem-validate"),
+        (SUBSYSTEM_EDIT_PY, ["-SubsystemPath", os.path.join(src, "Subsystems", "Проба.xml"),
+                             "-Operation", "add-content", "-Value", "Catalog.TestCatalog"], "subsystem-validate"),
+        (INTERFACE_EDIT_PY, ["-CIPath", os.path.join(src, "Ext", "CommandInterface.xml"), "-CreateIfMissing",
+                             "-Operation", "hide", "-Value", "Catalog.TestCatalog.StandardCommand.OpenList"], "interface-validate"),
+    ]
+    for script, args, validator in steps:
+        run = _run_ok(script, args, work, os.path.basename(script))
+        assert_true(f"Running {validator}" in run["stdout"] and "=== Validation" in run["stdout"],
+                    f"{os.path.basename(script)} did not run {validator}: {run['stdout'][-300:]}")
+
+
 @case("add-template: -ObjectName takes the object's XML path, as meta-edit's refusal advises")
 def _(work):
     src = os.path.join(work, "src")

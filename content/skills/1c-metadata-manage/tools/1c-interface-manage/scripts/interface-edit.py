@@ -519,7 +519,9 @@ def main():
 
     # --- Auto-validate ---
     if not args.NoValidate:
-        validate_script = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "interface-validate", "scripts", "interface-validate.py"))
+        # Local: the validator is the sibling interface-validate.py. Upstream interface-edit.ps1 looks for
+        # ../../interface-validate/scripts/interface-validate.ps1, which does not exist in this layout, so its auto-validation is skipped.
+        validate_script = os.path.normpath(os.path.join(os.path.dirname(__file__), "interface-validate.py"))
         if os.path.isfile(validate_script):
             print()
             print("--- Running interface-validate ---")

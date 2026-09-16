@@ -618,7 +618,9 @@ def main():
 
     # --- Auto-validate ---
     if not args.NoValidate:
-        validate_script = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "subsystem-validate", "scripts", "subsystem-validate.py"))
+        # Local: the validator is the sibling subsystem-validate.py. Upstream subsystem-edit.ps1 looks for
+        # ../../subsystem-validate/scripts/subsystem-validate.ps1, which does not exist in this layout, so its auto-validation is skipped.
+        validate_script = os.path.normpath(os.path.join(os.path.dirname(__file__), "subsystem-validate.py"))
         if os.path.isfile(validate_script):
             print()
             print("--- Running subsystem-validate ---")
