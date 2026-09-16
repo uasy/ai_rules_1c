@@ -11,8 +11,9 @@ Graph metadata server: scoped Neo4j graph, BSL call graph, forms, evidence, impa
 3. `project_id` is the security/data scope. A legacy domain argument named `project_name` on some search functions is only an in-graph filter and must never be used as a substitute for scope.
 4. If `truncated` is true, read `truncation_reason` / `limits` and continue with the opaque cursor using exactly the same project, generation and query. A cursor is bound to the tool, query, generation and plugin epoch.
 5. Errors are typed (`project_not_registered`, `stale_generation`, `invalid_argument`, `invalid_cursor`, `timeout`, etc.). Do not retry with guessed argument names.
-6. `execute_metadata_cypher` has been removed. Never ask for or attempt arbitrary client Cypher. Use `run_graph_cypher_template(template_id, arguments)` with an allow-listed read-only template, or a typed graph tool.
-7. Resolve an ambiguous entity once with `resolve_graph_entity`, then pass its returned stable reference to path/evidence/domain tools. Do not reconstruct `node_id`, keys or edge refs by hand.
+6. `warnings` on an answer describe **that answer** (a failed lane, a missing index such as `tabular_part_columns_not_indexed`); installation-wide notices live in `list_graph_capabilities`. `degraded: true` means a lane this answer needed was unavailable — record it, do not re-run the same call hoping for a different lane.
+7. `execute_metadata_cypher` has been removed. Never ask for or attempt arbitrary client Cypher. Use `run_graph_cypher_template(template_id, arguments)` with an allow-listed read-only template, or a typed graph tool.
+8. Resolve an ambiguous entity once with `resolve_graph_entity`, then pass its returned stable reference to path/evidence/domain tools. Do not reconstruct `node_id`, keys or edge refs by hand.
 
 ### Base configuration and extension layers
 
@@ -29,6 +30,12 @@ Discovery/health/contract tools (`get_metadata_prompt`, `get_indexing_status`, `
 
 ## Recommended workflow
 
+These are conditional steps, not a mandatory preamble for every lookup. Reuse the selected project, resolved identity and known tool schema within the session; discover only the missing contract information. Check schemas again after a contract change or validation error.
+
+**Schema lookups are not free.** `get_graph_tool_schema` / the client's tool-schema lookup is for a tool that is absent from this file and from `mcp-1c-tools/SKILL.md → Parameter names`, or after an `invalid_argument` / schema rejection — never before every call. One project list per session: `list_graph_projects` once, then keep `project_id`. The analysed sessions spent a third of all calls on schema and project lookups that returned nothing new.
+
+**Time budget.** The server answers with a typed `error.code = "timeout"` after `GRAPH_TOOL_TIMEOUT_SECONDS` (default 25 s, below the client's 30 s). Do not resend the same call: narrow the query, lower `max_items`, or switch to a structural tool. A client-side `fetch failed` on the first call of a session is a transport reconnect, not a server answer — repeat that one call once.
+
 1. `health_graph(project_id=...)` when availability is uncertain; it separates process liveness, Neo4j, providers and exact/fulltext/vector/hybrid/traversal lanes.
 2. `list_graph_projects` → choose `project_id`; `get_graph_project_status` if ingestion/generation readiness matters.
 3. `resolve_graph_entity(reference=...)` for a named/path/code reference.
@@ -36,13 +43,17 @@ Discovery/health/contract tools (`get_metadata_prompt`, `get_indexing_status`, `
 5. Use `explain_graph_evidence` / `explain_path` when a decision depends on provenance. A structural answer without evidence is not automatically a release proof.
 6. Page until complete when the answer claims exhaustiveness. `truncated`, `exhaustive=false`, `degraded=true`, or unknown readiness forbids a “nothing else exists” conclusion.
 
+### Tabular-part attributes
+
+The graph model has `MetadataObject → HAS_TABULAR_PART → TabularPart → HAS_ATTRIBUTE → Attribute`, but a generation built from a text report or by an older loader holds only the tabular-part **names**. The tools now say so instead of answering with empty lists: `object_tabular_parts`, the `list_tabular_parts` operation and `get_object_dossier` carry the warning `tabular_part_columns_not_indexed` when the part has no indexed columns. Treat that warning as a closed lane: do not try other graph tools for the columns, take them from `1c-code-metadata-mcp` `get_metadata_details(object_name=..., sections="tabular_parts")` (or `tabular_part="<name>"` for one part) and say so in the response. Names of the parts stay valid graph evidence; a refresh of the project (`refresh_graph_project`) rebuilds the columns when the source export contains them.
+
 ## Search and object navigation
 
 | Tool | Primary domain arguments | Use |
 |---|---|---|
-| `search_metadata` | `query`, optional legacy `project_name` | JSON template in the **value** of `query` (preferred) or NL→Cypher when LLM is available |
+| `search_metadata` | `query`, optional legacy `project_name` | JSON operation in the **value** of `query` (preferred, deterministic — catalogue below) or natural language (LLM / hybrid lanes, slower, needs an embeddings provider) |
 | `search_metadata_by_description` | `query`, `top_k=10`, `filter_type`, `use_fuzzy=false`, `alpha=0.5` | Name/synonym/comment/help fulltext + vector search |
-| `business_search` | `query`, `top_k=10`, `filter_type`, `include_structure=true` | Business-semantic search; can degrade to structural/fulltext lanes |
+| `business_search` | `query`, `top_k=10`, `filter_type`, `include_structure=true` | Business-semantic search; published only when the business-info lane is enabled (`CALCULATE_BUSINESS_INFO=true`); absent from `tools/list` otherwise — check `list_graph_capabilities`, do not call it by habit |
 | `search_code` | `query`, `search_type="hybrid"`, `top_k=3`, `filter_type`, `detail_level="L1"` | BSL routine search. Use fulltext for identifiers, semantic for intent; request full code only when needed |
 | `answer_metadata_question` | `question`, `max_tokens=4000`, `include_code=true` | LLM/RAG synthesis; non-deterministic hint, verify sources |
 | `get_object_dossier` | `object_name`, optional `sections` | First call for a known qualified object; bounded multi-section passport |
@@ -52,7 +63,55 @@ Discovery/health/contract tools (`get_metadata_prompt`, `get_indexing_status`, `
 | `explain_graph_entity` | `reference`, optional relation filter/direction/group limit | Compact entity card and grouped relations |
 | `fetch_graph_nodes` | `node_ids` | Expand compact node IDs returned by graph/path tools |
 
-**Argument naming:** search inputs are `query`; Q&A uses `question`; dossier/object-relationship tools use `object_name`; call traversal uses `routine_name`; movement lookup uses `register_name`. For `list_attributes_with_type`, the canonical parameter is `type_name`; `type`, `typeName`, `type_pattern`, and `typePattern` are compatibility aliases, while `object`/`object_name` are not. Do not invent `q`, `text`, `prompt`, `full_name`, `object_full_name`, or `query_template`.
+**Argument naming:** search inputs are `query`; Q&A uses `question`; dossier/object-relationship tools use `object_name`; call traversal uses `routine_name`; movement lookup uses `register_name`. Do not invent `q`, `text`, `prompt`, `full_name`, `object_full_name`, or `query_template`.
+
+**Value formats that fail silently when guessed:**
+
+- `filter_type` (`search_metadata_by_description`, `business_search`) and `category` in JSON operations is the **category name as the graph stores it — Russian plural**: `Документы`, `Справочники`, `РегистрыСведений`, `РегистрыНакопления`, `ПланыВидовРасчета`, `Перечисления`, `ОбщиеМодули`, `Обработки`, `Отчеты`, `Константы`. Singular Russian (`Документ`) and English MCP names (`Document`, `Catalog`, `InformationRegister`) are normalised by current builds and rejected with `invalid_argument` on older ones; never pass them expecting a different scope.
+- `entity_kind` (`explain_graph_entity`, `resolve_effective_entity`, `find_test_artifacts`) is one of `MetadataObject`, `Symbol`, `Form`, `SourceUnit`, `Chunk` — a graph node kind, **not** a 1C object kind (`Document` is rejected).
+- `reference` for `resolve_graph_entity` / `explain_graph_entity` accepts a dotted qualified name including a tabular part: `Документ.НачислениеЗарплаты.ТабличнаяЧасть.Начисления`.
+- `object_name` in `run_graph_cypher_template` arguments is the bare object name **without** the category prefix (`НачислениеЗарплаты`, not `Документ.НачислениеЗарплаты`); pass `category_name="Документы"` when the same name exists in several categories (`Начисления` is both a tabular part and a `ПланВидовРасчета`).
+- `object_name` in the JSON operations (`list_attributes`, `list_tabular_parts`, `object_structure`, …) is matched **exactly** when such an object exists; a typed prefix (`Документ.Премия`) becomes a category filter. Only when no exact match exists does the old partial `CONTAINS` match apply — so a fragment still yields candidates, but `Премия` no longer brings the catalog `ПремияПрисоединенныеФайлы` along. `list_objects_by_name` stays a partial search.
+
+### `search_metadata` JSON operations
+
+`{"operation": "<name>", ...params}` as the value of `query`. The full catalogue with parameter aliases is returned by `get_metadata_prompt` (large; read it once per session only when an operation below does not fit). Structure and search:
+
+| Operation | Params | Answers |
+|---|---|---|
+| `object_structure` | `object_name` | Header attributes + tabular-part names of one object (paged; the text is `kind: Реквизит / ТабличнаяЧасть` lines) |
+| `list_attributes` | `object_name` | Header attributes only |
+| `list_tabular_parts` | `object_name` | Tabular parts; columns only when indexed (see *Tabular-part attributes*) |
+| `get_attribute_type` | `object_name`, `attribute_name` | Type of one attribute |
+| `list_attributes_with_type` | `type_name` (`Документ.Премия` or `ДокументСсылка.Премия`) | Attributes of that **type** across the configuration — not the attributes of an object; `object`/`object_name` are not accepted |
+| `list_objects_by_category` | `category_name` | Objects of a category |
+| `list_objects_by_name` | `object_name` (CONTAINS), optional `category` | Name search |
+| `list_forms` / `list_enum_values` / `list_resources` / `list_dimensions` / `list_commands` / `list_layouts` / `list_predefined_of_object` | `object_name` | Per-object collections |
+| `find_objects_using_object` / `find_usages_of_object` / `find_documents_making_movements_into_register` | `object_name` | Usages and movements |
+| `resolve_qn` / `find_by_guid` | `qualified_name` / `guid` | Identity |
+| `list_modules_of_owner`, `list_module_routines` (`object_name`, `module_type?`), `list_common_module_routines` (`module_name`), `find_routines_by_name` (`routine_name`), `get_routine_body`, `list_callers_of_routine`, `list_callees_of_routine`, `call_graph_subtree` (`routine_name`, `depth?`, `direction?`) | — | BSL code graph |
+| `list_form_controls` / `list_form_events` / `list_form_commands` / `list_form_bindings` / `list_form_attributes` | `object_name`, `form_name` | Forms |
+| `list_roles_with_access_to_target` (`object_name`), `list_access_targets_of_role` (`role_name`), `get_access_of_role_to_target` | — | Rights |
+| `list_extension_objects` (`extension_name`), `find_base_object`, `list_overrides_of_object`, `compare_base_and_extension` | `object_name`, `extension_name` | Extensions |
+
+`list_attributes_with_type` is an operation of `search_metadata`, not a `template_id` of `run_graph_cypher_template`; the two catalogues are separate.
+
+### `run_graph_cypher_template` templates
+
+`run_graph_cypher_template(template_id=..., arguments={...})` — allow-listed read-only Cypher; the current list is also in `get_metadata_prompt` and in the `invalid_argument` error of a wrong id:
+
+| `template_id` | `arguments` | Returns |
+|---|---|---|
+| `object_attributes` | `object_name` (bare name), optional `category_name` | Header attributes: `name`, `type`, `synonym`, `comment` |
+| `object_attribute_properties` | `object_name`, optional `category_name` | Every stored property of each header attribute (~1 KB per attribute — only when a property other than type/synonym matters) |
+| `object_tabular_parts` | `object_name`, optional `category_name` | Tabular parts with their columns as `{name, type}` (or the `tabular_part_columns_not_indexed` warning) |
+| `object_forms` / `object_modules` | `object_name` | Forms / modules of the object |
+| `object_neighbours` | `object_name` | Adjacent nodes grouped by relationship |
+| `objects_by_name` | `name_pattern` | Objects whose name contains the pattern |
+| `objects_in_category` | `category_name` | Objects of one category |
+| `object_counts_by_category` | — | Counts per category |
+
+Values travel in `arguments`; `project_id` stays a top-level contract parameter and is refused inside `arguments`.
 
 ## Relationships and classic impact
 
@@ -112,14 +171,16 @@ An ordinary `Form.bin` is a binary container, not XML. Do not edit it directly. 
 | `get_graph_stats` | Graph/evidence counters; optional label filter |
 | `list_graph_indexes` | Neo4j index state/population |
 | `get_graph_capabilities` | Local analysis vs delegated capabilities and graph-only degradation |
-| `list_graph_capabilities` | Published tools, contract version/profile/feature gates/limits |
-| `get_graph_tool_schema` | Exact JSON Schema, annotations and example for one tool — use before any uncertain call |
-| `get_metadata_prompt` | Graph schema and template catalogue; does **not** authorize raw Cypher |
+| `list_graph_capabilities` | Published tools, contract version/profile/feature gates/limits, disabled lanes (e.g. business search) and the installation notices (`GRAPH_SCOPE_ENFORCED`, `REFERENCE_EVIDENCE_ENABLED`, active generation) — these are reported here once, not on every answer |
+| `get_graph_tool_schema` | Exact JSON Schema, annotations and example for one tool — after a schema rejection, or for a tool this file does not describe; not a preamble |
+| `get_metadata_prompt` | Graph schema, the JSON operation catalogue and the Cypher template list (~40 KB); read once per session at most, only when the tables above do not answer; does **not** authorize raw Cypher |
 | `run_graph_cypher_template` | Execute one allow-listed read-only `template_id`; values travel separately in `arguments`, and project-scope names are forbidden there |
 | `list_plugins` | Loaded plugins, hooks/tables/presets, failures and plugin epoch |
 | `metadata_report` | Tombstone explaining replacements for the removed monolithic report |
 
 In graph-only mode, structural graph/template/fulltext functions continue while LLM/vector-dependent lanes report explicit degradation. Do not call missing providers a total outage; inspect `health_graph` and capabilities.
+
+A disabled business-search lane is absent from `tools/list` on current builds and answers with a typed `lane_disabled` error on older ones; either way it is closed for the configuration — change lanes instead of rephrasing. Tool names, JSON operations and template IDs are three separate catalogues: `list_attributes_with_type` is a `search_metadata` operation, not a `template_id`; `compact_metadata` belongs to the Code server.
 
 ## Project lifecycle and profiles
 
@@ -135,6 +196,10 @@ In graph-only mode, structural graph/template/fulltext functions continue while 
 `MCP_TOOL_PROFILE=admin` publishes lifecycle, plugin reload and ordinary-form write tools. `read-only` omits them from `tools/list`; do not attempt to call hidden tools. Plugins are enabled by default in current source. Call-scoped hooks affect the next call; derived-state hooks change the build fingerprint and require a new generation.
 
 Lifecycle tools own independent base-project sources. They do not turn separately registered projects into extension layers. If the deployment uses an extension catalog, ingest the catalog through the server deployment and query every layer under the returned base `project_id`.
+
+For the beta manager-call fix with CALLS relation version 3 (14 September 2026), an ordinary restart over the existing data and export rebuilds the outdated CALLS lane once. With BSL loading enabled, unchanged modules, their embeddings and completed register-access relations are preserved. Do not request full refresh, delete the graph or enable source-unit manifests merely to apply this fix. `refresh_capability_unavailable` is a protection against losing derived data; do not bypass it.
+
+For a legacy extension whose base is missing from `list_graph_projects`, check both instances' Neo4j connection, `MCP_NAMESPACE` and exact base project ID before concluding that the graph is empty. The fixed beta can discover existing scoped data for the base explicitly named by `EXTENSION_BASE_PROJECT_ID` (or `EXTENSION_BASE_PROJECT`) even without an old ingestion checkpoint. This does not grant access to another namespace, staging data or a corrupt checkpoint; a missing base is not a reason to re-embed the whole configuration.
 
 ## Source preparation
 

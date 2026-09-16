@@ -7,6 +7,8 @@ description: "Catalog of MCP servers for 1C development — search, code navigat
 
 Single source of truth for the server catalog, task → server routing and parameter names. Open `docs/<server>.md` only when the tables below do not cover the call: rare modes and response formats, a schema validation error (`Missing required argument` / `Unexpected keyword argument`), or reformulating a missed search (search modes, `detail_level`, filters). A server counts as available only when its tools are exposed in the current session's tool schema; an entry in `mcp-servers.json` proves nothing.
 
+**Schema lookups are budgeted.** A tool named in the tables below needs no schema fetch before the call (`get_mcp_tools`, `get_graph_tool_schema` and the like). Fetch a schema at most once per tool per session, and only for a tool absent from the tables or after a validation error. Reading `docs/<server>.md` counts the same way: once per server per session, when needed.
+
 ## What is mandatory vs. conditional
 
 - **Mandatory for risk-bearing 1C work** when a relevant server is exposed — the scope list in `AGENTS.md → MCP Tool Calling → A.1` (BSL / metadata edits or review, metadata XML, forms, integrations, refactoring, performance, runtime errors, platform API checks, impact analysis, validation, project memory, OpenSpec artifacts that state 1C facts).
@@ -43,7 +45,10 @@ Use the names below (they match the live schema); never substitute a natural-sou
 | code-metadata | `get_metadata_details`, `graph_dependencies`, `inspect_form_layout` (+ optional `form_name`) | **`object_name`** — same shape and bans as above |
 | code-metadata | `search_function` / `get_module_structure` / `get_method_call_hierarchy` / `bsl_scope_members` | `name` / `module_path` / `method_name` / `context` |
 | code-metadata | `get_xsd_schema`, `verify_xml` (+ `xml_content`) | **`object_type`** |
-| code-metadata | `metadatasearch`, `codesearch`, `search_forms`, `helpsearch` | **`query`** — not `q`, `text`, `prompt`, `search_query` |
+| code-metadata | `metadatasearch`, `codesearch`, `search_forms`, `helpsearch` | **`query`** — not `q`, `text`, `prompt`, `search_query`; result count is **`limit`** (there is no `top_k` on this server) |
+| code-metadata | `get_metadata_details` projections | `sections="attributes,tabular_parts,properties,predefined"` (comma list), `tabular_part="<name>"`, `detail_level="outline"\|"full"`, `include_provenance=false` |
+| graph | `search_metadata_by_description`, `business_search`, JSON operations | `filter_type` / `category` = Russian plural category (`Документы`, `Справочники`); `entity_kind` = `MetadataObject`\|`Symbol`\|`Form`\|`SourceUnit`\|`Chunk` |
+| graph | `run_graph_cypher_template` | `template_id` from the template catalogue (`docs/1c-graph-metadata-mcp.md`); `arguments.object_name` is the bare name without category prefix, plus optional `category_name` |
 
 `object_name` on both servers is a dotted qualified name with the type prefix — `Справочник.Контрагенты`, `Документ.РеализацияТоваровУслуг`, `РегистрНакопления.ТоварыНаСкладах`, `ОбщийМодуль.РаботаСКонтрагентамиКлиентСервер` — never a separate "full name" parameter.
 
@@ -52,9 +57,11 @@ Use the names below (they match the live schema); never substitute a natural-sou
 Defaults are usually suboptimal; set the parameters to the task, and on a miss reformulate (mode, `detail_level`, `exact`, `top_k`, filters) before switching tools:
 
 - `1c-graph-metadata-mcp`: `search_code` (`search_type`, `detail_level`), `search_metadata` (JSON templates), `search_metadata_by_description` (`alpha`, `use_fuzzy`), `trace_impact` (`direction`, `depth`, `relationship_types`), `trace_call_chain` (`direction`, `depth`), `get_object_dossier` (`sections`), `business_search` (`include_structure`, `filter_type`).
-- `1c-code-metadata-mcp`: `metadatasearch` (`object_type`, `names_only`), `get_method_call_hierarchy` (`direction`, `depth`), `graph_dependencies` (`direction`), `bsl_scope_members` (`member_type`).
+- `1c-code-metadata-mcp`: `metadatasearch` (`object_type`, `names_only`), `get_metadata_details` (`sections`, `tabular_part`, `detail_level`), `get_method_call_hierarchy` (`direction`, `depth`), `graph_dependencies` (`direction`), `bsl_scope_members` (`member_type`).
 
 If `docs/<server>.md` conflicts with the descriptor exposed by the current environment, the environment descriptor wins.
+
+**Metadata object structure — who answers what.** `get_object_dossier` (graph) is the passport: header attributes with types, tabular-part names, forms, dependencies. Tabular-part **columns** come from `get_metadata_details(object_name=..., sections="tabular_parts")` on the Code server; a graph answer that warns `tabular_part_columns_not_indexed` routes there in one step (`content/rules/mcp-first-search.md → Quick first-pick table`).
 
 ## Fallback chain
 

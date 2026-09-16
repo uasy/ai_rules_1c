@@ -6,7 +6,7 @@ Policy, write priority, search coverage and failure handling are owned by `conte
 
 Server aliases commonly include `cognee` and `cognee-memory`. Discover the exposed namespace; do not call both aliases if they are known to share one store.
 
-- Search: `recall(query=...)`; use an established project `datasets` scope when supported.
+- Search: `recall(query=..., search_type="CHUNKS")`; use an established project `datasets` scope when supported. `CHUNKS` returns the stored notes themselves. The default auto-routing picks a completion mode that synthesises prose with an LLM (~5–10 s) and, on an empty graph, produces generic text about the query words with no project fact in it — treat such an answer as no result, and do not switch to `GRAPH_COMPLETION` hoping for more.
 - Durable write: `remember(data=..., dataset_name=...)`; omit `session_id`, which selects session-only storage. Omit `dataset_name` when the established client default is appropriate.
 - Inspect the live descriptor before optional arguments or cleanup. `forget(dataset=...)` can delete an entire dataset; it is not a single-note delete API.
 

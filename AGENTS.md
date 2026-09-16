@@ -105,7 +105,7 @@ Before selecting 1C MCP tools, load `content/rules/mcp-policy.md` and `content/s
 2. Reuse unchanged evidence. Repeat only for changed inputs/state, resumed context missing evidence, or necessary freshness checks; respect validator budgets.
 3. Tune parameter-rich queries to the live schema; reformulate a miss before fallback.
 4. Prefer structural/fragment retrieval to full-module scans.
-5. Never guess parameter aliases. On schema rejection read the server doc before retrying; the live descriptor wins.
+5. Never guess aliases; on schema rejection read the server doc, then retry once; the live descriptor wins. Lookups are budgeted and closed lanes stay closed (`mcp-policy.md` C.6, C.7).
 
 ## Coding Standards
 
