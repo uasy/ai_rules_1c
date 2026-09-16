@@ -3321,6 +3321,8 @@ def main():
         template_add = os.path.normpath(os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "..",
             "1c-template-manage", "scripts", "add-template.ps1"))
+        # Local: on Linux / macOS the refusal also names add-template.py, which this package
+        # ships; upstream says that no Python add-template exists.
         template_add_py = os.path.splitext(template_add)[0] + ".py"
         sys.stderr.write(
             "[ERROR] Операция add-template в meta-edit не поддерживается: генератор не "
