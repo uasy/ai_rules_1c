@@ -123,7 +123,7 @@ Before writing/reviewing BSL or metadata, load `content/rules/coding-standards.m
 
 ### Supplementary skills (load on demand)
 
-Skills live at `content/skills/<name>/SKILL.md`; availability means exposed in the session. Windows shell → `powershell-windows`, else `1c-metadata-manage/SKILL.md → Runtime selection`; platform UI verification (test client driven by a test manager running a BSL scenario; web-client browser automation stays with `content/rules/ui-testing-tools.md`) → `1c-ui-testing`; extension analysis → `1c-extension-analysis`; before committing anything, and when a file is created or substantially edited → `audit-review`; diagrams → `mermaid-diagrams`; session handoff → `handoff`; unstructured requirements → `prompt-enhancer`; transcription → `transcribe`; Markdown to DOCX → `md-to-docx`; printed-form measurements → `img-grid-analysis`; binary 1C forms/artifacts without the platform → `v8unpack-cf`.
+Skills live at `content/skills/<name>/SKILL.md`; availability means exposed in the session. Windows shell → `powershell-windows`, else `1c-metadata-manage/SKILL.md → Runtime selection`; diagrams → `mermaid-diagrams`; session handoff → `handoff`; unstructured requirements → `prompt-enhancer`; transcription → `transcribe`; Markdown to DOCX → `md-to-docx`; printed-form measurements → `img-grid-analysis`; binary 1C forms/artifacts without the platform → `v8unpack-cf`.
 
 # Discipline
 
