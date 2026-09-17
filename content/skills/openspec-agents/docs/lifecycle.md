@@ -49,7 +49,7 @@ Written by the tester from the delta specs **before** the implementation:
 
 | Scenario / statement of the requirement | Test step | Status |
 |---|---|---|
-| <scenario> | «<protocol line of the step>» | 🔴 / 🟢 / ⚪ [reason](../../tests/<capability>/README.md#<тест>-не-проверяется) |
+| <scenario> | «<protocol line of the step>» | 🔴 / 🟢 / ⚪ + link to the reason: `../../tests/<capability>/README.md#<тест>-не-проверяется` |
 
 - 🔴 — the test exists and fails (before implementation this is the expected state); 🟢 — passes;
   ⚪ — not verifiable, with a link to the reason in the capability README.

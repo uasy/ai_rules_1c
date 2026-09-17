@@ -10,7 +10,7 @@ category: workflow
 
 ## Delegation principle
 
-14 specialized subagents are available in the project. Source prompt files live in `content/agents/` and use short file names without the `1c-` prefix:
+16 specialized subagents are available in the project. Source prompt files live in `content/agents/` and use short file names without the `1c-` prefix:
 
 | Subagent id | Source prompt file |
 |---|---|
@@ -28,6 +28,8 @@ category: workflow
 | `1c-tester` | `content/agents/tester.md` |
 | `1c-code-reviewer` | `content/agents/code-reviewer.md` |
 | `1c-doc-writer` | `content/agents/doc-writer.md` |
+| `openspec-tester` | `content/agents/openspec-tester.md` |
+| `openspec-implementer` | `content/agents/openspec-implementer.md` |
 
 **Delegate when at least one countable fact holds:**
 
@@ -38,7 +40,7 @@ category: workflow
 
 **Otherwise execute directly:** a single-file edit, or a full-cycle task under those thresholds, runs the 5-step Development Procedure from `AGENTS.md` plus the closing gate from `content/rules/verification-gates.md`. The pipeline in `subagent-pipeline.md` applies only when delegation is chosen here.
 
-All 14 agents declare `allowParallel: true`. That licenses parallel **read-only** tracks; two mutating subagents run in parallel on one configuration only when their write scopes are provably disjoint — `subagent-pipeline.md → Stage 3`.
+All agents except `openspec-tester` and `openspec-implementer` declare `allowParallel: true`; those two share the test infobase and its port and run one at a time. That licenses parallel **read-only** tracks; two mutating subagents run in parallel on one configuration only when their write scopes are provably disjoint — `subagent-pipeline.md → Stage 3`.
 
 **Model profile.** The active-model profile (`AGENT_MODEL` in `.dev.env` — `content/rules/model-adaptation.md`) may tune **how eagerly** you delegate within these criteria: some models delegate too readily and their profile biases toward direct execution and low spawn counts, others sustain parallel subagents well and their profile encourages independent parallel tracks. The criteria above, the per-subagent "when NOT to call" column, the built-in-explorer ban, and every common obligation stay unchanged — a profile never adds a subagent the rules forbid, and never removes one they require. In particular, no profile authorises a subagent spawned to double-check your own work.
 
@@ -151,6 +153,8 @@ Severity of findings: `critical` (blocks delivery) / `major` (must be addressed 
 | **1c-tester** | User asks to verify changes via deploy + UI automation against a test infobase, **and** `UI_TESTING` allows it (canon — `dev-standards-env.md`) | No test infobase; purely static task; `UI_TESTING=off`, or `manual` without an explicit UI-test request — never auto-trigger |
 | **1c-code-reviewer** | **Only when the user explicitly asks for a code review** | Auto-triggering after edits is forbidden |
 | **1c-doc-writer** | User-facing documentation: user guides, admin manuals, tutorials, codemaps, API references | Inline code documentation (module / procedure headers) — that is the developer's responsibility |
+| **openspec-tester** | An OpenSpec change needs its scenarios covered by tests before implementation, or an implemented change needs verification (`changes/<id>/test-plan.md`, `changes/<id>/verify.md`) — skill `openspec-agents` | No `openspec/` workspace or no test infobase; deploy + UI check of a change outside OpenSpec (use `1c-tester`) |
+| **openspec-implementer** | A reviewed OpenSpec change with `changes/<id>/test-plan.md` is to be implemented task by task until its tests pass — skill `openspec-agents` | The change has no tests yet (run `openspec-tester` first); work outside an OpenSpec change (use `1c-developer`) |
 
 ## Tool declarations
 
@@ -167,7 +171,7 @@ Subagent source files do **not** hard-code model names. Each agent declares an a
 
 The three tiers:
 
-- **`coding`** — code / metadata authorship and design: writing or editing BSL and metadata, architecture design, error fixes. Agents: `1c-developer`, `1c-metadata-manager`, `1c-architect`, `1c-performance-optimizer`, `1c-refactoring`, `1c-error-fixer`, `1c-extension-analyst`. Warrants the strongest model — this tier mutates production code.
+- **`coding`** — code / metadata authorship and design: writing or editing BSL and metadata, architecture design, error fixes. Agents: `1c-developer`, `1c-metadata-manager`, `1c-architect`, `1c-performance-optimizer`, `1c-refactoring`, `1c-error-fixer`, `1c-extension-analyst`, `openspec-implementer`, `openspec-tester`. Warrants the strongest model — this tier mutates production code.
 - **`analysis`** — reasoning without production-code authorship: planning, analysis, review, testing, documentation. Agents: `1c-planner`, `1c-analytic`, `1c-arch-reviewer`, `1c-code-reviewer`, `1c-doc-writer`, `1c-tester`. A strong-value model is usually enough.
 - **`light`** — small bounded read-only tasks where a cheaper / faster model saves limits without hurting quality: repo scouting, search, impact lists, mechanical post-edit checks. Agent: `1c-explorer`. Bounded edits may still be routed down per invocation (below), but no code-writing agent declares this tier.
 

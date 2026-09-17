@@ -205,6 +205,8 @@ Each subagent owns specific OpenSpec artifacts. Use this table to decide where a
 | **1c-code-reviewer** | `specs/`, `changes/<id>/specs/` deltas | review verdict against requirements (no artifact writes) |
 | **1c-doc-writer** | `specs/`, `changes/archive/` | user-facing docs derived from specs |
 
+`openspec-tester` and `openspec-implementer` extend this table for projects that delegate a change to agents: the tester reads the delta specs and writes `openspec/tests/<capability>/`, `changes/<id>/test-plan.md` and `changes/<id>/verify.md`; the implementer reads the test plan and the tests, writes product sources and ticks `tasks.md`. The order of work and the artifact formats — skill `openspec-agents`.
+
 ## Phase → subagent mapping
 
 Subagent **selection** is owned elsewhere — do not duplicate it here: the catalog in `content/rules/subagents.md` and the stage-by-stage choice lists in `content/rules/subagent-pipeline.md`. The default `propose → apply → archive` workflow maps onto those stages directly; artifact ownership is fixed by the table above. OpenSpec-specific additions:

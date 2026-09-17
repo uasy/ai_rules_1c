@@ -35,7 +35,12 @@ if env.get('IB_USER'):
     if env.get('IB_PASSWORD'):
         command.insert(5, '/P' + env['IB_PASSWORD'])
 
-code = subprocess.run(command, timeout=1800).returncode
+try:
+    code = subprocess.run(command, timeout=1800).returncode
+except subprocess.TimeoutExpired:
+    print('Designer не завершил /CheckModules за 30 минут: база занята другим сеансом или открыто окно ошибки',
+          file=sys.stderr)
+    sys.exit(2)
 verdict = open(result, encoding='utf-8-sig').read().strip() if os.path.exists(result) else 'нет файла результата'
 text_filter = sys.argv[1] if len(sys.argv) > 1 else None
 lines = open(out, encoding='utf-8-sig', errors='replace').read().splitlines() if os.path.exists(out) else []

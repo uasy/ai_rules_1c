@@ -25,18 +25,21 @@
 - [ ] `python3 -B tools/tests/python-ports-regression.py --python-only` — без падений.
 - [ ] Размер `AGENTS.md` не больше 16384 байт.
 
-## A. Собственные навыки и агент
+## A. Собственные навыки и агенты
 
 - `content/skills/1c-extension-analysis/` — анализ расширения конфигурации: зачем оно изменяет типовую, реестр изменений, отчёт для заказчика.
 - `content/skills/1c-ui-testing/` — UI-тестирование через тестовый клиент и менеджер тестирования платформы.
+- `content/skills/1c-test-debug/` — проверки на тестовой базе без человека у экрана: код и журнал регистрации через отладочное расширение, HTTP-вызовы с учётными данными из `.dev.env`, `/CheckModules`, публикация на Linux. Раннер `1c-ui-testing` вызывает его `ib-errors.py` для диагностики.
+- `content/skills/openspec-agents/` — порядок работы над изменением OpenSpec с агентами (`review.md`, `test-plan.md`, `verify.md`, дерево `openspec/tests/`) и неинтерактивный запуск агента через `claude -p`.
 - `content/skills/audit-review/` — проверка содержимого перед коммитом: утечки контекста и соответствие назначению файла.
 - `content/agents/extension-analyst.md` — субагент полного анализа расширения; зарегистрирован в `content/rules/subagents.md` (каталог агентов, счётчик агентов, read-only агенты, тир `coding`).
+- `content/agents/openspec-tester.md`, `content/agents/openspec-implementer.md` — агенты навыка `openspec-agents`: тесты по спецификации и проверка, реализация задач изменения. Зарегистрированы в `content/rules/subagents.md` (каталог, счётчик, `allowParallel: false`, тир `coding`); владение артефактами — отдельным абзацем после таблицы в `content/rules/sdd-integrations.md`.
 
 ## B. Python-рантайм `1c-metadata-manage`
 
 Апстрим поставляет шесть Python-точек входа. `dev` поставляет Python-двойник почти для каждого инструмента, чтобы навык работал на Linux / macOS без PowerShell.
 
-- **Порты:** `content/skills/1c-metadata-manage/tools/*/scripts/*.py`. Не портированы `tools/1c-web-ops/` (публикация через IIS / Apache) и `tools/_common/DevEnv.ps1` (его Python-аналог — `dev_env.py`).
+- **Порты:** `content/skills/1c-metadata-manage/tools/*/scripts/*.py`. Не портированы `web-info`, `web-stop`, `web-unpublish` из `tools/1c-web-ops/` и `tools/_common/DevEnv.ps1` (его Python-аналог — `dev_env.py`).
 - **Общие помощники:** `tools/_common/Invoke-1CEdit.py`, `tools/_common/MetadataAddress.py`, `tools/_common/meta_dsl.py`, `tools/_common/platform_args.py`, `tools/_shared/support_guard.py`, `tools/_shared/xml_eol.py`.
 - **Документация:** `content/skills/1c-metadata-manage/SKILL.md` (уровни Python-портов, Python-обёртка preview), `content/skills/1c-metadata-manage/NOTICE.md` (локальные отличия портов), `content/skills/1c-metadata-manage/docs/CHANGELOG.md` (записи об изменениях портов), `content/skills/1c-metadata-manage/docs/edit-preview.md` (Python-обёртка и та же политика preview).
 - **Тесты:** `tools/tests/python-ports-regression.py` и фикстура `tools/tests/fixtures/epf-with-template/`.
@@ -52,6 +55,8 @@
 | `remove-template.py` | Гейт `-DryRun` / `-Force`, предварительный разбор, атомарная запись корневого XML | Так же, как `remove-template.ps1` апстрима |
 | `meta-edit.py` | Отказ на `add-template` называет и `add-template.py` | У апстрима сказано, что Python-версии нет; `dev` её поставляет |
 | `support_guard.py` | Режим защиты берётся только из `SUPPORT_GUARD` в `.dev.env`, без обращения к `.v8-project.json` | `.dev.env` — единственный источник рабочих параметров проекта |
+| `web-publish.py` | Linux / macOS: модуль `wsap24.so`, Apache не скачивается; `bin/httpd` — сборка с `--prefix` или ссылка на пакетный `apache2`, запуск с `-d`/`-f`, свой сервер узнаётся по командной строке | У апстрима нет Python-версии; раскладка Apache на Linux иная |
+| `web-publish.py` | В `default.vrd` задано `publishExtensionsByDefault="true"` | Без атрибута HTTP-сервисы расширений отвечают 404. В `web-publish.ps1` та же ошибка — кандидат в support |
 | `db-run.py` | Флаги `-Out` и `-Wait` | В пакетном режиме ошибки запуска видны только в `/Out`; `-Wait` возвращает код завершения клиента |
 | `content/skills/img-grid-analysis/scripts/overlay-grid.py` | Отклоняет `--cols <= 0` и `--rows < 0`, строит минимум одну строку сетки, выводит UTF-8 | Исправление ошибок; кандидат в support |
 

@@ -27,12 +27,16 @@ def project_root():
 
 
 def dev_env(root=None):
+    """Keys of .dev.env; a value in matching single or double quotes is unquoted."""
     values = {}
     with open(os.path.join(root or project_root(), '.dev.env'), encoding='utf-8-sig') as handle:
         for line in handle:
             if '=' in line and not line.lstrip().startswith('#'):
-                key, value = line.rstrip('\n').split('=', 1)
-                values[key.strip()] = value.strip()
+                key, value = line.rstrip('\r\n').split('=', 1)
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in '"\'':
+                    value = value[1:-1].strip()
+                values[key.strip()] = value
     return values
 
 

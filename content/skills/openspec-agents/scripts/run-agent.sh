@@ -61,9 +61,17 @@ fi
 # Skills directory relative to the project root, for permission rules on skill scripts.
 SKILLS_REL="$(realpath --relative-to="$PROJECT_ROOT" "$SKILLS_DIR" 2>/dev/null || echo "$SKILLS_DIR")"
 
+# Every MCP server of the project (.mcp.json) is allowed; its name is the permission prefix.
+MCP_ALLOWED=()
+if [ -f .mcp.json ]; then
+  while IFS= read -r SERVER; do
+    [ -n "$SERVER" ] && MCP_ALLOWED+=("mcp__${SERVER}__*")
+  done < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1], encoding="utf-8-sig")).get("mcpServers", {})))' .mcp.json)
+fi
+
 COMMON_ALLOWED=(
   "Read" "Edit" "Write" "Glob" "Grep" "Skill" "TodoWrite"
-  "mcp__onec-hbk-bsl__*" "mcp__1C-docs-mcp__*" "mcp__1c-ssl-mcp__*"
+  "${MCP_ALLOWED[@]}"
   "Bash(python3:*)" "Bash(timeout:*)"
   "Bash(ls:*)" "Bash(cat:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(grep:*)" "Bash(find:*)"
   "Bash(wc:*)" "Bash(mkdir:*)" "Bash(echo:*)" "Bash(diff:*)"
@@ -93,8 +101,10 @@ case "$AGENT" in
     ;;
 esac
 
+# Last value of a .dev.env key, without surrounding quotes.
 get_env_value() {
-  sed -n "s/^$1=//p" .dev.env | tail -1
+  sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" .dev.env | tail -1 | tr -d '\r' \
+    | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 MODEL="${RUN_AGENT_MODEL:-$(get_env_value SUBAGENT_MODEL_CODING)}"
 

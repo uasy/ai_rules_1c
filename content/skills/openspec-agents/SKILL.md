@@ -22,6 +22,10 @@ the `1c-ui-testing` and `1c-test-debug` skills for anything that runs against th
 <skills>/openspec-agents/scripts/run-agent.sh <agent> <task file> [<session id>]
 ```
 
+The runner drives the Claude Code CLI (`claude -p`) and needs `bash`, GNU coreutils and `python3`.
+Other AI clients get the agent definitions and this workflow, but not the runner: there the
+orchestrator delegates through its own subagent mechanism.
+
 Run it in the background from the main session and watch the log; resume the same session with a
 new task file to deliver defects — the agent keeps its context.
 
@@ -29,11 +33,13 @@ new task file to deliver defects — the agent keeps its context.
   the orchestrator's is the point of delegating.
 - **Permissions** — non-interactive: whatever the role list does not allow is denied without a
   question and recorded in `permission_denials`. `git` writes, process killing, `curl`/`wget`,
-  subagents, wake-ups and monitors are denied for every role.
+  subagents, wake-ups and monitors are denied for every role; the MCP servers of `.mcp.json` are
+  allowed. The lists are a guard rail, not a sandbox: `python3` is allowed, so the boundaries in the
+  agent definitions and the session protocol still carry the weight.
 - **Session protocol** — [session-protocol.md](session-protocol.md) is appended to the system prompt:
   check tools and MCP, load the skills, write `PREFLIGHT`, wait in the foreground, a denied command
-  stays denied. A reference to a skill inside the agent definition alone was observed to be skipped;
-  text in the system prompt is followed.
+  stays denied. The protocol goes into the system prompt because a skill that is only named in the
+  agent definition is not loaded reliably.
 - **Log** — `tmp/agents/<agent>-<time>.jsonl`. A `result` event closes every turn; the work is over
   when the process exits.
 

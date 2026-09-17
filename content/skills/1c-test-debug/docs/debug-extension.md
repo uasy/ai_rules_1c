@@ -47,12 +47,11 @@ The extension has **no role**. Both services require a user with full rights of 
 configuration (`ПолныеПрава` or equivalent): through them the platform grants the HTTP services of
 the extension and the event-log right.
 
-This was checked on a real infobase: a user with only an extension role that granted `EventLog` on
-the adopted configuration got **403** «Недостаточно прав для использования ресурса с данным HTTP
-методом» on both services, `ПравоДоступа("ЖурналРегистрации", Метаданные, <роль>)` returned `Ложь`
-with and without that right, and an administrator worked with the role reduced to nothing. A role
-with rights on the adopted configuration only ties the extension to the configuration name and
-gives nothing.
+An extension role does not replace them. A user who has only an extension role granting
+`EventLog` on the adopted configuration gets **403** «Недостаточно прав для использования ресурса с
+данным HTTP методом» on both services, and `ПравоДоступа("ЖурналРегистрации", Метаданные, <роль>)`
+returns `Ложь` for that role. Such a role only ties the extension to the name of the configuration,
+so the extension is created without one.
 
 ## Installing into a target configuration
 
