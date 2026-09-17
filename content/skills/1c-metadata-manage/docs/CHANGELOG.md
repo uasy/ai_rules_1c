@@ -130,6 +130,10 @@ The PowerShell script `tools/1c-epf-validate/scripts/epf-validate.ps1` was refre
 
 ## form-manage.md
 
+### Python `form-edit` places `<Events>` like the PowerShell writer (`2026-09-16`)
+
+A new `<Events>` section written by `form-edit.py` got an empty indented line before it and shared a line with the next element (`</Events><ChildItems/>`). It now stands on its own line after `AutoCommandBar`, or first in the form when there is no `AutoCommandBar`, as in `form-edit.ps1`. Pinned by `tools/tests/python-ports-regression.py` for LF and CRLF forms.
+
 ### Local fix `2026-09-14` — compact XML across the reported writers
 
 `form-edit.ps1` normalizes empty tags to Configurator's `<Tag/>` spelling and retains the input EOL. The same save-time behavior covers `form-add`, `remove-form`, parent registration by `form-compile`, `cf-edit`, object registration/merge by `cfe-borrow`, `subsystem-edit`, parent registration by `subsystem-compile`, `interface-edit`, `add-template` and `add-help`. `skd-edit` already normalized tags; its normalization now protects CDATA, comments and processing instructions. No shared runtime dependency was added.
@@ -205,6 +209,10 @@ The PowerShell scripts under `tools/1c-interface-manage/scripts/` were refreshed
 - **`interface-validate`** — universal validator improvements (one-liner output by default, `-Detailed`, folder path auto-resolution) — see `role-manage.md` → "Recent Additions".
 
 ## meta-manage.md
+
+### Python `meta-compile` matches the PowerShell output for common objects (`2026-09-16`)
+
+`meta-compile.py` wrote `<ChildObjects/>` for `CommonAttribute`, `CommonCommand`, `CommonForm`, `CommonPicture`, `CommonTemplate`, `CommandGroup`, `DocumentNumerator`, `FunctionalOption`, `FunctionalOptionsParameter`, `SessionParameter` and `WSReference`; the platform rejects the element there («Текущее ChildObjects, ожидаемое CommonForm») and the dump did not load. The port no longer writes it, as `meta-compile.ps1` does not. For `CommonForm` it now also creates `Ext/Form.xml` (an empty managed form) and `Ext/Form/Module.bsl`, leaving existing files untouched. Pinned by `tools/tests/python-ports-regression.py`.
 
 ### Local fix `2026-09-13` — refuse false-success template additions
 
@@ -375,6 +383,10 @@ The PowerShell scripts under `tools/1c-subsystem-manage/scripts/` were refreshed
 Scripts refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills): `template-add` v1.5 → **v1.10**, `template-remove` → **v1.3**. `template-add` enforces the vendor support gate — it refuses to add a template to a locked object of a typical configuration ([support-manage.md](support-manage.md)). `template-remove` keeps the local hardening (preflight parse, atomic root-XML write, `-DryRun` / `-Force`).
 
 ## web-manage.md
+
+### Python port of `web-publish` (`2026-09-17`)
+
+`web-publish.py` joins the PowerShell script, so a Linux / macOS test infobase can be published without a PowerShell host. It follows `web-publish.ps1` v1.4 — parameters, platform path chain, `default.vrd`, the marked `httpd.conf` blocks, port check, restart of its own server — with the deviations listed in its header: the module is `wsap24.so` and Apache is not downloaded outside Windows; `bin/httpd` may be a prefix build or a link to the distribution `apache2`, which is started with `-d <ApachePath> -f conf/httpd.conf` and recognised by that command line, so another Apache on the machine is never taken for its own; processes and the port holder are found through psutil when installed, otherwise through OS tools. `default.vrd` also sets `publishExtensionsByDefault="true"`: without it the HTTP services of configuration extensions answer 404. `web-publish.ps1` has the same gap — a support candidate. `web-info`, `web-stop` and `web-unpublish` stay PowerShell-only.
 
 ### Upstream sync `2026-07-30`
 

@@ -1951,7 +1951,7 @@ def _(work):
 @case("invoke-1c-edit: a PowerShell-only tool is refused with the porting boundary explained")
 def _(work):
     copy_fixture("config-dump", work)
-    run = run_python_tool(INVOKE_1C_EDIT_PY, ["-Tool", "web-publish", "-Preview"], work)
+    run = run_python_tool(INVOKE_1C_EDIT_PY, ["-Tool", "web-stop", "-Preview"], work)
     assert_equal(1, run["exit_code"], f"exit code (stderr: {run['stderr']})")
     assert_true("no Python peer" in run["stderr"], f"wrong refusal: {run['stderr']}")
 
@@ -2833,19 +2833,17 @@ def _(work):
                     f"SKILL.md does not name the ported entry point {stem}.py")
     # The honest half: a tool with no Python peer must not be advertised with one.
     unported = sorted(
-        entry for entry in os.listdir(TOOLS_DIR)
+        (entry, name[:-4] + ".py")
+        for entry in os.listdir(TOOLS_DIR)
         if os.path.isdir(os.path.join(TOOLS_DIR, entry, "scripts"))
-        and not any(n.endswith(".py")
-                    for n in os.listdir(os.path.join(TOOLS_DIR, entry, "scripts")))
+        for name in os.listdir(os.path.join(TOOLS_DIR, entry, "scripts"))
+        if name.endswith(".ps1")
+        and not os.path.isfile(os.path.join(TOOLS_DIR, entry, "scripts", name[:-4] + ".py"))
     )
     assert_true(unported, "fixture assumption broken: every tool now has a Python peer")
-    for entry in unported:
-        for name in os.listdir(os.path.join(TOOLS_DIR, entry, "scripts")):
-            if not name.endswith(".ps1"):
-                continue
-            promised = name[:-4] + ".py"
-            assert_true(promised not in text,
-                        f"SKILL.md promises {promised}, which does not exist under {entry}")
+    for entry, promised in unported:
+        assert_true(promised not in text,
+                    f"SKILL.md promises {promised}, which does not exist under {entry}")
 
 
 @case("packaging: install ships all five Python entry points, tracks them, and they run",

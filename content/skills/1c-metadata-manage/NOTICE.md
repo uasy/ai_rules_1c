@@ -93,6 +93,11 @@ CRLF run per tool). The pin above is not to be advanced without re-running
 - the PowerShell tool scripts under `tools/` synced from the same upstream
   (per-tool versions and local changes: `docs/*.md`, section "Upstream sync").
 
+`tools/1c-web-ops/scripts/web-publish.py` is a local Python port of the vendored
+`web-publish.ps1` v1.4 and is not pinned by `tools/tests/python-ports-regression.py`.
+Its deviations — Linux / macOS Apache layouts and `publishExtensionsByDefault="true"`
+in `default.vrd` — are listed in its header.
+
 ### MIT licence text
 
 ```
