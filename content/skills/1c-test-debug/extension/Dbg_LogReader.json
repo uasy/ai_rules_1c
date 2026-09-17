@@ -1,0 +1,4 @@
+{
+  "type": "HTTPService", "name": "Dbg_LogReader", "rootURL": "dbg_logreader",
+  "urlTemplates": { "Чтение": { "template": "/read/*", "methods": { "Вызов": "POST" } } }
+}

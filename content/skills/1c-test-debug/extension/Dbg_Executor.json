@@ -1,0 +1,4 @@
+{
+  "type": "HTTPService", "name": "Dbg_Executor", "rootURL": "dbg_executor",
+  "urlTemplates": { "Выполнение": { "template": "/exec/*", "methods": { "Вызов": "POST" } } }
+}

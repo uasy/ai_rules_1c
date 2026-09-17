@@ -24,6 +24,12 @@ then drive the UI against it.
 
 Runner — `skills/1c-ui-testing/scripts/run-ui-test.sh` (see *Runner* below).
 
+**This is not a trivial task.** A scenario runs two 1C sessions against a real infobase, and most of
+the time lost on it goes to the environment, not to the scenario. Before writing anything: read
+this skill to the end, read the project's own test tooling section (a project may override the
+runner and add diagnostics), and check that the MCP servers you will use for platform methods and
+code navigation actually answer.
+
 ## Preconditions
 
 - **An X server is mandatory.** Both sessions are ordinary 1C windows; there is no headless mode
@@ -33,6 +39,16 @@ Runner — `skills/1c-ui-testing/scripts/run-ui-test.sh` (see *Runner* below).
 - Automated testing works **only for the managed application** (ITS 31.7.1).
 - Session startup on a large infobase is slow — count on ~50 s per session, ~2 min per run.
   Poll for readiness, never assume a fixed short sleep is enough.
+- **The screen must not be locked.** Under the lock screen the test client still connects and
+  runs server calls, but its forms do not open: the scenario fails on waits ("форма не открылась")
+  and everything on the machine slows down. Check `loginctl show-session <id> -p LockedHint` and
+  disable automatic screen locking on a machine that runs UI tests unattended. The shipped runner
+  refuses to start on a locked screen (exit code 3).
+- **A leftover web-client session blocks a file infobase.** After browser checks through a web
+  server publication the browser may be closed while its session is still alive in the web-server
+  module: the test client then never connects — 1C processes live with no window and no protocol,
+  and a manager start can take up to 7 minutes. List the sessions
+  (`ПолучитьСеансыИнформационнойБазы()`) and restart the web server before blaming the scenario.
 
 ## Step 1 — start the test client
 
@@ -82,6 +98,10 @@ python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-run.py \
   that the mode was accepted.
 - **Cleanup:** `db-run` runs `1cv8` as a child process, so killing the wrapper leaves the client
   alive holding the port. Kill by pattern: `pkill -f "1cv8 ENTERPRISE.*-Tport <port>"`.
+- **`pgrep -f` / `pkill -f` match their own shell.** A command line that contains the pattern text
+  (for example the runner invocation in the same line) matches the shell running it, and the shell
+  kills itself (exit 144). Put a character class into the pattern (`1cv8 ENTERPRIS[E]`) and never
+  start a run in the same command line that kills processes.
 
 ## Step 3 — the scenario data processor
 
@@ -94,7 +114,7 @@ object identities and the type references that a copy would carry over from the 
 ask the skill for, how to declare the handlers, and the run-time traps —
 [docs/scenario-epf-build.md](docs/scenario-epf-build.md).
 
-### Two traps that cost hours if missed
+### Three traps that cost hours if missed
 
 1. **A handler not declared in `Form.xml` is never called** — no error, no event-log record, the
    module simply never runs. The scaffold does not generate the `<Events>` block; how to declare
@@ -105,6 +125,16 @@ ask the skill for, how to declare the handlers, and the run-time traps —
    `{ВнешняяОбработка.<Имя>.Форма.Форма.Форма(<строка>)}: Тип не определен (ТестируемоеПриложение)`.
    Consequence: such a data processor cannot be opened by hand in a normal session — that is
    expected, not a defect.
+
+3. **A scenario module that does not compile hangs the run without a trace in the protocol.** A
+   call to a procedure the module does not define, or a misspelt platform method
+   (`ЗаписатьЖурналРегистрации` instead of `ЗаписьЖурналаРегистрации`), is a compile error: the
+   manager session shows a modal error window, `ПриОткрытии` never runs, not a single protocol line
+   is written, and the runner waits for its full `timeout`. The BSL linter does **not** report
+   calls to undefined procedures. Before every run check that each name the module calls is either
+   defined in the module or a platform method confirmed through `1C-docs-mcp`; after a run with an
+   empty protocol read the event log (step 4) — the error text and line are there as
+   `_$PerformError$_`.
 
 ### Skeleton
 
@@ -154,6 +184,10 @@ Rules that make a run diagnosable:
 - Duplicate every step into the event log (`ЗаписьЖурналаРегистрации`, own event name such as
   `УИТест.Шаг`) — see step 4 for how to read it back.
 - End with `ЗавершитьРаботуСистемы(Ложь)`, otherwise the manager session never exits.
+- **Remove leftovers of earlier runs at the start, not only your own data at the end.** A run
+  stopped by a timeout, a lost session or a locked screen never reaches its cleanup. Give the test
+  data an unmistakable invented marker (a name prefix) and delete everything carrying it before
+  creating fresh data.
 
 ### Driving the client
 
@@ -199,7 +233,23 @@ Each of these costs a run to find.
   может выполнять интерактивные действия".
 - **`Окно` is a managed-form property** — a local variable of that name assigns into the form
   instead ("Поле объекта недоступно для записи"). Same class of trap as `url`, `Заголовок`,
-  `Параметры`. Prefix them: `ОкноФормы`.
+  `Параметры`, `ТекущийЭлемент` (the last one fails as "Несоответствие типов"). Prefix them:
+  `ОкноФормы`.
+- **Typed text reaches the form data only when focus leaves the field by traversal.**
+  `ВвестиТекст` fills the field, but the value is committed only after
+  `Форма.ПерейтиКСледующемуЭлементу()`; activating another field does not commit it. Compare
+  `ПолучитьТекстРедактирования` (what was typed) with `ПолучитьПредставлениеДанных` (form data)
+  when unsure.
+- **A field with «Предупреждение при редактировании»** opens a `MessageBox` («Продолжить
+  редактирование?», buttons «Да» / «Нет») on the first input; until it is answered the form is
+  "недоступна пользователю". Find the `ТестируемаяФорма` named `MessageBox` and press «Да».
+- **Input does not set `ТекущаяМодифицированность`?** Check `<SavedData>true</SavedData>` on the
+  main attribute in `Form.xml` first: without it the platform does not consider the form modified
+  for a user either — no asterisk in the title, no save question.
+- **Infobase checks from the manager session go through a query or a transaction.** Reading an
+  attribute through a reference (`Ссылка.Реквизит`), and even `ПолучитьОбъект()` outside a
+  transaction, is served from the session cache and returns the value from before the client
+  session wrote it — restoring data then passes falsely and auto-save checks fail falsely.
 - **`ПерейтиКСтроке` on an empty table throws** "Структура описания строки не совпадает со
   структурой данных в элементе управления" instead of reporting "row not found" — there is no
   row structure to compare against. Assertions of the form "the item is gone from this list"
@@ -248,26 +298,52 @@ Two channels, both usable from outside the session:
    - **`1c-data-mcp`**, when the server is exposed — `vcloggetlasterror` for the last error, or a
      `ВыгрузитьЖурналРегистрации` call wrapped in `vcexecutecode` for a filtered read
      (`skills/mcp-1c-tools/docs/1c-data-mcp.md`). This is the portable route; prefer it.
-   - Otherwise `ВыгрузитьЖурналРегистрации` into an XML file from a batch session, or whatever
-     debug HTTP service the project itself publishes.
+   - **`1c-test-debug`** — `scripts/ib-errors.py` through the debug extension, when the project
+     has it installed; the runner calls it by itself after a hang.
+   - Otherwise `ВыгрузитьЖурналРегистрации` into an XML file from a batch session.
 
    Platform failures surface as `_$PerformError$_` — that is how the "Тип не определен
-   (ТестируемоеПриложение)" trap above is found.
+   (ТестируемоеПриложение)" trap and a scenario module that does not compile are found.
+
+   **A run that produced no protocol line at all is never re-run unchanged.** Read the event log
+   first: a compile error of the scenario, a leftover session holding the port or the infobase are
+   all visible there or in the session list, and a blind re-run costs a full `timeout` again.
 
 Preparing test data and checking post-conditions the UI does not show is the same story: run the
 BSL through `1c-data-mcp`'s `vcexecutecode` when available, or through a batch session, rather than
 bending the scenario around a state the UI cannot reach.
 
+**Guard against a false green.** A step that checks "the value changed" must fail when nothing
+changed: match the exact key being edited rather than the first occurrence of a value (the same
+value may sit in a comment line), and require the effect itself (a non-empty change plan, a new
+value read back by query), not just the absence of an error. Run every new scenario once against
+a deliberately wrong expectation and make sure exactly the affected steps turn `[FAIL]`.
+
 Screenshots (`import -window root`) are the last resort, and needing them is a signal that step 3's
 `Попытка/Исключение` rule was not followed: a scenario that reports its own failures never leaves
 you guessing whether the session is still on the splash screen. Keep them for the one case the
-scenario cannot report on — the client or manager failing before the scenario starts.
+scenario cannot report on — the client or manager failing before the scenario starts. The root
+window shows only what is on top: a 1C window covered by another application is not in the picture.
 
 ## Runner
 
-`scripts/run-ui-test.sh` does all of the above: reads `.dev.env`, clears a leftover client off the
-port, starts the client, waits for the port, runs the manager under `timeout`, prints the protocol,
-kills leftover sessions, and exits non-zero on any `[FAIL]` or a missing protocol.
+`scripts/run-ui-test.sh` does all of the above: reads `.dev.env`, refuses to start on a locked screen,
+clears a leftover client off the port, starts the client, waits for the port, starts the manager,
+**fails fast** — no manager connection within `UI_TEST_CONNECT_TIMEOUT` (240 s) or no protocol line
+within `UI_TEST_FIRST_STEP_TIMEOUT` (360 s) stops the run — prints the protocol, kills leftover
+sessions of both roles, and exits non-zero on any `[FAIL]` or a missing protocol. After a stop or a
+missing protocol it prints the event-log errors — through `scripts/ib-errors.py` of the
+`1c-test-debug` skill when it is installed, or through `UI_TEST_DIAG_CMD` when set — so a scenario that
+does not compile is named in the runner's own output. The scenario receives
+`УИМенеджер|<port>|<client address>|<protocol file>|<project root>`.
+
+**What the runner does is not repeated by hand.** Checking `DISPLAY` or the lock screen, looking
+for leftover 1C processes, killing them, waiting for the port and reading the event log after a
+hang are the runner's job. Build the EPF, call the runner, read its output; act on the environment
+only when the runner reports a problem it cannot solve.
+
+**A project may ship its own runner** (for example with project-specific diagnostics built in).
+When the project rules name one, use that runner, not this copy.
 
 ```bash
 skills/1c-ui-testing/scripts/run-ui-test.sh [<port>] [<scenario epf>]
@@ -282,6 +358,22 @@ skill; override with the `DB_RUN` environment variable if the skill lives elsewh
 Rebuild the EPF after every scenario edit (`1c-epf-build`) — the runner uses the built file, not
 the sources.
 
+## Running from an autonomous agent
+
+An agent started non-interactively (`claude -p`, CI) has no one to look at the screen and no
+turn after it stops:
+
+- **Run in the foreground, never in the background.** In a non-interactive session a turn that
+  ends while a background task is running may end the process, and the task is killed with it — the
+  run is lost without a protocol. Run the runner in the foreground under `timeout` that fits one
+  tool call (for example `timeout 570` with a 600000 ms call timeout), allowing a minute or more for
+  manager startup. Never schedule a wake-up instead of waiting.
+- **One run at a time** — the port and the infobase are shared.
+- **After a run without protocol lines, diagnose before re-running** (step 4): event log, then the
+  session list. Two identical failures in a row end the attempt with a report, not a third run.
+- **Restarting the web server or killing sessions other than through the runner** is left to the
+  operator; report what was seen instead.
+
 ## Checklist for a new scenario
 
 1. `recall` for project specifics, then write the scenario steps as verifiable
@@ -289,7 +381,11 @@ the sources.
 2. Scaffold the EPF through `1c-metadata-manage` — never by copying an existing scenario;
    **declare every form event in `Form.xml`**. Step by step — [docs/scenario-epf-build.md](docs/scenario-epf-build.md).
 3. Check the scenario body is inside `Попытка/Исключение` with `ЗавершитьРаботуСистемы` after it —
-   before running anything. Lint the module (`syntaxcheck` / `bsl_check_file`), then
-   `1c-epf-validate` and `1c-epf-build`.
-4. Run `scripts/run-ui-test.sh`; on a hang read the event log (step 4) before changing anything.
-5. Record the outcome where the task expects it (manual test plan, `tasks.md`, report in `tmp/`).
+   before running anything. Check that every procedure the module calls is defined in it or is a
+   platform method confirmed through `1C-docs-mcp` (the linter does not report undefined calls).
+   Lint the module (`syntaxcheck` / `bsl_check_file`), then `1c-epf-validate` and `1c-epf-build`.
+4. Run `scripts/run-ui-test.sh`; on a hang or an empty protocol read the event log (step 4) before
+   changing anything.
+5. Prove the scenario can fail: one run against a deliberately wrong expectation, `[FAIL]` exactly
+   on the affected steps, then revert.
+6. Record the outcome where the task expects it (manual test plan, `tasks.md`, report in `tmp/`).
