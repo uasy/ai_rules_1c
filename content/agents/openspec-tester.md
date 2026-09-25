@@ -41,7 +41,7 @@ Read first: the requirements, `design.md` and `changes/<id>/review.md` when pres
 - Tests in `openspec/tests/<capability>/` per `docs/lifecycle.md` of `openspec-agents`.
 - `openspec/tests/<capability>/README.md`: written **before the code**, from the spec — what each
   test checks, its steps with the expected result, data requirements and the section
-  `#### <Тест>: не проверяется` with reasons. Structure and order — `openspec/tests/README.md`.
+  `#### <Тест>: не проверяется` with reasons. Structure and order — `openspec/tests/README.md` when present.
 - For an active change: `changes/<id>/test-plan.md` (scenario → test step → 🔴 / 🟢 / ⚪, ⚪ links
   to the README reason) and, when the task asks for verification, `changes/<id>/verify.md` (below).
 - A final report (below).
@@ -61,7 +61,7 @@ Read first: the requirements, `design.md` and `changes/<id>/review.md` when pres
    `tmp/test-data/`.
 4. **Name a test for what it checks**, nothing else. A kind prefix (`Юнит`, `УИ`, `E2E`) or the
    capability in the name repeats what the path already says; put such a word in only when it
-   carries meaning the path does not (`АдресСервераPasswork` inside `predefined-reference-data`).
+   carries meaning the path does not (`АдресСервераSMTP` inside `notification-settings`).
    Uniqueness is the build's job — the object is `Т_<Capability>_<Kind>_<Name>` — so a name
    another capability already uses is fine. A unit check and a UI scenario covering one
    requirement still get different names: they check different things.

@@ -20,7 +20,7 @@ halfway through a task.
 |---|---|
 | `PLATFORM_PATH`, `INFOBASE_KIND`, `IB_USER`, `IB_PASSWORD` | `.dev.env` of the project |
 | `INFOBASE_PATH` — the **client's** target: a directory for a file base, a connection string (`localhost:1541\<name>`) for a served one | `.dev.env`; the two layers — skill `1c-ibsrv-ops` |
-| `INFOBASE_PUBLISH_URL` — `http://localhost:<port>/<base>` | `.dev.env`; the publication itself and its lifecycle — skill `1c-ibsrv-ops` |
+| `INFOBASE_PUBLISH_URL` — `http://localhost:<port>/<base>` | `.dev.env`; the publication itself and its lifecycle — skill `1c-ibsrv-ops`, or `web-ops` of `1c-metadata-manage` for a web-server publication |
 | the debug extension (`Dbg_Executor`, `Dbg_LogReader`) loaded into the infobase | built from the template in `extension/` by `scripts/build-debug-extension.py`, never kept in the project — [docs/debug-extension.md](docs/debug-extension.md) |
 | a user with full rights in `IB_USER` | the extension has no role of its own |
 
@@ -106,5 +106,5 @@ by a foreign process — is reported to the operator, not worked around.
 
 - `1c-ui-testing` — UI scenarios; its runner uses `ib-errors.py` of this skill for diagnostics.
 - `1c-ibsrv-ops` — the standalone server that publishes this infobase: setup, lifecycle, sessions.
-- `1c-metadata-manage` — loading configuration and extensions (`db-ops`), creating the debug
-  extension (`cfe-manage`, `meta-compile`).
+- `1c-metadata-manage` — loading configuration and extensions (`db-ops`), publishing through a web
+  server (`web-ops`), creating the debug extension (`cfe-manage`, `meta-compile`).

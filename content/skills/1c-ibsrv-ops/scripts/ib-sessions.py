@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Sessions of a standalone server (ibsrv) through ibcmd: list and terminate.
 
 Sessions of killed clients stay in the infobase, survive a restart of the server and hold their

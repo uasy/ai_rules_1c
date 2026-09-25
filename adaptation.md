@@ -58,7 +58,7 @@
 | `support_guard.py` | Режим защиты берётся только из `SUPPORT_GUARD` в `.dev.env`, без обращения к `.v8-project.json` | `.dev.env` — единственный источник рабочих параметров проекта |
 | `web-publish.py` | Linux / macOS: модуль `wsap24.so`, Apache не скачивается; `bin/httpd` — сборка с `--prefix` или ссылка на пакетный `apache2`, запуск с `-d`/`-f`, свой сервер узнаётся по командной строке | У апстрима нет Python-версии; раскладка Apache на Linux иная |
 | `web-publish.py` | В `default.vrd` задано `publishExtensionsByDefault="true"` | Без атрибута HTTP-сервисы расширений отвечают 404. В `web-publish.ps1` та же ошибка — кандидат в support |
-| `db-run.py` | Флаги `-Out` и `-Wait` | В пакетном режиме ошибки запуска видны только в `/Out`; `-Wait` возвращает код завершения клиента |
+| `db-run.py` | Флаги `-Out`, `-Wait` и `-ClientKind` | В пакетном режиме ошибки запуска видны только в `/Out`; `-Wait` возвращает код завершения клиента; `-ClientKind thin` запускает тонкий клиент — толстый к автономному серверу (`ibsrv`) не подключается |
 | `content/skills/img-grid-analysis/scripts/overlay-grid.py` | Отклоняет `--cols <= 0` и `--rows < 0`, строит минимум одну строку сетки, выводит UTF-8 | Исправление ошибок; кандидат в support |
 
 Каждое отличие отмечено в коде комментарием `# Local:` или заголовком `Deviation`.

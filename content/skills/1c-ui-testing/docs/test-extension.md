@@ -7,7 +7,7 @@ A run has two sessions, and they are deliberately different:
 | test manager | its own **file** infobase | **thick** (`1cv8 ENTERPRISE /F`) | the test is invoked through `Обработки`, which exists only on a thick client |
 | test client | the tested infobase on a standalone server | **thin** (`1cv8c /S`) | a thick client cannot connect to `ibsrv` at all |
 
-Both halves of that table are measured, not assumed:
+Both halves of that table are forced by the platform:
 
 - on a thin client `Обработки.<Тест>.ВыполнитьСценарий` does not compile — «Переменная не определена (Обработки)»;
 - a thick client against `ibsrv` answers «Адрес 'tcp://…:1541' не является адресом кластера
@@ -25,7 +25,7 @@ HTTP, it has no server, no ports and no sessions of its own to clean up.
 
 **The object name is composed by the builder, not by the author.** One extension holds every test
 of the project in a single flat namespace, so uniqueness has to come from somewhere; taking it
-from the path (`asset-model/ui/НаименованиеПоШаблону` → `Т_AssetModel_UI_НаименованиеПоШаблону`)
+from the path (`catalog-items/ui/ЗаполнениеНаименования` → `Т_CatalogItems_UI_ЗаполнениеНаименования`)
 keeps the source name free to say only what the test checks. Nothing forces a test to be renamed
 because a different capability took the name first, and a type prefix in the file name is
 redundant with the directory it sits in.
@@ -58,7 +58,7 @@ manager module sees itself and the exported methods of `Т_Прогон`, nothin
 in a neighbouring scenario is not in scope, and the failure comes late — the build's `/CheckModules`
 says «Процедура или функция с указанным именем не определена», naming the caller's line rather than
 the missing author. Two scenarios that need the same helper keep two copies of it, exactly as they
-do with a step; `ТекстыСообщений` lives in three of them at once in this project. A helper worth
+do with a step. A helper worth
 sharing belongs in `Т_Прогон` — that is the skill's module, not the project's, so promoting one is
 a change to the skill.
 
@@ -66,18 +66,14 @@ The scenario calls a step by its file name:
 
 ```bsl
 Данные = Т_Прогон.ВыполнитьШаг(Контекст, "СоздатьДанные");
-Т_Прогон.ВыполнитьШаг(Контекст, "УдалитьДанные", Новый Структура("ИдентификаторАктива", …));
+Т_Прогон.ВыполнитьШаг(Контекст, "УдалитьДанные", Новый Структура("Идентификатор", …));
 ```
 
-## Two traps that cost a run each
+## A trap that costs a run
 
-- **The extension is created in safe mode**, and safe mode forbids `Новый ЗаписьТекста` — the
-  protocol file is never written and the run looks hung. The builder clears it with
-  `ibcmd … infobase config extension update --name=… --safe-mode=no`.
-- **`add-template.py` registers the template only when `-ObjectName` is a bare object name**
-  (`-ObjectName Т_УИТест -SrcDir <build>/DataProcessors`). Given a path to the object's `.xml` it
-  creates the files but leaves `ChildObjects` empty, and `ПолучитьМакет` then fails with
-  «Недопустимое значение параметра (параметр номер '1')».
+**The extension is created in safe mode**, and safe mode forbids `Новый ЗаписьТекста` — the
+protocol file is never written and the run looks hung. The builder clears it with
+`ibcmd … infobase config extension update --name=… --safe-mode=no`.
 
 ## What the manager base cannot do
 
@@ -126,7 +122,7 @@ test needs no client at all — the same file is sent straight to `Dbg_Executor`
 --exec` of the `1c-test-debug` skill, which is seconds instead of a client session. `--via-manager`
 forces a unit check through the manager, the way the extension provides it.
 
-Sessions of killed runs hold licenses, and the third one makes the next client exit with «Файл
+Sessions of killed runs hold licenses, and a few of them make the next client exit with «Файл
 программной лицензии не найден». The runner terminates exactly the sessions that appeared in the
 **tested** base during its own run; other sessions there belong to the operator and are left alone.
 The file manager base has no sessions to clean.

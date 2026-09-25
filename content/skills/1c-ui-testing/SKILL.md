@@ -50,7 +50,7 @@ code navigation actually answer.
   disable automatic screen locking on a machine that runs UI tests unattended. The shipped runner
   refuses to start on a locked screen (exit code 3).
 - **Server-side checks run before or after a scenario, not during it.** A request through the
-  publication that writes data while the run is in progress has been seen to kill the worker that
+  publication that writes data while the run is in progress can kill the worker that
   serves it — `1c-test-debug/docs/troubleshooting.md`; the server itself is `1c-ibsrv-ops`. Data a scenario needs is prepared from the
   manager's own `&НаСервере` code, or through the debug services before the run.
 - **Leftover sessions block a run.** A client that was killed leaves its session alive: it holds a
@@ -370,7 +370,7 @@ The runner rebuilds the test extension when the sources changed, finds the test 
 ([docs/test-extension.md](docs/test-extension.md)). A `unit` test goes straight to `Dbg_Executor`
 without any 1C session; `--via-manager` forces it through the manager instead.
 
-The name is the short one (`НаименованиеПоШаблону`) while it belongs to a single test, or
+The name is the short one (`ЗаполнениеНаименования`) while it belongs to a single test, or
 `<capability>/<kind>/<name>` when two capabilities share it — the runner prints both candidates
 instead of picking one.
 
@@ -381,8 +381,8 @@ test then gets named after whatever word was still free rather than after what i
 Uniqueness is not the author's problem: the build names the object `Т_<Capability>_<Kind>_<Name>`,
 so the same short name in two capabilities is legal.
 
-Put such a word in only when it carries meaning the path does not. `АдресСервераPasswork` in the
-`predefined-reference-data` capability is one: the subject really is the Passwork server, and the
+Put such a word in only when it carries meaning the path does not. `АдресСервераSMTP` in the
+`notification-settings` capability is one: the subject really is the SMTP server, and the
 capability name does not say so. Where a unit check and a UI scenario of one capability cover the
 same requirement, they still get different names, because they check different things — the
 function and the form — and two tests named alike are ambiguous to the runner for no gain.

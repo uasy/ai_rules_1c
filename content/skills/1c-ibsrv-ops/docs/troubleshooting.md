@@ -56,24 +56,10 @@ sessions are the cause.
 **Cause.** The service is found but its session cannot be created: the standalone server publishes
 extension services only when the publication section names them.
 
-**Fix.** In the server's `config.yml`, `http` is a **list** of publications, each with its own
-services:
-
-```yaml
-http:
-  - base: /it-mgmt
-    http-services:
-      publish-by-default: true
-      publish-extensions-by-default: true
-      service:
-        - name: Dbg_Executor
-          root: dbg_executor
-          publish: true
-```
-
-Without the `service` list the request reaches the service and fails with 503; with a list whose
-names match nothing the answer is 404. An unknown key in the file is accepted silently, so a typo
-shows up only as one of those two codes.
+**Fix.** Name the services in the publication block of `server.yml` — [setup.md](setup.md),
+«Publish the services of the debug extension». Without the `service` list the request reaches the
+service and fails with 503; with a list whose names match nothing the answer is 404. An unknown key
+in the file is accepted silently, so a typo shows up only as one of those two codes.
 
 ## «Вход в приложение невозможен» right after the base was created
 

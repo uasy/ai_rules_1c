@@ -86,8 +86,8 @@ Web sessions cache metadata: restart the server after loading (`ibsrv.py restart
 
 **Why the wrapper and not `ibcmd` itself.** Written by hand, that command fails in two ways that
 look like nothing at all. An infobase **with users** answers «Для выполнения операции требуется
-аутентификация» and then waits on the terminal for a name nobody types — measured: an `import`
-silent for ten minutes, and an `apply` whose log grew to 152 MB of repeated prompts. And
+аутентификация» and then waits on the terminal for a name nobody types: an `import` stays silent
+until it is killed, an `apply` fills its log with repeated prompts. And
 `--pid=$(pgrep -x ibsrv)` substitutes two pids as soon as a second server runs, a manager base
 for instance. `ibcmd-run.py` takes the pid from the data directory of `IBSRV_DIR`, answers the
 prompts from `.dev.env` (never on a command line), kills a run that outlives its `--timeout`
@@ -121,8 +121,7 @@ python3 <skills>/1c-test-debug/scripts/ib-http.py --timeout 1800 \
 ```
 
 `Истина` is «выполнить отложенные обработчики»: they run inside the same call instead of waiting
-for a job that will not start. Measured on 2.1.0.3 → 2.2.0.0: the call answered «Успешно» and left
-all seven handlers «Выполнен» — no second call for the deferred ones.
+for a job that will not start, so no second call is needed for the deferred ones.
 
 **Matching versions are not proof that the update is done.** The data version is written before the
 deferred handlers run, so read the register:
@@ -187,7 +186,7 @@ address is unambiguous.
 
 ## Check
 
-`python3 <skill>/scripts/check-services.py` — the environment and both debug services at 200.
+`python3 <skills>/1c-test-debug/scripts/check-services.py` — the environment and both debug services at 200.
 Typical answers:
 
 | Answer | Meaning |

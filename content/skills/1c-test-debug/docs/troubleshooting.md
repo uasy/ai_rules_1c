@@ -34,7 +34,7 @@ ibcmd --pid=<pid> infobase config apply  --extension=<Name> --force
 ```
 
 The platform's own scaffold has no adopted language at all and carries its own `ОсновнаяРоль`.
-Editing the identity by hand in a foreign scaffold does not help — tried, still disabled.
+Editing the identity by hand in a foreign scaffold does not help: the extension stays disabled.
 Re-creating the base changes the identities again, so a scaffold is only valid for one base.
 
 ## A data processor opens with a security prompt
@@ -60,7 +60,6 @@ it into smaller pieces, only repeats the crash.
 
 **Fix.** Read the infobase event log for what ran before the crash, and check what else was
 connected: with a file infobase served through an external web server, writes sent while a client
-session was connected crashed the worker in 6 of 10 measured runs. The standalone server
-(`1c-ibsrv-ops`) showed no such crashes; run server-side checks before or after UI
-scenarios in any case.
+session is connected can crash the worker. The standalone server (`1c-ibsrv-ops`) does not show
+this; run server-side checks before or after UI scenarios in any case.
 

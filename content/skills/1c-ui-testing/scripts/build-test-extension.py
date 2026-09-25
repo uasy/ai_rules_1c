@@ -69,7 +69,7 @@ KIND_TAG = {'unit': 'Unit', 'ui': 'UI', 'e2e': 'E2E'}
 
 
 def camel(text):
-    """`passwork-integration` -> `PassworkIntegration`: a metadata name tolerates no hyphens."""
+    """`catalog-items` -> `CatalogItems`: a metadata name tolerates no hyphens."""
     return ''.join(part[:1].upper() + part[1:] for part in re.split(r'[^0-9A-Za-zА-Яа-яЁё]+', text) if part)
 
 
@@ -197,7 +197,8 @@ IBCMD, V8 = f'{PLATFORM}/ibcmd', f'{PLATFORM}/1cv8'
 BASE = args.data_dir if os.path.isabs(args.data_dir) else os.path.join(ROOT, args.data_dir)
 BUILD, MANIFEST = f'{BASE}-build', f'{BASE}/tests.manifest.json'
 TESTS_DIR = args.tests if os.path.isabs(args.tests) else os.path.join(ROOT, args.tests)
-TOOLS = os.path.join(ROOT, '.claude', 'skills', '1c-metadata-manage', 'tools')
+# 1c-metadata-manage is a sibling skill wherever the skills are installed.
+TOOLS = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), '1c-metadata-manage', 'tools')
 
 
 def ibcmd(*command):
@@ -332,9 +333,6 @@ for test in tests:
             handle.write(test['text'])
 
     for step, text in sorted(test['steps'].items()):
-        # -ObjectName takes a bare object name only: given a path to the .xml the template is
-        # created but left out of ChildObjects, and ПолучитьМакет then answers «Недопустимое
-        # значение параметра».
         added = subprocess.run(['python3', f'{TOOLS}/1c-template-manage/scripts/add-template.py',
                                 '-ObjectName', processor, '-TemplateName', step,
                                 '-TemplateType', 'Text', '-SrcDir', f'{BUILD}/DataProcessors'],

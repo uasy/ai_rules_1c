@@ -21,7 +21,7 @@ Usage:
 
 Prints «HTTP <code>», the headers with --include, an empty line after them, and the body (JSON indented). Exit code 0 for any server answer,
 2 when the server does not answer, 3 when it closed the connection without an answer
-(a crash of the web-server module on the request — see its error log).
+(the server module crashed on the request — see the infobase event log and the server's output).
 """
 import argparse
 import json

@@ -81,10 +81,10 @@ orchestrator and the user.
 ## Tests
 
 Tests live in `openspec/tests/<capability>/`, under the same capability names as `openspec/specs/`,
-and accumulate the way requirements do. **The layout, the test types, the naming, the data rules and
-the shape of a capability README are the project's convention, stated once in
-`openspec/tests/README.md`** — read it there rather than from a copy here, because a copy is what
-went stale the last time this file described a build scheme that had already been replaced.
+and accumulate the way requirements do. **The layout, the test types, the naming and the shape of a
+capability README are the project's convention in `openspec/tests/README.md`** when the project has
+one — read it there rather than from a copy here. The rules for test data are the tester agent's
+(`content/agents/openspec-tester.md`, «Data per the rules»).
 
 What belongs to the agent lifecycle, and not to that convention:
 
