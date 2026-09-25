@@ -2,6 +2,7 @@
 published infobase with the credentials from .dev.env (they never appear on a command line).
 """
 import base64
+import http.client
 import json
 import os
 import sys
@@ -48,8 +49,13 @@ def publish_url(env):
     return url
 
 
-def request(env, method, path, body=None, auth=True, headers=(), timeout=120):
-    """Returns (status, text). Exits with code 2 when the server does not answer."""
+def request(env, method, path, body=None, auth=True, headers=(), timeout=120, credentials=None,
+            with_headers=False):
+    """Returns (status, text), or (status, text, response headers) with with_headers.
+
+    credentials - (user, password) instead of IB_USER / IB_PASSWORD of .dev.env.
+    Exits with code 2 when the server does not answer.
+    """
     url = path if path.startswith(('http://', 'https://')) else publish_url(env) + '/' + path.lstrip('/')
     call = urllib.request.Request(url, data=body, method=method)
     if body is not None:
@@ -57,18 +63,30 @@ def request(env, method, path, body=None, auth=True, headers=(), timeout=120):
     for name, value in headers:
         call.add_header(name, value)
     if auth:
-        credentials = f"{env.get('IB_USER', '')}:{env.get('IB_PASSWORD', '')}"
-        call.add_header('Authorization', 'Basic ' + base64.b64encode(credentials.encode('utf-8')).decode())
+        user, password = credentials or (env.get('IB_USER', ''), env.get('IB_PASSWORD', ''))
+        pair = f'{user}:{password}'
+        call.add_header('Authorization', 'Basic ' + base64.b64encode(pair.encode('utf-8')).decode())
     try:
         response = urllib.request.urlopen(call, timeout=timeout)
-        status, raw = response.status, response.read()
+        status, raw, answer_headers = response.status, response.read(), response.headers
     except urllib.error.HTTPError as error:
-        status, raw = error.code, error.read()
+        status, raw, answer_headers = error.code, error.read(), error.headers
     except (urllib.error.URLError, TimeoutError) as error:
-        print(f'Сервер не отвечает ({url}): {error}. Опубликована ли база, запущен ли веб-сервер?',
+        print(f'Сервер не отвечает ({url}): {error}. Запущен ли сервер базы и верен ли INFOBASE_PUBLISH_URL?',
               file=sys.stderr)
         sys.exit(2)
-    return status, raw.decode('utf-8', 'replace').lstrip('﻿')
+    except (http.client.HTTPException, ConnectionError) as error:
+        # The worker handling the request died without an answer - the server module crashed on the
+        # executed code (Segmentation fault in the server's own output).
+        print(f'Соединение закрыто без ответа ({url}): {error}. Процесс сервера упал на этом запросе. '
+              'Не повторяйте тот же код и не дробите его: прочитайте журнал регистрации базы и вывод '
+              'сервера. Серверные проверки выполняйте до или после UI-прогона, а не во время него; '
+              'если причина не видна - остановитесь и сообщите оператору.', file=sys.stderr)
+        sys.exit(3)
+    text = raw.decode('utf-8', 'replace').lstrip('﻿')
+    if with_headers:
+        return status, text, list(answer_headers.items())
+    return status, text
 
 
 def read_event_log(env, event_filter, timeout=60):

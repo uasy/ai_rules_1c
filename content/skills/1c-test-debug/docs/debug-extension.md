@@ -10,6 +10,11 @@ The extension ships as a template in `extension/`: HTTP service descriptions for
 for each target configuration: its adopted configuration object, language and compatibility mode
 belong to that configuration and cannot be copied from another project.
 
+The template is the only source. A project does not keep the extension in its repository: the
+build goes to `tmp/АгентОтладкаHTTP`, outside git, and is repeated whenever it is needed. Nor does
+the extension belong in `EXTENSION_NAMES` — that list feeds `/build-release` and
+`/restore-testbase`, and a debug tool must reach neither a release nor a restored snapshot.
+
 ## Contract
 
 ### `Dbg_Executor` — run BSL, get the result back
@@ -53,40 +58,52 @@ An extension role does not replace them. A user who has only an extension role g
 returns `Ложь` for that role. Such a role only ties the extension to the name of the configuration,
 so the extension is created without one.
 
-## Installing into a target configuration
+## Installing into a target infobase
 
-Everything goes through the `1c-metadata-manage` skill; commands below are its Python entry points,
-run from the project root. `<skill>` is this skill's directory, `<mm>` is
-`<tools>/skills/1c-metadata-manage/tools`, `<ext>` is the extension source directory of the project.
+**Offer, do not install.** When `check-services.py` answers 404 on both services and the
+publication does name them, the extension is missing. Say so, name what it gives and what it
+costs — arbitrary code execution in that infobase — and install only after the user agrees, and
+only into a test infobase. Build without loading needs no consent: it touches nothing but `tmp/`.
 
-1. **Scaffold without a role, bound to the main configuration.**
+```bash
+python3 <skill>/scripts/build-debug-extension.py            # build into tmp/АгентОтладкаHTTP
+python3 <skill>/scripts/build-debug-extension.py --load     # build and load, after consent
+python3 <skill>/scripts/check-services.py                   # both services 200
+```
 
-   ```bash
-   python3 <mm>/1c-cfe-manage/scripts/cfe-init.py -Name АгентОтладкаHTTP -Synonym "Агент отладки HTTP" \
-     -NamePrefix Dbg_ -Purpose AddOn -ConfigPath <main configuration sources> -NoRole -OutputDir <ext>
-   ```
+Run from the project root; `<skill>` is this skill's directory. `--config` points at the main
+configuration sources when they are neither `EXPORT_PATH` of `.dev.env` nor `src`; `--out` changes
+the build directory. The build directory is regenerated whole on every run; the script refuses a
+directory that holds anything but an earlier build.
 
-   `-ConfigPath` is required: from the main configuration it takes the identifier of the adopted
-   language, `CompatibilityMode` and `InterfaceCompatibilityMode`. Without it the platform refuses
-   the load: «Значение контролируемого свойства РежимСовместимостиИнтерфейса … не совпадает» and
+What the build does, in case a step fails:
+
+1. **Scaffold without a role** — `cfe-init` of `1c-metadata-manage` with `-ConfigPath`. From the
+   main configuration it takes the identifier of the adopted language, `CompatibilityMode` and
+   `InterfaceCompatibilityMode`. Without them the platform refuses the load: «Значение
+   контролируемого свойства РежимСовместимостиИнтерфейса … не совпадает» and
    «… ОбъектРасширяемойКонфигурации у объекта Язык.Русский не совпадает».
-2. **HTTP services from the template.**
+2. **HTTP services** — `meta-compile` from `extension/*.json`, modules copied from
+   `extension/*.bsl`. `meta-compile` names a handler «template name + method name»
+   (`ВыполнениеВызов`, `ЧтениеВызов`); the script checks that every `<Handler>` is a function of
+   its module, because a mismatch loads silently and fails every request.
+3. **Validate** — `cfe-validate`.
 
-   ```bash
-   python3 <mm>/1c-meta-compile/scripts/meta-compile.py -JsonPath <skill>/extension/Dbg_Executor.json -OutputDir <ext>
-   python3 <mm>/1c-meta-compile/scripts/meta-compile.py -JsonPath <skill>/extension/Dbg_LogReader.json -OutputDir <ext>
-   cp <skill>/extension/Dbg_Executor.bsl  <ext>/HTTPServices/Dbg_Executor/Ext/Module.bsl
-   cp <skill>/extension/Dbg_LogReader.bsl <ext>/HTTPServices/Dbg_LogReader/Ext/Module.bsl
-   ```
+`--load` works through the standalone server of `1c-ibsrv-ops` (`IBSRV_DIR`): `config import`,
+safe mode off, `config apply --dynamic=disable --session-terminate=force`. Safe mode is turned off
+because code of a safe-mode extension is denied privileged operations — files, external components
+and the like — and `Dbg_Executor` must run what a check needs. The apply closes live sessions of
+the test infobase; the services answer right after it, without a server restart.
 
-   `meta-compile` names a method handler «template name + method name»: the template yields
-   `ВыполнениеВызов` and `ЧтениеВызов`, the names of the functions in the template modules. Check
-   `<Handler>` in `HTTPServices/*.xml` after compiling.
-3. **Validate** — `cfe-validate.py -ExtensionPath <ext>`.
-4. **Load into the test infobase** — `db-load-xml.py … -ConfigDir <ext> -Extension АгентОтладкаHTTP
-   -Mode Full -UpdateDB`; read the whole log.
-5. **Publish** the infobase with HTTP services of extensions enabled — [deploy-linux.md](deploy-linux.md)
-   or `1c-web-ops` on Windows. Existing web sessions keep the old extension until the web server is
-   restarted.
-6. **Check** — `python3 <skill>/scripts/check-services.py`: both services 200 with the credentials of
-   `.dev.env`.
+**Without a standalone server** the script builds and stops. Load the build yourself:
+`db-load-xml.py … -ConfigDir tmp/АгентОтладкаHTTP -Extension АгентОтладкаHTTP -Mode Full -UpdateDB`
+of `1c-metadata-manage` (read the whole log), then turn safe mode off —
+`ibcmd infobase config extension update --name=АгентОтладкаHTTP --safe-mode=no` with the infobase
+addressing of that tool. This path is not covered by the script and has not been run.
+
+**Publication.** The services answer only when the publication names them —
+`1c-ibsrv-ops/docs/setup.md`, section «Publish the services of the debug extension». A 404 after a
+successful load points there.
+
+**Removal** — `ibcmd-run.py infobase config extension delete --name=АгентОтладкаHTTP` of
+`1c-ibsrv-ops`. Nothing in the project depends on the extension, so removing it leaves no trace.

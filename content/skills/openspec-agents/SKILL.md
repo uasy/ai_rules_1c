@@ -14,7 +14,8 @@ the tasks, watches, checks the results and brings decisions to the user.
 | `openspec-implementer` | product sources, `[x]` in `tasks.md` | tests, `test-plan.md`, design, specs, git |
 
 The order of work and the artifacts — [docs/lifecycle.md](docs/lifecycle.md). The agents rely on
-the `1c-ui-testing` and `1c-test-debug` skills for anything that runs against the infobase.
+the `1c-ui-testing`, `1c-test-debug` and `1c-ibsrv-ops` skills for anything that runs against the
+infobase.
 
 ## Running an agent
 
@@ -33,7 +34,7 @@ new task file to deliver defects — the agent keeps its context.
   the orchestrator's is the point of delegating.
 - **Permissions** — non-interactive: whatever the role list does not allow is denied without a
   question and recorded in `permission_denials`. `git` writes, process killing, `curl`/`wget`,
-  subagents, wake-ups and monitors are denied for every role; the MCP servers of `.mcp.json` are
+  any command naming `.dev.env`, subagents, wake-ups and monitors are denied for every role; the MCP servers of `.mcp.json` are
   allowed. The lists are a guard rail, not a sandbox: `python3` is allowed, so the boundaries in the
   agent definitions and the session protocol still carry the weight.
 - **Session protocol** — [session-protocol.md](session-protocol.md) is appended to the system prompt:
@@ -57,8 +58,26 @@ new task file to deliver defects — the agent keeps its context.
   repeated runs without a change in between.
 - An agent's report is a claim. Re-run the decisive check yourself: build and run the test, load and
   `/CheckModules`, look for leftovers of test data.
-- Environment problems the agent cannot fix — a locked screen, a web server down, a stale session —
+- Environment problems the agent cannot fix — a locked screen, an infobase server down, a stale session —
   are the orchestrator's: fix them and resume the session, stating that the aborted runs do not count.
+
+## Coverage cross-check
+
+```bash
+python3 <skills>/openspec-agents/scripts/coverage-cross-check.py [<capability> ...]
+```
+
+Run it from the project root after a tester agent hands back, and before accepting the capability.
+It reads every `openspec/specs/<capability>/spec.md` (plus the delta specs of active changes) and
+the matching `openspec/tests/<capability>/README.md`, and reports three things: a scenario that is
+neither claimed by a named test nor written off, a test the README names but whose file does not
+exist, and a capability that has a spec and no tests README at all. Exit code 1 when anything is
+found.
+
+The first of those is the one that matters. "Every scenario is covered or explicitly not covered"
+is a rule a reader cannot enforce by reading — a dropped scenario looks exactly like a scenario
+that was never there. A requirement named as uncovered in full (bold, under «Не покрыто тестами»)
+covers all of its scenarios: the README states the gap once instead of listing them.
 
 ## Known behaviour of `claude -p`
 

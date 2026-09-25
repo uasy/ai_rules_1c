@@ -1,6 +1,6 @@
 ---
 name: 1c-ui-testing
-description: "Automated UI testing of a 1C thick/thin client through the platform's own mechanism — test client (/TestClient) driven by a test manager (/TestManager) running a scenario data processor. Use when a task needs interactive UI verification of forms, commands and controls, or when a manual test plan has to be turned into a repeatable run."
+description: "Automated UI testing of a 1C thick/thin client through the platform's own mechanism — test client (/TestClient) driven by a test manager (/TestManager) that runs the scenario from a test extension of its own infobase. Use when a task needs interactive UI verification of forms, commands and controls, or when a manual test plan has to be turned into a repeatable run."
 ---
 
 # 1C UI testing — test manager and test client
@@ -17,10 +17,11 @@ The scenario sees the *logical* interface model of the client (windows, forms, f
 tables), not pixels. No change to the tested configuration is required.
 
 An acceptance scenario written this way replaces a manual test plan and carries the acceptance
-conditions itself: it drives the forms and verifies each outcome against the underlying API from
-`&НаСервере` methods of the same manager module. That module is also where a precondition the UI
-cannot produce is created — call the integration or object module directly to set the state up,
-then drive the UI against it.
+conditions itself: it drives the forms and verifies each outcome against the underlying API. The
+manager works in an infobase of its own, so that API is reached over HTTP — a server step sent to
+`Dbg_Executor` of the tested base (`1c-test-debug`). A precondition the UI cannot produce is
+created the same way: the step writes the state, the scenario drives the UI against it.
+Layout, build and constraints — [docs/test-extension.md](docs/test-extension.md).
 
 Runner — `skills/1c-ui-testing/scripts/run-ui-test.sh` (see *Runner* below).
 
@@ -36,6 +37,10 @@ code navigation actually answer.
   batch startup mode does not make the 1C client headless. `DISPLAY` must be set.
 - Platform path and infobase come from `.dev.env` (`PLATFORM_PATH`, `INFOBASE_PATH`, `IB_USER`,
   `IB_PASSWORD`).
+- **`INFOBASE_PUBLISH_URL` is the tested infobase** — the one the *test client* works in and the one
+  the scenario reaches over HTTP for its server steps. It is never the manager's own base: that one
+  is built by `scripts/build-test-extension.py` and has an address of its own
+  ([docs/test-extension.md](docs/test-extension.md)).
 - Automated testing works **only for the managed application** (ITS 31.7.1).
 - Session startup on a large infobase is slow — count on ~50 s per session, ~2 min per run.
   Poll for readiness, never assume a fixed short sleep is enough.
@@ -44,11 +49,14 @@ code navigation actually answer.
   and everything on the machine slows down. Check `loginctl show-session <id> -p LockedHint` and
   disable automatic screen locking on a machine that runs UI tests unattended. The shipped runner
   refuses to start on a locked screen (exit code 3).
-- **A leftover web-client session blocks a file infobase.** After browser checks through a web
-  server publication the browser may be closed while its session is still alive in the web-server
-  module: the test client then never connects — 1C processes live with no window and no protocol,
-  and a manager start can take up to 7 minutes. List the sessions
-  (`ПолучитьСеансыИнформационнойБазы()`) and restart the web server before blaming the scenario.
+- **Server-side checks run before or after a scenario, not during it.** A request through the
+  publication that writes data while the run is in progress has been seen to kill the worker that
+  serves it — `1c-test-debug/docs/troubleshooting.md`; the server itself is `1c-ibsrv-ops`. Data a scenario needs is prepared from the
+  manager's own `&НаСервере` code, or through the debug services before the run.
+- **Leftover sessions block a run.** A client that was killed leaves its session alive: it holds a
+  license, and with a file infobase it holds the base itself — the test client then never connects,
+  1C processes live with no window and no protocol. List and terminate them before blaming the
+  scenario (`1c-ibsrv-ops/scripts/ib-sessions.py auto list | terminate-all`).
 
 ## Step 1 — start the test client
 
@@ -78,112 +86,106 @@ for _ in $(seq 1 120); do ss -ltn | grep -q ":1538\b" && break; sleep 1; done
 
 ## Step 2 — start the test manager
 
-Same tool, `/TestManager` plus the scenario data processor:
+Same tool, `/TestManager`, and the infobase the manager works in — **not** the tested one:
 
 ```bash
 python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-run.py \
-  -V8Path "$PLATFORM_PATH" -InfoBasePath "$INFOBASE_PATH" \
-  -UserName "$IB_USER" -Password "$IB_PASSWORD" \
-  -Execute /abs/path/УИТест.epf \
-  -CParam "УИМенеджер|1538|localhost|/abs/path/tmp/ui-test.result.txt" \
+  -V8Path "$PLATFORM_PATH" -ClientKind thick -InfoBasePath "$PROJECT_ROOT/base-tests" \
+  -CParam "УИМенеджер|1538|localhost|/abs/path/tmp/<test>.result.txt|$PROJECT_ROOT|$INFOBASE_PUBLISH_URL|<test>" \
   -AdditionalV8Arguments "/TestManager" \
-  -Out tmp/ui-test.manager.log -Wait
+  -Out tmp/<test>.manager.log -Wait
 ```
 
-- `-Execute` opens the scenario data processor after startup; `-CParam` becomes `ПараметрЗапуска`
-  inside it. Pass absolute paths — the session's working directory is not guaranteed.
+- The manager base is a **file** infobase built by `scripts/build-test-extension.py`, and the
+  manager is a **thick** client: the test is invoked through `Обработки`, which a thin client does
+  not have, and a thick client cannot reach a standalone server at all
+  ([docs/test-extension.md](docs/test-extension.md)). It has no users, so no credentials are passed.
+- `-CParam` becomes `ПараметрЗапуска` inside the session; its last element is the test name, which
+  the extension's dispatcher resolves. Pass absolute paths — the session's working directory is not
+  guaranteed.
 - `-Wait` blocks until the session exits. Wrap it in `timeout`: a scenario that hangs leaves the
   session alive forever.
 - The manager's window title shows **"Менеджер тестирования"**. Seeing it is the cheapest proof
   that the mode was accepted.
 - **Cleanup:** `db-run` runs `1cv8` as a child process, so killing the wrapper leaves the client
-  alive holding the port. Kill by pattern: `pkill -f "1cv8 ENTERPRISE.*-Tport <port>"`.
-- **`pgrep -f` / `pkill -f` match their own shell.** A command line that contains the pattern text
-  (for example the runner invocation in the same line) matches the shell running it, and the shell
-  kills itself (exit 144). Put a character class into the pattern (`1cv8 ENTERPRIS[E]`) and never
-  start a run in the same command line that kills processes.
+  alive holding the port. Kill by pattern: `pkill -f "1cv8c.*-Tport <port>"` for the client and
+  `pkill -f "1cv8 ENTERPRIS[E].*base-tests"` for the manager.
 
-## Step 3 — the scenario data processor
+## Step 3 — the scenario
 
-An EPF with one managed form; the scenario lives in the form module and is launched from
-`ПриОткрытии`. Build it with the `1c-metadata-manage` skill — `1c-epf-scaffold` → `1c-form-scaffold`
-→ `1c-form-compile` → `1c-epf-validate` → `1c-epf-build`.
+One BSL file with one entry point:
 
-**Never hand-write the XML and never clone an existing scenario** — the scaffolding tools set the
-object identities and the type references that a copy would carry over from the original. What to
-ask the skill for, how to declare the handlers, and the run-time traps —
-[docs/scenario-epf-build.md](docs/scenario-epf-build.md).
+```bsl
+// openspec/tests/<capability>/ui/<Scenario>/<Scenario>.bsl
+&НаКлиенте
+Процедура ВыполнитьСценарий(Контекст) Экспорт
+	Приложение = Т_Прогон.ПодключитьсяККлиентуТестирования(Контекст);
+	Данные = Т_Прогон.ВыполнитьШаг(Контекст, "СоздатьДанные");   // сервер проверяемой базы
+	…
+	Т_Прогон.ЗаписатьШаг(Контекст, Условие, "что именно проверено");
+КонецПроцедуры
+```
 
-### Three traps that cost hours if missed
+The build makes it the manager module of a data processor of the test extension and dispatches to
+it by the test name — [docs/test-extension.md](docs/test-extension.md). There is no form, no
+external data processor and no security prompt for the unattended session to answer.
 
-1. **A handler not declared in `Form.xml` is never called** — no error, no event-log record, the
-   module simply never runs. The scaffold does not generate the `<Events>` block; how to declare
-   events through `1c-form-compile` — [docs/scenario-epf-build.md](docs/scenario-epf-build.md).
+### Two traps that cost hours if missed
 
-2. **`Новый ТестируемоеПриложение` is resolved at compile time.** In a session started *without*
-   `/TestManager` the whole form module fails to compile, and the event log shows
-   `{ВнешняяОбработка.<Имя>.Форма.Форма.Форма(<строка>)}: Тип не определен (ТестируемоеПриложение)`.
-   Consequence: such a data processor cannot be opened by hand in a normal session — that is
-   expected, not a defect.
+1. **`Новый ТестируемоеПриложение` is resolved at compile time.** In a session started *without*
+   `/TestManager` the module does not compile at all — which is why the scenario lives in the test
+   extension of the manager infobase and is never opened by hand in a normal session.
 
-3. **A scenario module that does not compile hangs the run without a trace in the protocol.** A
-   call to a procedure the module does not define, or a misspelt platform method
-   (`ЗаписатьЖурналРегистрации` instead of `ЗаписьЖурналаРегистрации`), is a compile error: the
-   manager session shows a modal error window, `ПриОткрытии` never runs, not a single protocol line
-   is written, and the runner waits for its full `timeout`. The BSL linter does **not** report
-   calls to undefined procedures. Before every run check that each name the module calls is either
-   defined in the module or a platform method confirmed through `1C-docs-mcp`; after a run with an
-   empty protocol read the event log (step 4) — the error text and line are there as
-   `_$PerformError$_`.
+2. **A module that does not compile hangs the run without a trace in the protocol.** A call to a
+   procedure the module does not define, a misspelt platform method, a name of the tested
+   configuration that the manager base does not have — each is a compile error: the manager session
+   shows a modal window, no protocol line is written, and the event log of the tested base stays
+   clean. The BSL linter does **not** report calls to undefined procedures. The builder's
+   `/CheckModules` pass is what names the module and the line
+   ([docs/test-extension.md](docs/test-extension.md)); never run with that check skipped.
 
 ### Skeleton
 
 ```bsl
+// openspec/tests/<capability>/ui/<Сценарий>/<Сценарий>.bsl
 &НаКлиенте
-Процедура ПриОткрытии(Отказ)
+Процедура ВыполнитьСценарий(Контекст) Экспорт
 
-	// Роль задаётся параметром запуска /C; при открытии вручную он пуст и сценарий не стартует.
-	// ЗавершитьРаботуСистемы в ПриОткрытии платформа не выполняет - откладываем на обработчик.
-	Если СтрНачинаетсяС(ПараметрЗапуска, "УИМенеджер") Тогда
-		ПодключитьОбработчикОжидания("ВыполнитьСценарийПакетно", 0.1, Истина);
-	КонецЕсли;
-
-КонецПроцедуры
-
-&НаКлиенте
-Процедура ВыполнитьСценарийПакетно()
-
+	Приложение = Неопределено;
 	Попытка
-		Приложение = Новый ТестируемоеПриложение("localhost", 1538);
-		Приложение.УстановитьСоединение();   // повторять в цикле до таймаута
-		ВыполнитьСценарий(Приложение);
-		Приложение.РазорватьСоединение();
+		Приложение = Т_Прогон.ПодключитьсяККлиентуТестирования(Контекст);
+		Данные = Т_Прогон.ВыполнитьШаг(Контекст, "СоздатьДанные");
+		ПроверитьФорму(Контекст, Приложение, Данные);
 	Исключение
-		ЗаписатьШаг(Ложь, "Сценарий прерван: " + ОписаниеОшибки());
+		Т_Прогон.ЗаписатьШаг(Контекст, Ложь, "Сценарий прерван: " + ОписаниеОшибки());
 	КонецПопытки;
 
-	ЗавершитьРаботуСистемы(Ложь);
+	Если Приложение <> Неопределено Тогда
+		Попытка
+			Приложение.РазорватьСоединение();
+		Исключение
+			Т_Прогон.ЗаписатьШаг(Контекст, Истина, "Соединение уже разорвано клиентом");
+		КонецПопытки;
+	КонецЕсли;
+
+	Т_Прогон.ВыполнитьШаг(Контекст, "УдалитьДанные", Объявления);
 
 КонецПроцедуры
 ```
 
 Rules that make a run diagnosable:
 
-- **Wrap the whole scenario body in `Попытка/Исключение`, and make the exception branch write the
-  error and reach `ЗавершитьРаботуСистемы`.** This is the single rule that decides whether a failed
-  run costs a minute or an hour. Without it an unhandled exception leaves the manager session
-  sitting on screen with no output: the runner hits its `timeout`, the client is still holding the
-  port, and the only way left to find out what happened is taking screenshots of the X display.
-  With it, every failure comes back as a `[FAIL]` line with `ОписаниеОшибки()` and both sessions
-  close by themselves. Every step that can throw (connect, `НайтиОбъект` on a missing element,
-  `ВыполнитьКоманду` on a wrong URL) is inside that block.
+- **Wrap the whole scenario body in `Попытка/Исключение` and write the error into the protocol.**
+  This is the single rule that decides whether a failed run costs a minute or an hour. Without it
+  an unhandled exception leaves the manager session sitting on screen with no output: the runner
+  hits its `timeout`, the client is still holding the port, and the only way left to find out what
+  happened is taking screenshots of the X display. Every step that can throw (connect, `НайтиОбъект`
+  on a missing element, `ВыполнитьКоманду` on a wrong URL) is inside that block.
 - Never let a helper swallow an exception silently — an empty `Исключение` branch reproduces the
   same hang one level down.
-- Rewrite the protocol file **on every step**, not once at the end: when the session is killed by a
-  timeout, the already-written steps show exactly where it stopped.
-- Duplicate every step into the event log (`ЗаписьЖурналаРегистрации`, own event name such as
-  `УИТест.Шаг`) — see step 4 for how to read it back.
-- End with `ЗавершитьРаботуСистемы(Ложь)`, otherwise the manager session never exits.
+- The protocol file is rewritten on every step by `Т_Прогон.ЗаписатьШаг`, so a session killed by a
+  timeout still shows where it stopped. The final line and the session shutdown belong to the
+  dispatcher, not to the scenario: do not call `ЗавершитьРаботуСистемы` yourself.
 - **Remove leftovers of earlier runs at the start, not only your own data at the end.** A run
   stopped by a timeout, a lost session or a locked screen never reaches its cleanup. Give the test
   data an unmistakable invented marker (a name prefix) and delete everything carrying it before
@@ -325,38 +327,77 @@ you guessing whether the session is still on the splash screen. Keep them for th
 scenario cannot report on — the client or manager failing before the scenario starts. The root
 window shows only what is on top: a 1C window covered by another application is not in the picture.
 
+## The manager in a separate infobase
+
+The manager and the client do not share an infobase: the manager is a **thick** client in a
+**file** base whose extension holds every test of the project, and drives a **thin** test client in
+the tested one — the two client kinds are forced by the platform, see the doc below. The
+scenario therefore touches no metadata of the tested configuration — data preparation, cleanup and
+verification go through `Dbg_Executor` of `1c-test-debug`. Build, constraints and the traps —
+[docs/test-extension.md](docs/test-extension.md), script `scripts/build-test-extension.py`.
+
+Useful when the tested base is a restored dump under a standalone server, when a run must not add
+sessions to the tested base, or when the tested configuration is reloaded under a running scenario.
+
 ## Runner
 
 `scripts/run-ui-test.sh` does all of the above: reads `.dev.env`, refuses to start on a locked screen,
 clears a leftover client off the port, starts the client, waits for the port, starts the manager,
-**fails fast** — no manager connection within `UI_TEST_CONNECT_TIMEOUT` (240 s) or no protocol line
-within `UI_TEST_FIRST_STEP_TIMEOUT` (360 s) stops the run — prints the protocol, kills leftover
+**fails fast** — no manager connection within `UI_TEST_CONNECT_TIMEOUT` (240 s), no protocol line
+within `UI_TEST_FIRST_STEP_TIMEOUT` (360 s), or a protocol that has not grown for
+`UI_TEST_STALL_TIMEOUT` (300 s) stops the run — prints the protocol, kills leftover
 sessions of both roles, and exits non-zero on any `[FAIL]` or a missing protocol. After a stop or a
 missing protocol it prints the event-log errors — through `scripts/ib-errors.py` of the
 `1c-test-debug` skill when it is installed, or through `UI_TEST_DIAG_CMD` when set — so a scenario that
 does not compile is named in the runner's own output. The scenario receives
-`УИМенеджер|<port>|<client address>|<protocol file>|<project root>`.
+`УИМенеджер|<port>|<client address>|<protocol file>|<project root>|<publication of the tested
+base>` — the last element is what a scenario in a manager base of its own uses to reach
+`Dbg_Executor` of the tested base.
 
 **What the runner does is not repeated by hand.** Checking `DISPLAY` or the lock screen, looking
 for leftover 1C processes, killing them, waiting for the port and reading the event log after a
-hang are the runner's job. Build the EPF, call the runner, read its output; act on the environment
-only when the runner reports a problem it cannot solve.
+hang are the runner's job. Call the runner, read its output; act on the environment only when the
+runner reports a problem it cannot solve.
 
 **A project may ship its own runner** (for example with project-specific diagnostics built in).
 When the project rules name one, use that runner, not this copy.
 
 ```bash
-skills/1c-ui-testing/scripts/run-ui-test.sh [<port>] [<scenario epf>]
+skills/1c-ui-testing/scripts/run-ui-test.sh [<port>] --test <test name> [--via-manager]
 ```
 
-The scenario is the second argument, or `UI_TEST_SCENARIO` in `.dev.env` when it is omitted; the
-runner refuses to start without one. Protocol and log file names are derived from the EPF base name
-(`tmp/<name>.result.txt`, `tmp/<name>.client.log`, `tmp/<name>.manager.log`), so runs of different
-scenarios do not overwrite each other. It locates `db-run.py` in the sibling `1c-metadata-manage`
+The runner rebuilds the test extension when the sources changed, finds the test by name and runs it
+([docs/test-extension.md](docs/test-extension.md)). A `unit` test goes straight to `Dbg_Executor`
+without any 1C session; `--via-manager` forces it through the manager instead.
+
+The name is the short one (`НаименованиеПоШаблону`) while it belongs to a single test, or
+`<capability>/<kind>/<name>` when two capabilities share it — the runner prints both candidates
+instead of picking one.
+
+**A test name says what the test checks, and nothing else.** A kind prefix (`Юнит`, `УИ`, `E2E`),
+the capability, or the technology the capability is already named after all repeat something the
+path has said. Worse, a name loaded that way is a name someone else can take first, and the second
+test then gets named after whatever word was still free rather than after what it checks.
+Uniqueness is not the author's problem: the build names the object `Т_<Capability>_<Kind>_<Name>`,
+so the same short name in two capabilities is legal.
+
+Put such a word in only when it carries meaning the path does not. `АдресСервераPasswork` in the
+`predefined-reference-data` capability is one: the subject really is the Passwork server, and the
+capability name does not say so. Where a unit check and a UI scenario of one capability cover the
+same requirement, they still get different names, because they check different things — the
+function and the form — and two tests named alike are ambiguous to the runner for no gain.
+
+Protocol and log file names are derived from the test name (`tmp/<name>.result.txt`,
+`tmp/<name>.client.log`, `tmp/<name>.manager.log`), so runs of different tests do not overwrite
+each other. A `unit` check answers with JSON rather than a protocol: the runner saves it whole to
+`tmp/<name>.result.json` and prints a summary — every failed step in full, then
+`Steps: <total>, failed: <failed>`. It summarises rather than truncates on purpose: a check has
+as many steps as it needs, and the one that failed is as likely to be the twenty-third as the
+first. It locates `db-run.py` in the sibling `1c-metadata-manage`
 skill; override with the `DB_RUN` environment variable if the skill lives elsewhere.
 
-Rebuild the EPF after every scenario edit (`1c-epf-build`) — the runner uses the built file, not
-the sources.
+Nothing has to be rebuilt by hand: the runner calls the builder, which rebuilds the extension only
+when the sources changed.
 
 ## Running from an autonomous agent
 
@@ -371,19 +412,20 @@ turn after it stops:
 - **One run at a time** — the port and the infobase are shared.
 - **After a run without protocol lines, diagnose before re-running** (step 4): event log, then the
   session list. Two identical failures in a row end the attempt with a report, not a third run.
-- **Restarting the web server or killing sessions other than through the runner** is left to the
-  operator; report what was seen instead.
+- **Restarting the infobase server or killing sessions other than through the runner** is left to
+  the operator; report what was seen instead.
 
 ## Checklist for a new scenario
 
 1. `recall` for project specifics, then write the scenario steps as verifiable
    assertions (`ЗаписатьШаг(<условие>, <что проверено>)`), not as a click list.
-2. Scaffold the EPF through `1c-metadata-manage` — never by copying an existing scenario;
-   **declare every form event in `Form.xml`**. Step by step — [docs/scenario-epf-build.md](docs/scenario-epf-build.md).
-3. Check the scenario body is inside `Попытка/Исключение` with `ЗавершитьРаботуСистемы` after it —
-   before running anything. Check that every procedure the module calls is defined in it or is a
-   platform method confirmed through `1C-docs-mcp` (the linter does not report undefined calls).
-   Lint the module (`syntaxcheck` / `bsl_check_file`), then `1c-epf-validate` and `1c-epf-build`.
+2. Write it as `openspec/tests/<capability>/ui/<Scenario>/<Scenario>.bsl` — the entry point
+   `&НаКлиенте Процедура ВыполнитьСценарий(Контекст) Экспорт` — and put each server step into
+   `server/<Step>.bsl` of the same directory ([docs/test-extension.md](docs/test-extension.md)).
+3. Check the scenario body is inside `Попытка/Исключение` — before running anything. Check that
+   every procedure the module calls is defined in it or is a platform method confirmed through
+   `1C-docs-mcp` (the linter does not report undefined calls). Lint the module (`syntaxcheck` /
+   `bsl_check_file`); the compile check against the platform is the builder's `/CheckModules` pass.
 4. Run `scripts/run-ui-test.sh`; on a hang or an empty protocol read the event log (step 4) before
    changing anything.
 5. Prove the scenario can fail: one run against a deliberately wrong expectation, `[FAIL]` exactly

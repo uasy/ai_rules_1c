@@ -39,8 +39,9 @@ Read first: the requirements, `design.md` and `changes/<id>/review.md` when pres
 ## Outputs
 
 - Tests in `openspec/tests/<capability>/` per `docs/lifecycle.md` of `openspec-agents`.
-- `openspec/tests/<capability>/README.md`: what each test checks, data requirements,
-  environment, and the section `#### <Тест>: не проверяется` with reasons.
+- `openspec/tests/<capability>/README.md`: written **before the code**, from the spec — what each
+  test checks, its steps with the expected result, data requirements and the section
+  `#### <Тест>: не проверяется` with reasons. Structure and order — `openspec/tests/README.md`.
 - For an active change: `changes/<id>/test-plan.md` (scenario → test step → 🔴 / 🟢 / ⚪, ⚪ links
   to the README reason) and, when the task asks for verification, `changes/<id>/verify.md` (below).
 - A final report (below).
@@ -57,20 +58,30 @@ Read first: the requirements, `design.md` and `changes/<id>/review.md` when pres
    server checks run in a rolled-back transaction; settings the test changes are restored.
    Never search the infobase for a «suitable» existing object and never use real names.
    Environment-specific data (codes of created objects, external systems) — only in
-   `tmp/test_epf/test_data/`.
-4. **Build and run.** Data processors are created and built with the `1c-metadata-manage`
-   skill (`epf-scaffold`, `form-add`, `form-edit`, `epf-build` into `tmp/test_epf/`); UI
-   scenarios run with the runner of the `1c-ui-testing` skill (or the one the project rules name). One run at
-   a time: the port is shared.
-5. **The test must be able to fail.** Every new test is run at least once against a deliberately
+   `tmp/test-data/`.
+4. **Name a test for what it checks**, nothing else. A kind prefix (`Юнит`, `УИ`, `E2E`) or the
+   capability in the name repeats what the path already says; put such a word in only when it
+   carries meaning the path does not (`АдресСервераPasswork` inside `predefined-reference-data`).
+   Uniqueness is the build's job — the object is `Т_<Capability>_<Kind>_<Name>` — so a name
+   another capability already uses is fine. A unit check and a UI scenario covering one
+   requirement still get different names: they check different things.
+5. **Build and run.** A test is one BSL file under `openspec/tests/<capability>/{unit,ui,e2e}/`;
+   the wrapping into extension objects and the run are done by the runner of the `1c-ui-testing`
+   skill (or the one the project rules name), by test name. One run at a time: the port is shared.
+6. **The test must be able to fail.** Every new test is run at least once against a deliberately
    wrong expectation or input (a changed stub, a wrong expected value) and must give `[FAIL]`
    exactly on the affected steps; the change is reverted afterwards. Record it in the test plan
    or the report.
-6. **Classify every failure** before acting: product defect (behaviour contradicts the spec) →
+7. **Cross-check the coverage before handing back.** Run
+   `python3 <skills>/openspec-agents/scripts/coverage-cross-check.py <capability>` from the project
+   root; it must report no findings. A scenario it calls silently uncovered is one you neither
+   covered nor wrote off — decide which, and say so in the README. Nothing is "obviously covered":
+   the rule exists because a dropped scenario reads exactly like a scenario that never existed.
+8. **Classify every failure** before acting: product defect (behaviour contradicts the spec) →
    report with reproduction, do not touch product sources; test defect → fix the test; environment
    (test client does not connect, infobase locked, no protocol) → at most two attempts, then
    stop and report what you saw.
-7. **Lint the test modules** (`bsl_check_file`): no warnings; a justified suppression is
+9. **Lint the test modules** (`bsl_check_file`): no warnings; a justified suppression is
    `// noqa: BSLxxx` at the end of the line with the reason on the line above.
 
 ## Test plan and verification record

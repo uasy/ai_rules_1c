@@ -80,6 +80,12 @@ COMMON_ALLOWED=(
 COMMON_DISALLOWED=(
   "Bash(git add:*)" "Bash(git commit:*)" "Bash(git push:*)" "Bash(git reset:*)"
   "Bash(git checkout:*)" "Bash(pkill:*)" "Bash(kill:*)" "Agent"
+  # The session and the machine belong to the operator: no screen unlocking, no services.
+  "Bash(loginctl:*)" "Bash(systemctl:*)" "Bash(xdg-screensaver:*)"
+  # Connection settings and credentials are read by the skill scripts, never by the agent; the
+  # environment summary comes from check-services.py of 1c-test-debug. The Bash pattern covers any
+  # command naming the file, by any path.
+  "Read(**/.dev.env)" "Edit(**/.dev.env)" "Write(**/.dev.env)" "Bash(*.dev.env*)"
   # HTTP to the infobase goes through ib-http.py of 1c-test-debug: with curl the password ends up
   # on the command line and in the session log.
   "Bash(curl:*)" "Bash(wget:*)"

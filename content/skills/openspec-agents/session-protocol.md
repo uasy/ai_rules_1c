@@ -21,8 +21,18 @@ screen. These steps come before the task itself and are not optional.
    explicit time limit that fits one tool call (at most 10 minutes). Never end a turn while a
    background task you depend on is still running and never schedule a wake-up: the session may end
    and the task is killed with it.
-4. **A denied command stays denied.** Do not reach the same effect with another command (`pkill`
+4. **Credentials stay out of the log.** Do not read or print `.dev.env`, and do not pass `-Password`
+   or a password-bearing URL to a command: the scripts of the skills read the connection settings
+   themselves, and everything you read or run is written to the session log. The environment you
+   need for `PREFLIGHT` — publication URL, infobase kind and path, platform, user — is printed by
+   `check-services.py` of `1c-test-debug`.
+5. **The machine is the operator's.** Do not change the state of the session or the machine: no
+   unlocking or locking the screen, no starting or stopping services, no killing processes. When a
+   tool reports an environment problem (a locked screen, an infobase server that does not answer, an
+   infobase locked by another session), do what does not depend on it, then stop and name the
+   problem in the final report. Repeating a run the environment refused changes nothing.
+6. **A denied command stays denied.** Do not reach the same effect with another command (`pkill`
    after a denied `kill`, a script after a denied call): name it in the final report and continue
    with what does not need it.
-5. **Only then start the task.** When a later step would break a rule you listed, stop that step and
+7. **Only then start the task.** When a later step would break a rule you listed, stop that step and
    say so in the final report instead of working around it.

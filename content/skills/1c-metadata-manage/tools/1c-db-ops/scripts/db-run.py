@@ -2,14 +2,19 @@
 # db-run v1.7 — Launch 1C:Enterprise
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 #
-# Deviation from db-run.ps1 (py twin only): two opt-in flags the PowerShell twin does not have.
+# Deviation from db-run.ps1 (py twin only): three opt-in flags the PowerShell twin does not have.
 #   -Out <file>  passes /Out. In batch startup mode (/DisableStartupDialogs, always
 #                added below) the platform writes startup errors ONLY to this file —
 #                without it a failed /Execute run is completely silent.
 #   -Wait        waits for the client to exit and propagates its exit code, instead
 #                of the default fire-and-forget Popen. The default (no -Wait) is
 #                unchanged: launch and return 0 immediately.
-# Neither flag changes behaviour unless passed, so existing callers are unaffected.
+#   -ClientKind thick|thin  chooses the executable: thick (1cv8, the default and the upstream
+#                behaviour) or thin (1cv8c). A thick client cannot connect to a standalone server
+#                (ibsrv) at all — it looks for a cluster at the address and reports «не является
+#                адресом кластера» — so without this flag a served test infobase is unreachable
+#                through this tool.
+# None of the flags changes behaviour unless passed, so existing callers are unaffected.
 
 import argparse
 import glob
@@ -59,8 +64,13 @@ def _version_key(p):
     return [int(x) for x in re.findall(r"\d+", _version_dir(p))]
 
 
-def resolve_v8path(v8path):
-    """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly)."""
+def resolve_v8path(v8path, client_kind="thick"):
+    """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly).
+
+    1c-rules extension over the upstream algorithm: `client_kind="thin"` resolves the thin client
+    (`1cv8c`) instead of the thick one. A thick client cannot connect to a standalone server at
+    all, so without this the tool has no way to reach one.
+    """
     if not v8path:
         # 1c-rules: .dev.env is the single source of truth and wins over
         # .v8-project.json, which stays supported as the legacy fallback.
@@ -85,7 +95,9 @@ def resolve_v8path(v8path):
             sys.exit(1)
     if os.path.isdir(v8path):
         # PY-only: на *nix исполняемый называется "1cv8" (без .exe); ibcmd — только явным путём.
-        exe = "1cv8.exe" if os.name == "nt" else "1cv8"
+        # 1c-rules extension: тонкий клиент — "1cv8c" рядом с "1cv8".
+        base = "1cv8c" if client_kind == "thin" else "1cv8"
+        exe = f"{base}.exe" if os.name == "nt" else base
         v8path = os.path.join(v8path, exe)
     if not os.path.isfile(v8path):
         print(f"Error: 1C executable not found at {v8path}", file=sys.stderr)
@@ -101,6 +113,10 @@ def main():
         allow_abbrev=False,
     )
     parser.add_argument("-V8Path", default="")
+    # 1c-rules extension over the upstream algorithm: which client to launch. A standalone server
+    # (ibsrv) accepts the thin client only — the thick one reports «не является адресом кластера».
+    parser.add_argument("-ClientKind", default="thick", choices=["thick", "thin"],
+                        help="Client to launch: thick (1cv8, default) or thin (1cv8c).")
     parser.add_argument("-InfoBasePath", default="")
     parser.add_argument("-InfoBaseServer", default="")
     parser.add_argument("-InfoBaseRef", default="")
@@ -125,7 +141,7 @@ def main():
     extra_args = platform_args.resolve_extra_args(
         engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
 
-    v8path = resolve_v8path(args.V8Path)
+    v8path = resolve_v8path(args.V8Path, args.ClientKind)
 
     # --- Validate connection ---
     if not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
@@ -169,7 +185,7 @@ def main():
 
     # --- Execute ---
     arguments = arguments + extra_args
-    print("Running: 1cv8.exe " + platform_args.protect_secrets(
+    print(f"Running: {os.path.basename(v8path)} " + platform_args.protect_secrets(
         ' '.join(platform_args.format_args_for_display(arguments, engine)),
         [args.Password, args.UserName]))
 

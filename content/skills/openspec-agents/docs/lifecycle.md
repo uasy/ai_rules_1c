@@ -78,34 +78,23 @@ DECISION: PASS | PASS_WITH_WARNINGS | FAIL
 `DECISION` is evidence, not acceptance: audit and the decision to commit and archive stay with the
 orchestrator and the user.
 
-## Tests tree
+## Tests
 
-Tests live in `openspec/tests/<capability>/`, the same capability names as `openspec/specs/`, and
-accumulate the way requirements do:
+Tests live in `openspec/tests/<capability>/`, under the same capability names as `openspec/specs/`,
+and accumulate the way requirements do. **The layout, the test types, the naming, the data rules and
+the shape of a capability README are the project's convention, stated once in
+`openspec/tests/README.md`** — read it there rather than from a copy here, because a copy is what
+went stale the last time this file described a build scheme that had already been replaced.
 
-```
-openspec/tests/<capability>/
-├── README.md     what each test checks, data requirements, environment, «<Тест>: не проверяется»
-├── ui/           test-client scenarios: data processor sources and helper programs
-├── server/       server-side checks (BSL for the debug executor)
-└── http/         HTTP service checks
-```
+What belongs to the agent lifecycle, and not to that convention:
 
-- Tests are written straight into `openspec/tests/` — they are code, they run before the change is
-  archived and match the sources, which are not deltas either.
-- Only sources go to git; data processors are built into `tmp/test_epf/`.
-- **A test must be able to fail**: every new test runs once against a deliberately wrong expectation
-  and gives `[FAIL]` exactly on the affected steps.
-- The reason a test cannot observe something is a property of the test — it lives in the capability
-  README under `#### <Тест>: не проверяется`; `test-plan.md` links to it.
+- Tests are written straight into `openspec/tests/`, not as deltas of the change: they are code, they
+  run before the change is archived, and they have to match the sources.
+- **A test must be able to fail.** Every new test runs once against a deliberately wrong expectation
+  and must give `[FAIL]` on exactly the affected steps; the result is recorded in `test-plan.md`.
+- The reason a test cannot observe something is a property of the test, so it lives in the capability
+  README under `#### <Тест>: не проверяется`, and `test-plan.md` links to it instead of restating it.
+- Before handing back, the agent runs
+  `python3 <skills>/openspec-agents/scripts/coverage-cross-check.py <capability>`: every scenario of
+  the spec must be either claimed by a named test or written off in the README.
 
-## Test data
-
-- Requirements for data are described in the capability README next to the test.
-- Invented values only; the test creates what it needs and removes it; server-side checks run in a
-  rolled-back transaction; settings the test changes are restored.
-- **Leftovers of earlier runs are removed at the start**: a run stopped by a timeout or a lost session
-  never reaches its cleanup. Test data carry an unmistakable invented marker (a name prefix).
-- Data that depend on the environment (codes of created objects, external systems) are prepared per
-  environment from the README requirements and kept in `tmp/test_epf/test_data/`.
-- Data of working infobases are never used — neither copied nor searched for a «suitable» object.
