@@ -69,8 +69,8 @@ def detect_extension_name(extension_path):
     """Read <Configuration/Properties/Name> from the extension's Configuration.xml.
 
     This is the value the platform expects for -Extension — it commonly differs from
-    the source directory name (e.g. directory zup30_ИсправлениеКонфигурации, extension
-    name ИсправлениеКонфигурации).
+    the source directory name (e.g. directory base_МоеРасширение, extension
+    name МоеРасширение).
     """
     cfg_file = os.path.join(extension_path, "Configuration.xml")
     if not os.path.isfile(cfg_file):

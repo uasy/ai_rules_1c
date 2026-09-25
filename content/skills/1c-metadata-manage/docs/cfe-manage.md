@@ -209,7 +209,7 @@ Builds a compiled `.cfe` file from extension XML sources via a **throwaway local
 | `-V8Path` | no | Platform `bin/` directory or path to `1cv8`/`1cv8.exe` (auto-detected if omitted) |
 | `-BasePath` | no | Throwaway infobase directory, **recreated on every run** (default: `base/empty`) |
 | `-OutputFile` | no | Output `.cfe` path (default: `build/<ExtensionName>.cfe`) |
-| `-ExtensionName` | no | Value passed to `-Extension` (default: read from `Configuration.xml`'s `<Name>` — usually differs from the source directory name, e.g. dir `zup30_ИсправлениеКонфигурации`, name `ИсправлениеКонфигурации`) |
+| `-ExtensionName` | no | Value passed to `-Extension` (default: read from `Configuration.xml`'s `<Name>` — usually differs from the source directory name, e.g. dir `base_МоеРасширение`, name `МоеРасширение`) |
 | `-UserName` / `-Password` | no | Credentials for the throwaway infobase |
 
 ### Why `-BaseCfFile` is (usually) required

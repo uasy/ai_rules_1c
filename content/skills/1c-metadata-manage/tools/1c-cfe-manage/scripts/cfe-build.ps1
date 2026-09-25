@@ -1,4 +1,4 @@
-# cfe-build v1.1 — Build a compiled extension (.cfe) from XML sources via a throwaway infobase
+﻿# cfe-build v1.1 — Build a compiled extension (.cfe) from XML sources via a throwaway infobase
 # Unlike a deploy against a shared/persistent infobase, this always (re)creates a fresh
 # local infobase, optionally loads a compiled base configuration (-BaseCfFile) into it,
 # loads the extension XML source as an extension, dumps the compiled .cfe, and leaves the
@@ -114,7 +114,7 @@ if (-not (Test-Path $V8Path)) {
 }
 
 # --- Read extension name from Configuration.xml <Name> (usually differs from the source
-#     directory name, e.g. dir zup30_ИсправлениеКонфигурации, name ИсправлениеКонфигурации) ---
+#     directory name, e.g. dir base_МоеРасширение, name МоеРасширение) ---
 if (-not $ExtensionName) {
     $cfgFile = Join-Path $ExtensionPath "Configuration.xml"
     if (-not (Test-Path $cfgFile)) {
