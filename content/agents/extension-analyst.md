@@ -61,4 +61,4 @@ This distinction matters more for this agent than for most, because the delivera
 
 ## Handoff
 
-When this agent's report feeds into a further action (removing obsolete code, migrating a document to a modern pattern, scoping a fix to one RIB node), summarize the concrete follow-up items at the end of the report (mirrors the "Follow-ups" convention in `content/rules/verification-checklist.md`) so the parent agent or user can route each one to the right subagent (`1c-refactoring`, `1c-error-fixer`, `1c-developer`) without re-reading the whole report.
+When this agent's report feeds into a further action (removing obsolete code, migrating a document to a modern pattern, scoping a fix to one RIB node), summarize the concrete follow-up items at the end of the report (mirrors the "Follow-ups" item of `content/rules/verification-delivery.md → Delivery summary`) so the parent agent or user can route each one to the right subagent (`1c-refactoring`, `1c-error-fixer`, `1c-developer`) without re-reading the whole report.

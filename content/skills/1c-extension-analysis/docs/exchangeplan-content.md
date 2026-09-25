@@ -18,12 +18,12 @@ Neither `cfe-diff -Mode A` nor `reference-finder.py` reads exchange-plan content
 
 ```bash
 # Inspect one tree only
-python3 skills/1c-extension-analysis/tools/1c-exchangeplan-content/scripts/exchangeplan-content.py \
+python3 content/skills/1c-extension-analysis/tools/1c-exchangeplan-content/scripts/exchangeplan-content.py \
     -Plan "ОбменВРаспределеннойИнформационнойБазе" \
     -BasePath <path-to-base-config-source-dump>
 
 # Diff base vs extension
-python3 skills/1c-extension-analysis/tools/1c-exchangeplan-content/scripts/exchangeplan-content.py \
+python3 content/skills/1c-extension-analysis/tools/1c-exchangeplan-content/scripts/exchangeplan-content.py \
     -Plan "ОбменВРаспределеннойИнформационнойБазе;;ОбменСообщениями" \
     -BasePath <path-to-base-config-source-dump> \
     -ExtPath <path-to-extension-source-dump> \
