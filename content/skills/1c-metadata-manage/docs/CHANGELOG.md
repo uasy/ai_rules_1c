@@ -144,6 +144,10 @@ Focused regressions exercise each reported writer on temporary fixtures. Command
 
 The Python peers of the writers above parse with lxml, which normalises CRLF to LF on the way in, so a rewrite came out LF whatever the file had been; indentation they inserted by hand still carried `\r\n`, which lxml serialises as a literal `&#13;` — LF files included. `cf-edit`, `cfe-borrow`, `subsystem-compile`, `subsystem-edit`, `interface-edit`, `form-edit`, `add-help`, `add-template` and the `form-compile` registration now restore the target file's CRLF / LF style and drop CR from inserted indentation (`tools/_shared/xml_eol.py`; `form-compile` inline). Compact tags needed nothing on this side: lxml writes `<Tag/>`. Pinned by `tools/tests/python-ports-regression.py`, an LF and a CRLF run per tool.
 
+### Local fix `2026-09-10` — DynamicList settings in `form-edit`
+
+`form-edit` v1.5 wrote a `DynamicList` attribute as Type only. The platform then opened the form with «не задан ни текст запроса, ни основная таблица». `form-edit` v1.6 requires `settings.mainTable` or `settings.query` and emits `<Settings xsi:type="DynamicList">` (`ManualQuery`, `DynamicDataRead`, optional `QueryText`, `MainTable`). `form-validate` v1.9 reports the same gap on an existing form. Full DCS list settings remain `form-compile`.
+
 ### Python runtime for `form-remove` (`2026-09-04`)
 
 `remove-form.py` is vendored from the same upstream repository, pinned at commit `ecd289fe11733028d87b55284ea9fb5feff8f513` — the state the PowerShell family below was synced from, so both runtimes are the same tool generation. It exists so a Linux / macOS install is not left with a script it cannot run.
