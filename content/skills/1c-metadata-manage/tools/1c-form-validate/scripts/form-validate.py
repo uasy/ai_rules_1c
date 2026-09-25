@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-# form-validate v1.8 — Validate 1C managed form
+# form-validate v1.9 — Validate 1C managed form
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# DynamicList attributes without MainTable and QueryText are an error —
+# the form loads but fails to open.
 
 import argparse
 import os
@@ -287,6 +289,20 @@ def main():
                         report_error(f"Duplicate column name '{col_name}' in '{attr_name}': id={col_id} and id={col_names[col_name]}")
                     else:
                         col_names[col_name] = col_id
+
+        type_val = ""
+        for tn in attr.findall(f"{{{F_NS}}}Type/{{{V8_NS}}}Type"):
+            text = "".join(tn.itertext())
+            if text:
+                type_val = text
+                break
+        if type_val == "cfg:DynamicList":
+            main_table = attr.find(f"{{{F_NS}}}Settings/{{{F_NS}}}MainTable")
+            query_text = attr.find(f"{{{F_NS}}}Settings/{{{F_NS}}}QueryText")
+            has_main = main_table is not None and "".join(main_table.itertext()).strip()
+            has_query = query_text is not None and "".join(query_text.itertext()).strip()
+            if not has_main and not has_query:
+                report_error(f"Attribute '{attr_name}': DynamicList has neither MainTable nor QueryText — the form will fail to open")
 
     if not stopped:
         if attr_ids:

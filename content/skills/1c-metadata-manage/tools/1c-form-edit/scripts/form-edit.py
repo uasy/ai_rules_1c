@@ -1,5 +1,9 @@
-# form-edit v1.5 — Edit 1C managed form elements (Python port)
+# form-edit v1.6 — Edit 1C managed form elements (Python port)
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# DynamicList attributes require settings.mainTable or settings.query
+# and emit <Settings xsi:type="DynamicList">. An attribute without a source
+# loads into the designer but the form fails to open
+# ("не задан ни текст запроса, ни основная таблица").
 # Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
 #        an existing XML file (tools/_shared/xml_eol.py).
 import argparse
@@ -49,6 +53,7 @@ ALL_NS_DECL = (
     ' xmlns:v8ui="http://v8.1c.ru/8.1/data/ui"'
     ' xmlns:xr="http://v8.1c.ru/8.3/xcf/readable"'
     ' xmlns:xs="http://www.w3.org/2001/XMLSchema"'
+    ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
     ' xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config"'
     ' xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings"'
     ' xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core"'
@@ -248,6 +253,38 @@ def emit_type(type_str, indent):
     for part in parts:
         emit_single_type(part, indent + "\t")
     X(f"{indent}</Type>")
+
+
+def is_dynamic_list_type(type_str):
+    return type_str in ("DynamicList", "cfg:DynamicList")
+
+
+def has_dynamic_list_source(settings):
+    if not isinstance(settings, dict):
+        return False
+    main = str(settings.get("mainTable") or "").strip()
+    query = str(settings.get("query") or "").strip()
+    return main != "" or query != ""
+
+
+def emit_dynamic_list_settings(settings, indent):
+    settings = settings if isinstance(settings, dict) else {}
+    X(f'{indent}<Settings xsi:type="DynamicList">')
+    si = indent + "\t"
+    has_query = bool(settings.get("query")) and bool(str(settings["query"]).strip())
+    if settings.get("manualQuery") is not None:
+        mq = "true" if settings["manualQuery"] else "false"
+    else:
+        mq = "true" if has_query else "false"
+    X(f"{si}<ManualQuery>{mq}</ManualQuery>")
+    ddr = "false" if settings.get("dynamicDataRead") is False else "true"
+    X(f"{si}<DynamicDataRead>{ddr}</DynamicDataRead>")
+    if has_query:
+        X(f"{si}<QueryText>{esc_xml(str(settings['query']))}</QueryText>")
+    main = str(settings.get("mainTable") or "").strip()
+    if main != "":
+        X(f"{si}<MainTable>{esc_xml(main)}</MainTable>")
+    X(f"{indent}</Settings>")
 
 
 def emit_single_type(type_str, indent):
@@ -904,6 +941,22 @@ def get_child_indent(container):
 
 # ── 8. Insert node into container ───────────────────────────
 
+def insert_root_section(section, insert_after):
+    """Put a new top-level section of the form on its own line after *insert_after*
+    (at the end when there is none); it takes over the separator that followed."""
+    children = list(root)
+    if insert_after is None and children:
+        insert_after = children[-1]
+    if insert_after is not None:
+        section.tail = insert_after.tail
+        insert_after.tail = "\n\t"
+        root.insert(children.index(insert_after) + 1, section)
+    else:
+        section.tail = root.text or "\n"
+        root.text = "\n\t"
+        root.append(section)
+
+
 def insert_into_container(container, new_node, after_name, child_indent):
     ref_idx = None
 
@@ -1000,11 +1053,7 @@ if elements_list:
         insert_after = root.find("f:Events", NS)
         if insert_after is None:
             insert_after = root.find("f:AutoCommandBar", NS)
-        if insert_after is not None:
-            idx = list(root).index(insert_after) + 1
-            root.insert(idx, target_ci)
-        else:
-            root.append(target_ci)
+        insert_root_section(target_ci, insert_after)
         root_ci = target_ci
 
     # Detect indent level
@@ -1091,7 +1140,14 @@ attrs_list = defn.get("attributes") or []
 if attrs_list:
     attrs_section = root.find("f:Attributes", NS)
     if attrs_section is None:
-        attrs_section = etree.SubElement(root, f"{{{FORM_NS}}}Attributes")
+        # Create Attributes section — insert after ChildItems or after Events
+        attrs_section = etree.Element(f"{{{FORM_NS}}}Attributes")
+        insert_after = root_ci
+        if insert_after is None:
+            insert_after = root.find("f:Events", NS)
+        if insert_after is None:
+            insert_after = root.find("f:AutoCommandBar", NS)
+        insert_root_section(attrs_section, insert_after)
 
     attr_child_indent = get_child_indent(attrs_section)
     if not attr_child_indent:
@@ -1108,6 +1164,9 @@ if attrs_list:
                 _assert_edit_unique(str(col["name"]), dsl_col_names, f"column name of '{attr['name']}'")
         if attrs_section.find(f"f:Attribute[@name='{attr['name']}']", NS) is not None:
             print(f"[ERROR] Attribute '{attr['name']}' already exists in form — attribute names must be unique")
+            sys.exit(1)
+        if is_dynamic_list_type(str(attr.get("type") or "")) and not has_dynamic_list_source(attr.get("settings")):
+            print(f"[ERROR] Attribute '{attr['name']}': DynamicList requires settings.mainTable or settings.query — otherwise the form fails to open")
             sys.exit(1)
 
     # Generate attribute fragments
@@ -1132,8 +1191,10 @@ if attrs_list:
         if attr.get("fillChecking"):
             X(f"{inner}<FillChecking>{attr['fillChecking']}</FillChecking>")
 
+        type_str = str(attr["type"]) if attr.get("type") else "(no type)"
+        is_dynamic_list = is_dynamic_list_type(type_str)
         columns = attr.get("columns")
-        if columns and len(columns) > 0:
+        if columns and len(columns) > 0 and not is_dynamic_list:
             X(f"{inner}<Columns>")
             col_id = 1
             for col in columns:
@@ -1145,8 +1206,10 @@ if attrs_list:
                 col_id += 1
             X(f"{inner}</Columns>")
 
+        if is_dynamic_list:
+            emit_dynamic_list_settings(attr.get("settings"), inner)
+
         X(f"{attr_child_indent}</Attribute>")
-        type_str = str(attr["type"]) if attr.get("type") else "(no type)"
         added_attrs.append(f"  + {attr_name}: {type_str} (id={attr_id})")
     X("</_F>")
 
@@ -1165,7 +1228,14 @@ cmds_list = defn.get("commands") or []
 if cmds_list:
     cmds_section = root.find("f:Commands", NS)
     if cmds_section is None:
-        cmds_section = etree.SubElement(root, f"{{{FORM_NS}}}Commands")
+        # Create Commands section — insert after Parameters or Attributes
+        cmds_section = etree.Element(f"{{{FORM_NS}}}Commands")
+        insert_after = root.find("f:Parameters", NS)
+        if insert_after is None:
+            insert_after = root.find("f:Attributes", NS)
+        if insert_after is None:
+            insert_after = root_ci
+        insert_root_section(cmds_section, insert_after)
 
     cmd_child_indent = get_child_indent(cmds_section)
     if not cmd_child_indent:
@@ -1321,7 +1391,7 @@ form_eol = xml_eol.target_eol(resolved_form_path)
 xml_eol.normalise_layout(tree)
 xml_bytes = etree.tostring(tree, xml_declaration=True, encoding="UTF-8")
 # Fix XML declaration quotes
-xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="utf-8"?>')
+xml_bytes = xml_bytes.replace(b"<?xml version='1.0' encoding='UTF-8'?>", b'<?xml version="1.0" encoding="UTF-8"?>')
 if not xml_bytes.endswith(b"\n"):
     xml_bytes += b"\n"
 xml_bytes = xml_eol.apply(xml_bytes, form_eol)

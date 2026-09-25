@@ -130,6 +130,10 @@ The PowerShell script `tools/1c-epf-validate/scripts/epf-validate.ps1` was refre
 
 ## form-manage.md
 
+### Python `form-edit` / `form-validate` caught up with v1.6 / v1.9 (`2026-09-25`)
+
+`form-edit.py` now carries the `DynamicList` rule of `form-edit.ps1` v1.6: an attribute of that type needs `settings.mainTable` or `settings.query`, is refused without one, and gets `<Settings xsi:type="DynamicList">` instead of `<Columns>`. `form-validate.py` reports a `DynamicList` with neither `MainTable` nor `QueryText`, as `form-validate.ps1` v1.9 does. Along the way `form-edit.py` was aligned with the PowerShell writer in two more places: a new `<ChildItems>`, `<Attributes>` or `<Commands>` section is inserted at its place in the form on its own line (the port appended `<Attributes>` and `<Commands>` at the end, sharing a line with `</Form>`), and the declaration keeps Configurator's `encoding="UTF-8"`. Pinned by `tools/tests/python-ports-regression.py`.
+
 ### Python `form-edit` places `<Events>` like the PowerShell writer (`2026-09-16`)
 
 A new `<Events>` section written by `form-edit.py` got an empty indented line before it and shared a line with the next element (`</Events><ChildItems/>`). It now stands on its own line after `AutoCommandBar`, or first in the form when there is no `AutoCommandBar`, as in `form-edit.ps1`. Pinned by `tools/tests/python-ports-regression.py` for LF and CRLF forms.

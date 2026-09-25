@@ -1564,6 +1564,134 @@ def _(work):
             assert_true(text.endswith(expected), f"form-edit {label}: Events is not on its own lines:\n{text[-300:]!r}")
 
 
+
+FORM_VALIDATE_PY = os.path.join(TOOLS_DIR, "1c-form-validate", "scripts", "form-validate.py")
+FORM_HEAD = ('<?xml version="1.0" encoding="UTF-8"?>\n<Form xmlns="http://v8.1c.ru/8.3/xcf/logform"'
+             ' xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+             ' version="2.17">\n')
+FORM_BAR = '\t<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">\n\t\t<Autofill>true</Autofill>\n\t</AutoCommandBar>\n'
+
+
+def _form_edit(root, body, definition, label, eol="\n"):
+    """Write a Form.xml with *body* after the header, run form-edit with *definition*."""
+    os.makedirs(root)
+    form = os.path.join(root, "Form.xml")
+    with open(form, "wb") as handle:
+        handle.write((FORM_HEAD + body + "</Form>\n").replace("\n", eol).encode("utf-8"))
+    json_path = os.path.join(root, "def.json")
+    with open(json_path, "w", encoding="utf-8") as handle:
+        json.dump(definition, handle, ensure_ascii=False)
+    run = run_python_tool(FORM_EDIT_PY, ["-FormPath", form, "-JsonPath", json_path], root)
+    return form, run
+
+
+def _read_form(form):
+    with open(form, "rb") as handle:
+        return handle.read().decode("utf-8-sig")
+
+
+@case("form-edit: a DynamicList attribute needs a source and gets its Settings block")
+def _(work):
+    """mainTable or query is required (otherwise the form fails to open); the Settings block
+    follows form-edit.ps1: ManualQuery from manualQuery / the query, DynamicDataRead, QueryText, MainTable."""
+    form, run = _form_edit(os.path.join(work, "ok"), FORM_BAR + "\t<ChildItems/>\n", {"attributes": [
+        {"name": "Список", "type": "DynamicList", "main": True,
+         "settings": {"mainTable": "Catalog.Товары"}, "columns": [{"name": "X", "type": "string"}]},
+        {"name": "ПоЗапросу", "type": "DynamicList",
+         "settings": {"query": "ВЫБРАТЬ 1 ГДЕ 1 < 2", "dynamicDataRead": False}},
+        {"name": "Ручной", "type": "cfg:DynamicList",
+         "settings": {"query": "ВЫБРАТЬ 2", "mainTable": "Document.Заказ", "manualQuery": False}},
+    ]}, "dynamic list")
+    assert_equal(0, run["exit_code"], f"form-edit failed: {run['stdout'][-400:]}")
+    text = _read_form(form)
+    for expected in (
+        '\t\t\t<MainAttribute>true</MainAttribute>\n\t\t\t<Settings xsi:type="DynamicList">\n'
+        '\t\t\t\t<ManualQuery>false</ManualQuery>\n\t\t\t\t<DynamicDataRead>true</DynamicDataRead>\n'
+        '\t\t\t\t<MainTable>Catalog.Товары</MainTable>\n\t\t\t</Settings>\n\t\t</Attribute>\n',
+        '\t\t\t<Settings xsi:type="DynamicList">\n\t\t\t\t<ManualQuery>true</ManualQuery>\n'
+        '\t\t\t\t<DynamicDataRead>false</DynamicDataRead>\n'
+        '\t\t\t\t<QueryText>ВЫБРАТЬ 1 ГДЕ 1 &lt; 2</QueryText>\n\t\t\t</Settings>\n',
+        '\t\t\t<Settings xsi:type="DynamicList">\n\t\t\t\t<ManualQuery>false</ManualQuery>\n'
+        '\t\t\t\t<DynamicDataRead>true</DynamicDataRead>\n\t\t\t\t<QueryText>ВЫБРАТЬ 2</QueryText>\n'
+        '\t\t\t\t<MainTable>Document.Заказ</MainTable>\n\t\t\t</Settings>\n',
+    ):
+        assert_true(expected in text, f"missing Settings block:\n{expected}\n--- in ---\n{text}")
+    assert_true("<Columns>" not in text, "a DynamicList attribute must not get Columns")
+    assert_equal(1, text.count("xmlns:xsi="), "Settings must reuse the form's xsi declaration")
+    assert_equal(0, run_python_tool(FORM_VALIDATE_PY, ["-FormPath", form], work)["exit_code"],
+                 "form-validate must accept the generated form")
+
+    for label, settings in (("no-settings", None), ("blank", {"mainTable": " ", "query": ""})):
+        attr = {"name": "Пусто", "type": "DynamicList"}
+        if settings is not None:
+            attr["settings"] = settings
+        root = os.path.join(work, label)
+        form, run = _form_edit(root, FORM_BAR + "\t<ChildItems/>\n", {"attributes": [attr]}, label)
+        assert_equal(1, run["exit_code"], f"{label}: a DynamicList without a source must be refused")
+        assert_true("DynamicList requires settings.mainTable or settings.query" in run["stdout"],
+                    f"{label}: refusal text: {run['stdout'][-300:]}")
+        assert_equal(FORM_HEAD + FORM_BAR + "\t<ChildItems/>\n</Form>\n", _read_form(form),
+                     f"{label}: a refused run must not touch the form")
+
+
+@case("form-validate: a DynamicList without MainTable and QueryText is an error")
+def _(work):
+    attr = ('\t<Attributes>\n\t\t<Attribute name="Список" id="1">\n\t\t\t<Type>\n'
+            '\t\t\t\t<v8:Type>cfg:DynamicList</v8:Type>\n\t\t\t</Type>\n{settings}\t\t</Attribute>\n\t</Attributes>\n')
+    cases = (
+        ("no-settings", "", 1),
+        ("empty", '\t\t\t<Settings xsi:type="DynamicList">\n\t\t\t\t<MainTable> </MainTable>\n\t\t\t</Settings>\n', 1),
+        ("main-table", '\t\t\t<Settings xsi:type="DynamicList">\n\t\t\t\t<MainTable>Catalog.Товары</MainTable>\n\t\t\t</Settings>\n', 0),
+        ("query", '\t\t\t<Settings xsi:type="DynamicList">\n\t\t\t\t<QueryText>ВЫБРАТЬ 1</QueryText>\n\t\t\t</Settings>\n', 0),
+    )
+    for label, settings, expected in cases:
+        form = os.path.join(work, f"{label}.xml")
+        with open(form, "w", encoding="utf-8") as handle:
+            handle.write(FORM_HEAD + FORM_BAR + "\t<ChildItems/>\n" + attr.replace("{settings}", settings) + "</Form>\n")
+        run = run_python_tool(FORM_VALIDATE_PY, ["-FormPath", form], work)
+        flagged = "DynamicList has neither MainTable nor QueryText" in run["stdout"]
+        assert_equal(bool(expected), flagged, f"{label}: DynamicList error reported = {flagged}\n{run['stdout'][-400:]}")
+        assert_equal(expected, 1 if run["exit_code"] else 0, f"{label}: exit code {run['exit_code']}")
+
+
+@case("xml layout: form-edit puts new ChildItems, Attributes and Commands sections in place")
+def _(work):
+    """Section order follows form-edit.ps1 (ChildItems after Events / AutoCommandBar, Attributes
+    after ChildItems, Commands after Parameters / Attributes), each on its own line; the
+    declaration keeps Configurator's upper-case UTF-8."""
+    elements = {"elements": [{"input": "Поле", "path": "Объект.Поле"}]}
+    attrs = {"attributes": [{"name": "Реквизит", "type": "string"}]}
+    commands = {"commands": [{"name": "Обновить", "action": "ОбновитьОбработка"}]}
+    for eol, tag in (("\n", "lf"), ("\r\n", "crlf")):
+        # Commands first, then Attributes: Attributes has to land before the existing Commands.
+        root = os.path.join(work, f"sections-{tag}")
+        form, run = _form_edit(root, FORM_BAR + "\t<ChildItems/>\n", commands, tag, eol)
+        assert_equal(0, run["exit_code"], f"{tag}: commands: {run['stdout'][-300:]}")
+        json_path = os.path.join(root, "attrs.json")
+        with open(json_path, "w", encoding="utf-8") as handle:
+            json.dump(attrs, handle, ensure_ascii=False)
+        _run_ok(FORM_EDIT_PY, ["-FormPath", form, "-JsonPath", json_path], root, f"{tag}: attributes")
+        text = _read_form(form)
+        expected = (FORM_BAR + "\t<ChildItems/>\n\t<Attributes>\n\t\t<Attribute name=\"Реквизит\" id=\"1\">\n")
+        assert_true(text.startswith('<?xml version="1.0" encoding="UTF-8"?>'), f"{tag}: declaration {text[:60]!r}")
+        assert_true(expected.replace("\n", eol) in text, f"{tag}: Attributes is not after ChildItems:\n{text!r}")
+        tail = "\t\t</Attribute>\n\t</Attributes>\n\t<Commands>\n\t\t<Command name=\"Обновить\" id=\"1\">\n"
+        assert_true(tail.replace("\n", eol) in text, f"{tag}: Commands does not follow Attributes:\n{text!r}")
+        assert_true(text.endswith("\t\t</Command>\n\t</Commands>\n</Form>\n".replace("\n", eol)),
+                    f"{tag}: the form does not end with Commands on its own lines:\n{text[-200:]!r}")
+        crlf = text.count("\r\n")
+        assert_true(crlf == text.count("\n") if eol == "\r\n" else crlf == 0, f"{tag}: mixed line endings")
+
+        # No ChildItems yet: it goes right after AutoCommandBar.
+        form, run = _form_edit(os.path.join(work, f"childitems-{tag}"), FORM_BAR, elements, tag, eol)
+        assert_equal(0, run["exit_code"], f"{tag}: elements: {run['stdout'][-300:]}")
+        text = _read_form(form)
+        assert_true((FORM_BAR + "\t<ChildItems>\n\t\t<InputField").replace("\n", eol) in text,
+                    f"{tag}: ChildItems is not on its own line after AutoCommandBar:\n{text!r}")
+        assert_true(text.endswith("\t</ChildItems>\n</Form>\n".replace("\n", eol)) or "\t</ChildItems>\n\t<".replace("\n", eol) in text,
+                    f"{tag}: ChildItems closing tag is joined:\n{text[-200:]!r}")
+
+
 @case("auto-validation: cf-edit, interface-edit and subsystem-* run their sibling validator")
 def _(work):
     """Each port calls the validator that sits next to it. The upstream .ps1 path
