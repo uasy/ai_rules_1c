@@ -1,5 +1,5 @@
 ---
-description: Create an infobase-to-MCP XML export script and install it in Windows Task Scheduler
+description: Create an infobase-to-MCP XML export script and schedule it — Windows Task Scheduler or a Linux systemd user timer
 userOnly: true
 argumentHint: "[interval-minutes]"
 ---
@@ -12,7 +12,7 @@ This is an infobase → dedicated Designer XML snapshot operation. It never load
 
 ## Resolve the project and MCP destination
 
-1. Windows only. Read the current project's `.dev.env` (the canonical filename includes the leading dot; do not introduce a second `dev.env`). Require `PLATFORM_PATH` and `INFOBASE_PATH`; use `INFOBASE_KIND=file` when empty. Read optional `IB_USER`, `IB_PASSWORD`, `EXTENSION_NAME` and `PLATFORM_ARGS`. Relative paths resolve from the project root. Do not copy credentials into the launcher, task arguments or a second settings file. The helper uses the installed Designer at `PLATFORM_PATH/bin/1cv8.exe` for both file and clustered infobases; it does not use `IBCMD_CONFIG`.
+1. Windows, or Linux with a systemd user session (differences — *Linux* below). Read the current project's `.dev.env` (the canonical filename includes the leading dot; do not introduce a second `dev.env`). Require `PLATFORM_PATH` and `INFOBASE_PATH`; use `INFOBASE_KIND=file` when empty. Read optional `IB_USER`, `IB_PASSWORD`, `EXTENSION_NAME` and `PLATFORM_ARGS`. Relative paths resolve from the project root. Do not copy credentials into the launcher, task arguments or a second settings file. The helper uses the installed Designer at `PLATFORM_PATH/bin/1cv8.exe` for both file and clustered infobases; it does not use `IBCMD_CONFIG`.
 2. Locate the **current project's** MCP installation/registration from `.ai-rules.json`, the active client's MCP config or the external distribution manifest, following `content/commands/setupmcp.md`. Read only relevant settings; do not print secrets. Resolve the effective `PATH_CODE` to its **Windows host path**, including the current Docker bind mount / project source-root mapping. A container path such as `/app/code` is not a host destination. Do not guess that `EXPORT_PATH` is the indexed directory, and do not select another project's registration. Multiple candidate projects or paths need one focused clarification before installation.
 3. Confirm the consumers accept a **Designer XML** dump. `PATH_METADATA` in legacy report mode is a separate text report, not an XML dump; this command does not generate that report. An EDT source tree cannot be overwritten with Designer XML. If either is in use, resolve a supported Designer XML source registration through the MCP distribution's documented setup procedure first, or report that the current consumer is incompatible; never claim that its report / EDT index was refreshed.
 4. The destination must be dedicated to generated files. It cannot overlap the infobase, explicit `EXPORT_PATH` / `EXTENSIONS_PATH`, a working Git/EDT project, or the generated scripts. Prefer an existing dedicated MCP dump directory. If MCP currently reads editable sources, resolve a separate dump and its MCP mapping before installing; do not silently overwrite the working tree or retarget other projects. A non-empty, previously unmanaged dump requires explicit authorization to replace **that directory's contents**; only then use `-AdoptExisting`. An already-owned destination needs no repeated confirmation. Never infer adoption from a request to install the task.
@@ -43,5 +43,15 @@ The helper stages a full dump and checks the wrapper's exit code (which includes
 Report the script path, task name, effective interval/user/logon mode, exact source target, destination and log, first-run result and observed MCP ingestion status. Do not print credentials. If no live infobase or MCP mapping is available, report the unresolved prerequisite rather than claiming installation/synchronization succeeded.
 
 Rollback: `Disable-ScheduledTask -TaskName '<exact-name>'` stops future triggers; let an active run finish, then `Unregister-ScheduledTask -TaskName '<exact-name>' -Confirm:$false`. Keep the dump and logs; deleting them is a separate request. Retargeting an existing installation requires disabling its old task first, because a new destination has a different task identity.
+
+## Linux
+
+The same helper ships as `install-files-update.py` next to the `.ps1`; run it with `python3` and the same parameters (`-WhatIf` included). The plan checks, the ownership marker, the task identity and the messages are those of the PowerShell helper. What differs:
+
+- Designer is `PLATFORM_PATH/bin/1cv8` or `PLATFORM_PATH/1cv8` (the Linux package layout). Designer needs a display: the user systemd manager must carry `DISPLAY` (a graphical session imports it; otherwise `systemctl --user import-environment DISPLAY XAUTHORITY`). The helper warns when it is missing.
+- Instead of a Task Scheduler task: `.1c-files-update/<id>/update-files.sh` and the units `1C-MCP-Files-<id>.service` / `.timer` under `~/.config/systemd/user/` — first run in one minute, then every interval, no time limit, a running export is not started twice. Without linger the timer runs only while the user is logged in, as the Windows task does; do not enable linger on your own.
+- The stage is mirrored in Python instead of `robocopy /MIR`: stale files are removed, a file whose content did not change is not rewritten. Symbolic links are refused where the PowerShell helper refuses junctions.
+- Verify: `systemctl --user list-timers '1C-MCP-Files-*'`, `systemctl --user start <task>.service` for the first run, then its exit status (`systemctl --user show <task>.service -p Result`), `last-run.log` ending in `SUCCESS` and the exported XML.
+- Rollback: `systemctl --user disable --now <task>.timer`; after an active run finishes, remove the two unit files and run `systemctl --user daemon-reload`. Keep the dump and logs.
 
 References: [Windows recurring triggers](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasktrigger), [1C XML export](https://kb.1ci.com/1C_Enterprise_Platform/What___s_New/Functional_Highlights/Incremental_export_of_configurations_to_XML_files/).

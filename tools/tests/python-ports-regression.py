@@ -65,6 +65,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1621,6 +1622,183 @@ def _db_tool(name, args, work):
     return run_python_tool(os.path.join(DB_OPS_DIR, name + ".py"), args, work)
 
 
+def _designer_stub(work, dump_result, write_files):
+    """A 1cv8 that exits 0 like a batch run whose verdict lives elsewhere: it writes
+    `dump_result` into the /DumpResult file (nothing when None) and, when asked,
+    one file into the /DumpConfigToFiles directory."""
+    bin_dir = os.path.join(work, "bin-1cv8")
+    os.makedirs(bin_dir, exist_ok=True)
+    stub = os.path.join(bin_dir, "1cv8")
+    result_line = "" if dump_result is None else f'[ "$prev" = "/DumpResult" ] && printf \'{dump_result}\' > "$a"\n'
+    files_line = '[ "$prev" = "/DumpConfigToFiles" ] && mkdir -p "$a" && printf x > "$a/Configuration.xml"\n' if write_files else ""
+    with open(stub, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write('#!/bin/sh\nprev=\nfor a in "$@"; do\n' + result_line + files_line + 'prev="$a"\ndone\nexit 0\n')
+    os.chmod(stub, 0o755)
+    return stub
+
+
+@case("db-ops: db-dump-xml trusts neither exit code 0 without /DumpResult 0 nor an empty dump")
+def _(work):
+    base = os.path.join(work, "base")
+    os.makedirs(base)
+    for label, dump_result, write_files, expected in (
+            ("verdict 0 and files", "0", True, 0),
+            ("verdict 1", "1", True, 1),
+            ("no verdict", None, True, 1),
+            ("verdict 0, empty dump", "0", False, 1)):
+        sandbox = os.path.join(work, label.replace(" ", "-").replace(",", ""))
+        stub = _designer_stub(sandbox, dump_result, write_files)
+        out_dir = os.path.join(sandbox, "out")
+        run = _db_tool("db-dump-xml", ["-V8Path", stub, "-InfoBasePath", base, "-ConfigDir", out_dir], sandbox)
+        assert_equal(expected, run["exit_code"], f"{label}: {run['stdout'][-300:]} {run['stderr'][-300:]}")
+
+
+FILES_UPDATE_PY = os.path.join(DB_OPS_DIR, "install-files-update.py")
+
+
+def _files_update(args, work, env_extra=None):
+    env = dict(os.environ, **(env_extra or {}))
+    proc = subprocess.run([sys.executable, "-B", FILES_UPDATE_PY, *args], cwd=work, capture_output=True,
+                          text=True, encoding="utf-8", errors="replace", env=env)
+    return {"exit_code": proc.returncode, "stdout": proc.stdout or "", "stderr": proc.stderr or ""}
+
+
+def _files_update_project(work, log_text="Выгрузка конфигурации завершена"):
+    """A project whose .dev.env points at a file infobase and a Designer stub that
+    writes a two-object dump, its /Out log and /DumpResult 0."""
+    project = os.path.join(work, "project")
+    platform = os.path.join(work, "platform")
+    base = os.path.join(work, "base")
+    for directory in (project, os.path.join(platform, "bin"), base):
+        os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(base, "1Cv8.1CD"), "wb") as handle:
+        handle.write(b"x")
+    stub = os.path.join(platform, "bin", "1cv8")
+    with open(stub, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write('#!/bin/sh\nprev=\nfor a in "$@"; do\n'
+                     'case "$prev" in\n'
+                     '/DumpConfigToFiles) mkdir -p "$a/Catalogs"; printf \'<MetaDataObject/>\' > "$a/Configuration.xml";'
+                     ' printf \'<ConfigDumpInfo/>\' > "$a/ConfigDumpInfo.xml"; printf \'<Catalog/>\' > "$a/Catalogs/A.xml";;\n'
+                     f'/Out) printf \'%s\' {shlex.quote(log_text)} > "$a";;\n'
+                     '/DumpResult) printf 0 > "$a";;\n'
+                     'esac\nprev="$a"\ndone\nexit 0\n')
+    os.chmod(stub, 0o755)
+    with open(os.path.join(project, ".dev.env"), "w", encoding="utf-8") as handle:
+        handle.write(f"PLATFORM_PATH={platform}\nINFOBASE_KIND=file\nINFOBASE_PATH={base}\n"
+                     "IB_USER=Админ\nIB_PASSWORD=Secr3tX\nEXPORT_PATH=src\n")
+    return project, os.path.join(work, "mcp-dump")
+
+
+@case("install-files-update: the plan refuses unsafe destinations and -CheckOnly writes nothing")
+def _(work):
+    if not sys.platform.startswith("linux"):
+        raise CaseSkipped("the Python version installs a systemd user timer: Linux only")
+    project, dest = _files_update_project(work)
+    before = snapshot_tree(work)
+    run = _files_update(["-ProjectRoot", project, "-IndexPath", dest, "-CheckOnly"], work)
+    assert_equal(0, run["exit_code"], run["stderr"])
+    assert_true(re.search(r"TaskName\s+: 1C-MCP-Files-[0-9A-F]{16}", run["stdout"]), run["stdout"])
+    assert_true("Secr3tX" not in run["stdout"] + run["stderr"], "the plan printed the password")
+    assert_tree_identical(before, snapshot_tree(work), "-CheckOnly")
+
+    os.makedirs(os.path.join(work, "busy"))
+    with open(os.path.join(work, "busy", "old.xml"), "w") as handle:
+        handle.write("x")
+    os.makedirs(os.path.join(work, "edt", "src"))
+    with open(os.path.join(work, "edt", "src", "Catalog.mdo"), "w") as handle:
+        handle.write("x")
+    os.symlink(work, os.path.join(work, "linked"))
+    for index_path, message in (
+            (project, "корнем диска, проекта или его родителем"),
+            (os.path.join(project, "src", "dump"), "пересекается с EXPORT_PATH"),
+            (os.path.join(work, "busy"), "требуется -AdoptExisting"),
+            (os.path.join(work, "edt"), "исходники EDT"),
+            (os.path.join(work, "linked", "dump"), "ссылку или junction")):
+        run = _files_update(["-ProjectRoot", project, "-IndexPath", index_path, "-CheckOnly"], work)
+        assert_equal(1, run["exit_code"], f"{index_path} accepted: {run['stdout']}")
+        assert_true(message in run["stderr"], f"{index_path}: {run['stderr']}")
+    run = _files_update(["-ProjectRoot", project, "-IndexPath", os.path.join(work, "busy"), "-CheckOnly", "-AdoptExisting"], work)
+    assert_equal(0, run["exit_code"], run["stderr"])
+    run = _files_update(["-Action", "Run", "-ProjectRoot", project, "-IndexPath", dest], work)
+    assert_equal(1, run["exit_code"], run["stdout"])
+    assert_true("Нет маркера установленного задания" in run["stderr"], run["stderr"])
+
+
+@case("install-files-update: Install writes the launcher, marker and systemd units; Run mirrors a verified dump")
+def _(work):
+    if not sys.platform.startswith("linux"):
+        raise CaseSkipped("the Python version installs a systemd user timer: Linux only")
+    # The platform log echoes the password: the tool masks its whole captured output.
+    project, dest = _files_update_project(work, "Выгрузка завершена, пароль Secr3tX")
+    fake_bin = os.path.join(work, "fake-bin")
+    os.makedirs(fake_bin)
+    with open(os.path.join(fake_bin, "systemctl"), "w", encoding="utf-8", newline="\n") as handle:
+        handle.write('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$(dirname "$0")/calls.log"\n'
+                     'case "$*" in\n'
+                     '*"show "*"-p ExecStart"*) sed -n \'s/^ExecStart=/ExecStart={ argv[]=/p\' "$XDG_CONFIG_HOME"/systemd/user/*.service;;\n'
+                     '*show-environment*) echo DISPLAY=:0;;\n'
+                     '*is-active*) echo inactive; exit 3;;\n'
+                     'esac\nexit 0\n')
+    os.chmod(os.path.join(fake_bin, "systemctl"), 0o755)
+    env = {"PATH": fake_bin + os.pathsep + os.environ["PATH"], "XDG_CONFIG_HOME": os.path.join(work, "config")}
+    run = _files_update(["-ProjectRoot", project, "-IndexPath", dest, "-IntervalMinutes", "15"], work, env)
+    assert_equal(0, run["exit_code"], run["stderr"])
+    task = re.search(r"Задание: (1C-MCP-Files-[0-9A-F]{16}); интервал: 15 мин\.", run["stdout"])
+    assert_true(task, run["stdout"])
+    units = os.path.join(work, "config", "systemd", "user")
+    with open(os.path.join(units, task.group(1) + ".timer"), encoding="utf-8") as handle:
+        timer = handle.read()
+    assert_true("OnActiveSec=1min" in timer and "OnUnitActiveSec=15min" in timer, timer)
+    with open(os.path.join(units, task.group(1) + ".service"), encoding="utf-8") as handle:
+        service = handle.read()
+    assert_true("TimeoutStartSec=infinity" in service and "update-files.sh" in service, service)
+    launcher = re.search(r'ExecStart=/bin/sh "([^"]+)"', service).group(1)
+    with open(launcher, encoding="utf-8") as handle:
+        assert_true("Secr3tX" not in handle.read(), "the launcher stores the password")
+    with open(os.path.join(fake_bin, "calls.log"), encoding="utf-8") as handle:
+        calls = handle.read()
+    assert_true(f"--user enable {task.group(1)}.timer" in calls, calls)
+
+    # A stale file goes, an unchanged one is not rewritten, the marker travels with the dump.
+    with open(os.path.join(dest, "Stale.xml"), "w") as handle:
+        handle.write("old")
+    os.makedirs(os.path.join(dest, "Catalogs"))
+    with open(os.path.join(dest, "Catalogs", "A.xml"), "w") as handle:
+        handle.write("<Catalog/>")
+    unchanged = os.stat(os.path.join(dest, "Catalogs", "A.xml"))
+    run = _files_update(["-Action", "Run", "-ProjectRoot", project, "-IndexPath", dest], work)
+    assert_equal(0, run["exit_code"], run["stderr"])
+    assert_equal(sorted([".1c-files-update.json", "Catalogs", "ConfigDumpInfo.xml", "Configuration.xml"]),
+                 sorted(os.listdir(dest)), "mirrored destination")
+    after = os.stat(os.path.join(dest, "Catalogs", "A.xml"))
+    assert_equal((unchanged.st_ino, unchanged.st_mtime_ns), (after.st_ino, after.st_mtime_ns), "unchanged file rewritten")
+    log = os.path.join(os.path.dirname(launcher), "last-run.log")
+    with open(log, encoding="utf-8-sig") as handle:
+        text = handle.read()
+    assert_true(text.rstrip().endswith("SUCCESS"), text)
+    assert_true("Secr3tX" not in text and "пароль ***" in text, "the log does not mask the password")
+
+
+@case("install-files-update: a platform log with an error keeps the published dump")
+def _(work):
+    if not sys.platform.startswith("linux"):
+        raise CaseSkipped("the Python version installs a systemd user timer: Linux only")
+    project, dest = _files_update_project(work, "Ошибка проверки конфигурации")
+    os.makedirs(dest)
+    with open(os.path.join(dest, "Published.xml"), "w") as handle:
+        handle.write("keep")
+    run = _files_update(["-ProjectRoot", project, "-IndexPath", dest, "-AdoptExisting", "-CheckOnly"], work)
+    assert_equal(0, run["exit_code"], run["stderr"])
+    # The marker Install would write, without touching systemd.
+    with open(os.path.join(dest, ".1c-files-update.json"), "w", encoding="utf-8-sig") as handle:
+        json.dump({"ProjectRoot": project, "IndexPath": dest}, handle)
+    before = snapshot_tree(dest)
+    run = _files_update(["-Action", "Run", "-ProjectRoot", project, "-IndexPath", dest], work)
+    assert_equal(1, run["exit_code"], run["stdout"])
+    assert_true("не подтверждена журналом" in run["stderr"], run["stderr"])
+    assert_tree_identical(before, snapshot_tree(dest), "a failed export touched the published dump")
+
+
 DBMS_ARGS = ["-Dbms", "PostgreSQL", "-DbServer", "pg port=5433", "-DbName", "base1",
              "-DbUser", "u1", "-DbPassword", "Secr3tX"]
 
@@ -2292,8 +2470,16 @@ def _(work):
 
 @case("invoke-1c-edit: a PowerShell-only tool is refused with the porting boundary explained")
 def _(work):
+    # Every shipped tool has a Python peer, so the boundary is exercised on a
+    # private tools tree: the wrapper and its helpers plus one PowerShell-only tool.
     copy_fixture("config-dump", work)
-    run = run_python_tool(INVOKE_1C_EDIT_PY, ["-Tool", "dump-validate", "-Preview"], work)
+    tools = os.path.join(work, "tools-tree")
+    common = os.path.join(tools, "_common")
+    os.makedirs(common)
+    for helper in ("Invoke-1CEdit.py", "dev_env.py", "MetadataAddress.py"):
+        shutil.copyfile(os.path.join(os.path.dirname(INVOKE_1C_EDIT_PY), helper), os.path.join(common, helper))
+    write_dump_xml(os.path.join(tools, "1c-probe", "scripts", "ps-only.ps1"), "param()\n")
+    run = run_python_tool(os.path.join(common, "Invoke-1CEdit.py"), ["-Tool", "ps-only", "-Preview"], work)
     assert_equal(1, run["exit_code"], f"exit code (stderr: {run['stderr']})")
     assert_true("no Python peer" in run["stderr"], f"wrong refusal: {run['stderr']}")
 
@@ -3436,7 +3622,7 @@ def _(work):
         if name.endswith(".ps1")
         and not os.path.isfile(os.path.join(TOOLS_DIR, entry, "scripts", name[:-4] + ".py"))
     )
-    assert_true(unported, "fixture assumption broken: every tool now has a Python peer")
+    # Every tool has a Python peer today; the loop guards the next PowerShell-only tool upstream adds.
     for entry, promised in unported:
         assert_true(promised not in text,
                     f"SKILL.md promises {promised}, which does not exist under {entry}")
@@ -3516,6 +3702,166 @@ def _(work):
     assert_equal(2, refusal["exit_code"],
                  f"the installed meta-edit did not refuse add-form: {refusal['stderr'][-400:]}")
     assert_tree_identical(before, snapshot_tree(directory), "installed add-form refusal")
+
+
+# ---------------------------------------------------------------- complete dump integrity (read-only)
+
+DUMP_VALIDATE_PY = os.path.join(TOOLS_DIR, "1c-cf-manage", "scripts", "dump-validate.py")
+DUMP_HEADER = '<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" version="2.17">'
+
+
+def write_dump_xml(path, body):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8-sig", newline="") as handle:
+        handle.write(body)
+
+
+def read_dump_xml(path):
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        return handle.read()
+
+
+def new_dump_fixture(work, extension=False):
+    """The fixture of the dump-validate cases in metadata-tools-regression.ps1."""
+    root = os.path.join(work, "dump")
+    belonging = "<ObjectBelonging>Adopted</ObjectBelonging>" if extension else ""
+    write_dump_xml(os.path.join(root, "Configuration.xml"), DUMP_HEADER
+                   + "<Configuration><Properties><Name>Probe</Name>" + belonging
+                   + "<DefaultLanguage>Language.Test</DefaultLanguage><Comment>Catalog.NotAReference</Comment></Properties>"
+                   "<ChildObjects><Language>Test</Language><Subsystem>Main</Subsystem><Catalog>TestCatalog</Catalog>"
+                   "</ChildObjects></Configuration></MetaDataObject>")
+    write_dump_xml(os.path.join(root, "Languages", "Test.xml"),
+                   DUMP_HEADER + "<Language><Properties><Name>Test</Name></Properties></Language></MetaDataObject>")
+    write_dump_xml(os.path.join(root, "Subsystems", "Main.xml"), DUMP_HEADER
+                   + "<Subsystem><Properties><Name>Main</Name><Content><Item>Catalog.TestCatalog</Item>"
+                   "<Item>Subsystem.Main.Subsystem.Child</Item></Content></Properties>"
+                   "<ChildObjects><Subsystem>Child</Subsystem></ChildObjects></Subsystem></MetaDataObject>")
+    write_dump_xml(os.path.join(root, "Subsystems", "Main", "Subsystems", "Child.xml"), DUMP_HEADER
+                   + "<Subsystem><Properties><Name>Child</Name><Content/></Properties><ChildObjects/></Subsystem></MetaDataObject>")
+    os.makedirs(os.path.join(root, "Catalogs"), exist_ok=True)
+    shutil.copyfile(os.path.join(FIXTURES_DIR, "config-dump", "Catalogs", "TestCatalog.xml"),
+                    os.path.join(root, "Catalogs", "TestCatalog.xml"))
+    write_dump_xml(os.path.join(root, "ConfigDumpInfo.xml"),
+                   '<ConfigDumpInfo xmlns="http://v8.1c.ru/8.3/xcf/dumpinfo" version="2.17" format="Hierarchical">'
+                   '<ConfigVersions><Metadata name="Configuration.Probe.ManagedApplicationModule"/>'
+                   '<Metadata name="Catalog.TestCatalog"><Metadata name="Catalog.TestCatalog.Attribute.Baza"/></Metadata>'
+                   '<Metadata name="Subsystem.Main.Subsystem.Child"/></ConfigVersions></ConfigDumpInfo>')
+    # These are intentionally not root metadata descriptors and must not be traversed.
+    write_dump_xml(os.path.join(root, "Catalogs", "TestCatalog", "Forms", "Form", "Ext", "Form.xml"), "<ignored/>")
+    write_dump_xml(os.path.join(root, "Ext", "ParentConfigurations", "Supplier", "Configuration.xml"), "<ignored/>")
+    return root
+
+
+def run_dump_validate(target, work, extra=()):
+    run = run_python_tool(DUMP_VALIDATE_PY, ["-ConfigPath", target, "-Format", "Json"] + list(extra), work)
+    assert_true(not run["stderr"].strip(), f"dump validator stderr: {run['stderr']}")
+    result = json.loads(run["stdout"])
+    assert_equal(1, result["schema_version"], "dump result schema")
+    return run, result
+
+
+def assert_dump_finding(run_result, kind, obj=""):
+    run, result = run_result
+    assert_equal(1, run["exit_code"], "invalid dump exit code")
+    hits = [f for f in result["findings"] if f["kind"] == kind and (not obj or f["object"] == obj)]
+    assert_true(hits, f"missing finding {kind} ({obj}): {run['stdout']}")
+
+
+@case("dump-validate: healthy CF and CFE, nested subsystems and internal dump-info records")
+def _(work):
+    for extension in (False, True):
+        root = new_dump_fixture(os.path.join(work, str(extension)), extension)
+        before = snapshot_tree(root)
+        run, result = run_dump_validate(root, work)
+        assert_equal(0, run["exit_code"], run["stdout"])
+        assert_equal("valid", result["status"], "healthy dump verdict")
+        assert_equal(5, result["objects_checked"], "root and nested object count")
+        assert_equal([], result["findings"], "healthy findings")
+        assert_tree_identical(before, snapshot_tree(root), "validation mutated a file")
+
+
+@case("dump-validate: missing root and nested objects, orphan and unknown types")
+def _(work):
+    root = new_dump_fixture(work)
+    os.remove(os.path.join(root, "Catalogs", "TestCatalog.xml"))
+    os.remove(os.path.join(root, "Subsystems", "Main", "Subsystems", "Child.xml"))
+    configuration = os.path.join(root, "Configuration.xml")
+    write_dump_xml(configuration, read_dump_xml(configuration).replace(
+        "<Catalog>TestCatalog</Catalog>", "<Catalog>TestCatalog</Catalog><Catalog>TestCatalog</Catalog><Unknown>Bad</Unknown>"))
+    write_dump_xml(os.path.join(root, "Languages", "Orphan.xml"),
+                   read_dump_xml(os.path.join(root, "Languages", "Test.xml")).replace("<Name>Test</Name>", "<Name>Orphan</Name>"))
+    result = run_dump_validate(root, work)
+    for kind, obj in (("missing-file", "Catalog.TestCatalog"), ("missing-file", "Subsystem.Main.Subsystem.Child"),
+                      ("orphan-file", "Language.Orphan"), ("duplicate-entry", "Catalog.TestCatalog"),
+                      ("unknown-type", "Unknown.Bad"), ("dangling-reference", "Catalog.TestCatalog"),
+                      ("dump-info-extra", "Catalog.TestCatalog")):
+        assert_dump_finding(result, kind, obj)
+
+
+@case("dump-validate: object versions, malformed XML and mismatched descriptor names")
+def _(work):
+    root = new_dump_fixture(work)
+    language = os.path.join(root, "Languages", "Test.xml")
+    write_dump_xml(language, read_dump_xml(language).replace("2.17", "2.20").replace("<Name>Test</Name>", "<Name>Wrong</Name>"))
+    write_dump_xml(os.path.join(root, "Catalogs", "TestCatalog.xml"), "<broken")
+    child = os.path.join(root, "Subsystems", "Main", "Subsystems", "Child.xml")
+    write_dump_xml(child, read_dump_xml(child).replace(' version="2.17"', ""))
+    result = run_dump_validate(root, work)
+    for kind, obj in (("version-mismatch", "Language.Test"), ("name-mismatch", "Language.Test"),
+                      ("xml-unreadable", "Catalog.TestCatalog"), ("version-unreadable", "Subsystem.Main.Subsystem.Child")):
+        assert_dump_finding(result, kind, obj)
+    assert_equal(0, sum(1 for f in result[1]["findings"] if f["kind"] == "dangling-reference"),
+                 "unreadable existing file is not missing")
+
+
+@case("dump-validate: ConfigDumpInfo version and missing objects without duplicate child reports")
+def _(work):
+    root = new_dump_fixture(work)
+    info = os.path.join(root, "ConfigDumpInfo.xml")
+    write_dump_xml(info, read_dump_xml(info).replace("2.17", "2.20").replace("Catalog.TestCatalog", "Catalog.Deleted"))
+    result = run_dump_validate(root, work)
+    assert_dump_finding(result, "dump-info-version")
+    assert_dump_finding(result, "dump-info-extra", "Catalog.Deleted")
+    assert_equal(1, sum(1 for f in result[1]["findings"] if f["kind"] == "dump-info-extra"), "duplicate missing-owner reports")
+
+
+@case("dump-validate: optional dump-info and root file input, text and JSON output")
+def _(work):
+    root = new_dump_fixture(work)
+    os.remove(os.path.join(root, "ConfigDumpInfo.xml"))
+    out = os.path.join(work, "result.json")
+    run, _result = run_dump_validate(os.path.join(root, "Configuration.xml"), work, ["-OutFile", out])
+    assert_equal(0, run["exit_code"], run["stdout"])
+    with open(out, encoding="utf-8-sig") as handle:
+        assert_equal("valid", json.load(handle)["status"], "saved JSON")
+    run = run_python_tool(DUMP_VALIDATE_PY, ["-ConfigPath", root], work)
+    assert_equal(0, run["exit_code"], run["stderr"])
+    assert_true("valid" in run["stdout"], "text verdict missing")
+
+
+@case("dump-validate: refuses source overwrite and reports missing configuration")
+def _(work):
+    root = new_dump_fixture(work)
+    configuration = os.path.join(root, "Configuration.xml")
+    before = read_dump_xml(configuration)
+    assert_dump_finding(run_dump_validate(root, work, ["-OutFile", configuration]), "scan-error")
+    assert_equal(before, read_dump_xml(configuration), "source overwritten by report")
+    os.remove(configuration)
+    assert_dump_finding(run_dump_validate(root, work), "configuration-missing")
+
+
+@case("dump-validate: missing composition, invalid metadata root and unsupported dump layout")
+def _(work):
+    root = new_dump_fixture(work)
+    configuration = os.path.join(root, "Configuration.xml")
+    write_dump_xml(configuration, re.sub(r"<ChildObjects>.*?</ChildObjects>", "", read_dump_xml(configuration), flags=re.S))
+    write_dump_xml(os.path.join(root, "Languages", "Test.xml"), "<not-metadata/>")
+    info = os.path.join(root, "ConfigDumpInfo.xml")
+    write_dump_xml(info, read_dump_xml(info).replace("Hierarchical", "Plain"))
+    result = run_dump_validate(root, work)
+    assert_dump_finding(result, "composition-missing")
+    assert_dump_finding(result, "metadata-root-invalid", "Language.Test")
+    assert_dump_finding(result, "dump-format-unsupported")
 
 
 # ---------------------------------------------------------------- run

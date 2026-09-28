@@ -22,6 +22,10 @@ No script files were brought into `tools/` — the operations are pure module-te
 
 ## cf-manage.md
 
+### Python `dump-validate` (`2026-09-28`)
+
+`dump-validate.py` joins `dump-validate.ps1`: the same findings, text / JSON output, `-OutFile` guard and exit codes, so a complete Designer dump is checked on Linux / macOS too. Pinned by `tools/tests/python-ports-regression.py`.
+
 ### Upstream sync `2026-07-30`
 
 Scripts refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills): `cf-edit` v1.4 → **v1.11**, `cf-info` v1.2 → **v1.4**, `cf-init` v1.2 → **v1.3**, `cf-validate` v1.3 → **v1.4**.
@@ -89,6 +93,10 @@ Full description in section 4 above.
 An extension is the **default answer** when a typical object on vendor support needs a change: support state stays untouched and vendor updates keep flowing. The mutating tools of this skill now enforce that — they refuse to edit a locked object directly and point here. See [support-manage.md](support-manage.md).
 
 ## db-manage.md
+
+### Python `db-dump-xml` verdict, `install-files-update` for Linux (`2026-09-28`)
+
+`db-dump-xml.py` reads the `/DumpResult` verdict and refuses an empty output directory, as `db-dump-xml.ps1` does: exit code 0 of `1cv8` alone no longer counts as a dump. `install-files-update.py` is the Linux peer of `install-files-update.ps1` (`/installfilesupdatescript`): a systemd user timer instead of a Task Scheduler task, Python mirroring instead of `robocopy /MIR` that leaves unchanged files alone, symbolic links refused. Both pinned by `tools/tests/python-ports-regression.py`.
 
 ### Recent Additions (upstream sync `2026-07-30`)
 

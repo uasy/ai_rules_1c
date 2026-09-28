@@ -141,6 +141,8 @@ check after `cf-validate` (or `cfe-validate` for an extension):
 powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cf-manage/scripts/dump-validate.ps1 -ConfigPath "<dump-directory>" -Format Json
 ```
 
+On Linux / macOS: `python3 skills/1c-metadata-manage/tools/1c-cf-manage/scripts/dump-validate.py` with the same parameters, findings and exit codes.
+
 `ConfigPath` also accepts `Configuration.xml`. `Format` is `Text` by default or
 `Json` for automation. Optional `OutFile` saves the same result as UTF-8 with BOM;
 it must be outside the checked dump, so a report cannot overwrite its sources.

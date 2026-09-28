@@ -34,7 +34,7 @@ XML saving in `form-edit`, `form-add`, `remove-form`, `form-compile` registratio
 
 The Python peers keep the input line endings the same way: `cf-edit`, `cfe-borrow`, `subsystem-compile`, `subsystem-edit`, `interface-edit`, `form-edit`, `add-help`, `add-template` and the `form-compile` registration restore the file's CRLF / LF style when they rewrite it, and the indentation they insert never reaches the file as a literal `&#13;` (`tools/_shared/xml_eol.py`). Compact empty tags need nothing there — lxml writes `<Tag/>`.
 
-Each tool of this skill ships as a PowerShell script (`*.ps1`). Nearly all of them also ship a **Python entry point** (`*.py`) next to it — same directory, same file name, same PowerShell-style `-Param` spelling (`-ObjectPath`, `-OutputDir`, `-Force`, `-NoValidate`), so a documented command line ports by swapping `powershell.exe -File …ps1` for `python3 …py`. One shell caveat: a value that itself starts with `-` must be passed as `-Flag=value`.
+Each tool of this skill ships as a PowerShell script (`*.ps1`) and a **Python entry point** (`*.py`) next to it — same directory, same file name, same PowerShell-style `-Param` spelling (`-ObjectPath`, `-OutputDir`, `-Force`, `-NoValidate`), so a documented command line ports by swapping `powershell.exe -File …ps1` for `python3 …py`. One shell caveat: a value that itself starts with `-` must be passed as `-Flag=value`.
 
 The `.py` files do **not** all carry the same guarantees, and the difference matters when a run misbehaves:
 

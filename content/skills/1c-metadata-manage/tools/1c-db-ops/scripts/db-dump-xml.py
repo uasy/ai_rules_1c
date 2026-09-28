@@ -54,6 +54,15 @@ def _version_key(p):
     return [int(x) for x in re.findall(r"\d+", _version_dir(p))]
 
 
+def dir_non_empty(path):
+    # Postcondition: the platform must have written files into the output directory.
+    # Exit code 0 with an empty dir (broken/headless env) is a false success — reject it.
+    try:
+        return os.path.isdir(path) and any(True for _ in os.scandir(path))
+    except OSError:
+        return False
+
+
 def resolve_v8path(v8path):
     """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly)."""
     if not v8path:
@@ -204,15 +213,21 @@ def main():
             ' '.join(platform_args.format_args_for_display(arguments, engine)),
             [args.Password, args.UserName]))
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
-        if result.returncode == 0:
+        exit_code = result.returncode
+        out_missing = exit_code == 0 and not dir_non_empty(args.ConfigDir)
+        if out_missing:
+            exit_code = 1
+        if exit_code == 0:
             print(f"Configuration exported successfully to: {args.ConfigDir}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no files under {args.ConfigDir} \u2014 configuration was not exported", file=sys.stderr)
         else:
-            print(f"Error exporting configuration (code: {result.returncode})", file=sys.stderr)
+            print(f"Error exporting configuration (code: {exit_code})", file=sys.stderr)
         if result.stdout:
             print(result.stdout)
         if result.stderr:
             print(result.stderr, file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(exit_code)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_dump_xml_{random.randint(0, 999999)}")
@@ -266,6 +281,8 @@ def main():
         # --- Output ---
         out_file = os.path.join(temp_dir, "dump_log.txt")
         arguments += ["/Out", out_file]
+        result_file = os.path.join(temp_dir, "batch_result.txt")
+        arguments += ["/DumpResult", result_file]
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
@@ -280,10 +297,33 @@ def main():
         )
         exit_code = result.returncode
 
+        # The platform's own batch verdict: /DumpResult writes 0 on success. Read it before
+        # trusting the exit code - a batch command can fail while 1cv8 exits 0 (canon:
+        # content/rules/designer-batch-checks.md -> The verdict is three signals).
+        if exit_code == 0:
+            dump_code = ""
+            try:
+                with open(result_file, "r", encoding="utf-8-sig", errors="replace") as f:
+                    dump_code = re.sub(r"[^\d\-]", "", f.read())
+            except OSError:
+                pass
+            if dump_code != "0":
+                if dump_code:
+                    print(f"[error] batch result {dump_code} reported by /DumpResult (0 = success)", file=sys.stderr)
+                else:
+                    print("[error] /DumpResult wrote no result - the batch command did not complete", file=sys.stderr)
+                exit_code = 1
+
         # --- Result ---
+        # Postcondition: exit 0 with an empty output directory is a false success.
+        out_missing = exit_code == 0 and not dir_non_empty(args.ConfigDir)
+        if out_missing:
+            exit_code = 1
         if exit_code == 0:
             print("Dump completed successfully")
             print(f"Configuration dumped to: {args.ConfigDir}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no files under {args.ConfigDir} \u2014 configuration was not dumped", file=sys.stderr)
         else:
             print(f"Error dumping configuration (code: {exit_code})", file=sys.stderr)
 
