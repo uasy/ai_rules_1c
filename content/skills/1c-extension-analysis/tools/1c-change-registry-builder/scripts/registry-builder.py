@@ -371,7 +371,7 @@ def main():
         allow_abbrev=False,
     )
     parser.add_argument("-ExtensionPath", required=True, help="Path to extension source dump")
-    parser.add_argument("-Object", default=None, help='Scope to one object, e.g. "Document.ПереносОтпуска"')
+    parser.add_argument("-Object", default=None, help='Scope to one object, e.g. "Document.<Имя>"')
     parser.add_argument(
         "-CompareAgainst", default=None,
         help="Path to an already-written report/registry Markdown file; flags objects "

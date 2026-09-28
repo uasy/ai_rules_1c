@@ -4,20 +4,11 @@
 # Composition Schema, without requiring a human to open and read the whole
 # Template.xml by hand.
 #
-# Companion to the rest of 1c-extension-analysis's tools. Born from a concrete
-# classification mistake found comparing two independent analyses of the same real
-# extension: a wholly new report was grouped by one analysis into the same
-# functional block as unrelated subdivision-tracking objects purely because of a
-# shared name suffix. Reading the report's actual DCS query showed it aggregates
-# turnovers from three unrelated payroll/bookkeeping accumulation registers and
-# does not reference those subdivision-tracking objects at all. The other analysis,
-# which did read the query, correctly identified this report as the answer to a
-# separately-described "bookkeeping adaptation" requirement, unrelated to the
-# subdivision-tracking objects. Grouping a wholly-new Report by name similarity
-# instead of by what its query actually reads is exactly the mistake this tool is
-# meant to make cheap to avoid — SKILL.md step 3 now requires running it (or
+# Companion to the rest of 1c-extension-analysis's tools. Grouping a wholly-new
+# Report by name similarity instead of by what its query actually reads is the
+# mistake this tool makes cheap to avoid — SKILL.md step 3 requires running it (or
 # reading the query by hand) before assigning such an object to a functional
-# block. See docs/dcs-query-fields-extractor.md -> Provenance for the exact case.
+# block. Why it exists: docs/dcs-query-fields-extractor.md -> Provenance.
 
 import argparse
 import os

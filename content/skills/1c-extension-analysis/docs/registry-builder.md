@@ -27,7 +27,7 @@ python3 registry-builder.py -ExtensionPath <path> [-Object "Type.Name"] [-Compar
 ```
 
 - No `-Object` — walks the whole extension tree.
-- `-Object "Document.ПереносОтпуска"` — scopes to one object (fast, targeted re-check of a single object mid-analysis).
+- `-Object "Document.<Имя>"` — scopes to one object (fast, targeted re-check of a single object mid-analysis).
 - `-CompareAgainst <path>` — switches to coverage-check mode: generates the same rows, then checks whether the object name appears anywhere (plain substring search) in the given file, and prints only the ones that do **not** appear at all.
 
 ## Known gaps — read before trusting the output as complete
