@@ -1,9 +1,6 @@
 ﻿# db-create v1.10 — Create 1C information base
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
-# 1c-rules: -Locale (1cv8 and ibcmd) and -PageSize (1cv8, file infobase); the ibcmd branch also
-# creates a DBMS infobase (-Dbms / -DbServer / -DbName / -DbUser / -DbPassword) and takes
-# -IbcmdDataPath / -IbcmdTempPath; mirrored in db-create.py (NOTICE.md).
 <#
 .SYNOPSIS
     Создание информационной базы 1С
@@ -39,37 +36,6 @@
 .PARAMETER AdditionalIbcmdArguments
     Дополнительные аргументы запуска ibcmd (форма --ключ=значение)
 
-.PARAMETER PageSize
-    Только 1cv8, файловая база: размер страницы (4k, 8k, 16k, 32k, 64k; формат 8.3.8).
-    Большая страница поднимает предел размера внутреннего файла 1Cv8.1CD
-
-.PARAMETER Locale
-    Локаль новой базы, например ru_RU (1cv8 — Locale= в строке соединения, ibcmd — --locale).
-    По умолчанию — локаль окружения процесса
-
-.PARAMETER Dbms
-    Только ibcmd: СУБД информационной базы (PostgreSQL, MSSQLServer, IBMDB2, OracleDatabase).
-    Не указывается для файловой базы
-
-.PARAMETER DbServer
-    Только ibcmd: сервер СУБД; нестандартный порт PostgreSQL — "host port=5433"
-
-.PARAMETER DbName
-    Только ibcmd: имя базы данных
-
-.PARAMETER DbUser
-    Только ibcmd: пользователь СУБД
-
-.PARAMETER DbPassword
-    Только ibcmd: пароль пользователя СУБД
-
-.PARAMETER IbcmdDataPath
-    Только ibcmd: каталог данных сервера (--data); по умолчанию временный каталог.
-    Должен поддерживать переименование файлов — не общая папка VirtualBox
-
-.PARAMETER IbcmdTempPath
-    Только ibcmd: каталог временных файлов (--temp)
-
 .EXAMPLE
     .\db-create.ps1 -InfoBasePath "C:\Bases\NewDB"
 
@@ -78,12 +44,6 @@
 
 .EXAMPLE
     .\db-create.ps1 -InfoBasePath "C:\Bases\NewDB" -UseTemplate "C:\Templates\config.cf" -AddToList -ListName "Новая база"
-
-.EXAMPLE
-    .\db-create.ps1 -InfoBasePath "C:\Bases\Big" -PageSize 64k -Locale ru_RU
-
-.EXAMPLE
-    .\db-create.ps1 -V8Path "C:\Program Files\1cv8\8.3.27.2074\bin\ibcmd.exe" -Dbms PostgreSQL -DbServer "pg01 port=5433" -DbName zup_test -DbUser postgres -DbPassword "***" -Locale ru_RU
 #>
 
 [CmdletBinding()]
@@ -113,36 +73,7 @@ param(
     [string[]]$AdditionalV8Arguments = @(),
 
     [Parameter(Mandatory=$false)]
-    [string[]]$AdditionalIbcmdArguments = @(),
-
-    [Parameter(Mandatory=$false)]
-    [ValidateSet('', '4k', '8k', '16k', '32k', '64k')]
-    [string]$PageSize = '',
-
-    [Parameter(Mandatory=$false)]
-    [string]$Locale,
-
-    [Parameter(Mandatory=$false)]
-    [ValidateSet('', 'PostgreSQL', 'MSSQLServer', 'IBMDB2', 'OracleDatabase')]
-    [string]$Dbms = '',
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbServer,
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbName,
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbUser,
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbPassword,
-
-    [Parameter(Mandatory=$false)]
-    [string]$IbcmdDataPath,
-
-    [Parameter(Mandatory=$false)]
-    [string]$IbcmdTempPath
+    [string[]]$AdditionalIbcmdArguments = @()
 )
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -441,45 +372,11 @@ $argHints = @{ '/F' = '-InfoBasePath'; '/S' = '-InfoBaseServer + -InfoBaseRef'; 
 $extraArgs = @(Resolve-ExtraArgs $engine $AdditionalV8Arguments $AdditionalIbcmdArguments $argHints)
 
 # --- Validate connection ---
-# ibcmd reaches a file infobase (--db-path) or a DBMS infobase directly, without a 1C
-# cluster; the --dbms / --db-* / --locale / --temp keys are driven by the parameters below.
-$isDbms = [bool]($Dbms -or $DbServer -or $DbName -or $DbUser -or $DbPassword)
-$ibConn = @()
-if ($PageSize -and ($engine -eq "ibcmd" -or -not $InfoBasePath)) {
-    Write-Host "Error: -PageSize applies to a 1cv8 file infobase only (ibcmd infobase create has no page size)" -ForegroundColor Red
-    exit 1
-}
 if ($engine -eq "ibcmd") {
-    foreach ($tok in $extraArgs) {
-        foreach ($k in @('--dbms', '--database-server', '--db-server', '--database-name', '--db-name',
-                         '--database-user', '--db-user', '--database-password', '--db-pwd', '--locale', '--temp')) {
-            if (Test-ArgKeyMatch $tok $k) {
-                Write-Host "Error: $k is controlled by the skill and cannot be passed via -AdditionalIbcmdArguments (use the matching -Db* / -Locale / -Ibcmd*Path parameter)" -ForegroundColor Red
-                exit 1
-            }
-        }
-    }
-    if ($isDbms) {
-        if ($InfoBasePath) {
-            Write-Host "Error: specify either -InfoBasePath (file infobase) or -Dbms + -DbServer + -DbName (DBMS infobase), not both" -ForegroundColor Red
-            exit 1
-        }
-        if (-not ($Dbms -and $DbServer -and $DbName)) {
-            Write-Host "Error: a DBMS infobase needs -Dbms, -DbServer and -DbName" -ForegroundColor Red
-            exit 1
-        }
-        $ibConn = @("--dbms=$Dbms", "--db-server=$DbServer", "--db-name=$DbName")
-        if ($DbUser) { $ibConn += "--db-user=$DbUser" }
-        if ($DbPassword) { $ibConn += "--db-pwd=$DbPassword" }
-    } elseif (-not $InfoBasePath) {
-        Write-Host "Error: ibcmd needs -InfoBasePath (file infobase) or -Dbms + -DbServer + -DbName (DBMS infobase)" -ForegroundColor Red
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
         exit 1
-    } else {
-        $ibConn = @("--db-path=$InfoBasePath")
     }
-} elseif ($isDbms -or $IbcmdDataPath -or $IbcmdTempPath) {
-    Write-Host "Error: -Dbms / -DbServer / -DbName / -DbUser / -DbPassword / -IbcmdDataPath / -IbcmdTempPath apply to ibcmd only; point -V8Path at ibcmd (a DBMS infobase under 1cv8 goes through -InfoBaseServer + -InfoBaseRef)" -ForegroundColor Red
-    exit 1
 } elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
@@ -497,9 +394,8 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
     if ($engine -eq "ibcmd") {
-        # --- ibcmd branch (file or DBMS infobase, no 1C cluster) ---
-        $arguments = @("infobase", "create") + $ibConn + @("--create-database")
-        if ($Locale) { $arguments += "--locale=$Locale" }
+        # --- ibcmd branch (file infobase only) ---
+        $arguments = @("infobase", "create", "--db-path=$InfoBasePath", "--create-database")
         if ($UseTemplate) {
             if ([System.IO.Path]::GetExtension($UseTemplate) -ieq ".dt") {
                 $arguments += "--restore=$UseTemplate"
@@ -507,19 +403,16 @@ try {
                 $arguments += "--load=$UseTemplate", "--apply"
             }
         }
-        $arguments += "--data=$(if ($IbcmdDataPath) { $IbcmdDataPath } else { $tempDir })"
-        if ($IbcmdTempPath) { $arguments += "--temp=$IbcmdTempPath" }
+        $arguments += "--data=$tempDir"
         $arguments += $extraArgs
         Write-Host "Running: ibcmd $((Format-ArgsForDisplay $arguments $engine) -join ' ')"
         $__ib = Invoke-PlatformProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
-        # The 1Cv8.1CD check applies to a file infobase; a DBMS one is judged by the exit code.
-        $ibMissing = ($exitCode -eq 0) -and -not $isDbms -and -not (Test-FileIbCreated $InfoBasePath)
+        $ibMissing = ($exitCode -eq 0) -and -not (Test-FileIbCreated $InfoBasePath)
         if ($ibMissing) { $exitCode = 1 }
         if ($exitCode -eq 0) {
-            $target = if ($isDbms) { "$Dbms $DbServer / $DbName" } else { $InfoBasePath }
-            Write-Host "Information base created successfully: $target" -ForegroundColor Green
+            Write-Host "Information base created successfully: $InfoBasePath" -ForegroundColor Green
         } elseif ($ibMissing) {
             Write-Host "Error: exit code 0 but 1Cv8.1CD is missing or empty at $InfoBasePath — information base was not created" -ForegroundColor Red
         } else {
@@ -536,14 +429,10 @@ try {
     # Quotes go INSIDE the token (File="path"): 1C's own parser wants them there, quoting
     # the whole token instead breaks a path with spaces. Hence -PreQuoted on the launch.
     if ($InfoBaseServer -and $InfoBaseRef) {
-        $conn = "Srvr=`"$InfoBaseServer`";Ref=`"$InfoBaseRef`""
+        $arguments += "Srvr=`"$InfoBaseServer`";Ref=`"$InfoBaseRef`""
     } else {
-        $conn = "File=`"$InfoBasePath`""
-        # DBPageSize needs the 8.3.8 file format.
-        if ($PageSize) { $conn += ";DBFormat=8.3.8;DBPageSize=$PageSize" }
+        $arguments += "File=`"$InfoBasePath`""
     }
-    if ($Locale) { $conn += ";Locale=$Locale" }
-    $arguments += $conn
 
     # --- Template ---
     if ($UseTemplate) {

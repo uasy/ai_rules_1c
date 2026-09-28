@@ -1,9 +1,6 @@
 ﻿# db-update v1.13 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
-# 1c-rules: the ibcmd branch also applies to a DBMS infobase (-Dbms / -DbServer / -DbName / -DbUser /
-# -DbPassword) and takes -IbcmdDataPath / -IbcmdTempPath; -SessionTerminate drives session
-# termination for both engines; mirrored in db-update.py (NOTICE.md).
 <#
 .SYNOPSIS
     Обновление конфигурации базы данных 1С
@@ -45,39 +42,11 @@
 .PARAMETER WarningsAsErrors
     Предупреждения считать ошибками
 
-.PARAMETER SessionTerminate
-    Завершение активных сеансов, если обновлению нужна монопольная блокировка:
-    ibcmd — --session-terminate=<значение> (disable, prompt, force);
-    1cv8 — только force (disable = ключ не передаётся). force — только для dev/test-баз
-
 .PARAMETER AdditionalV8Arguments
     Дополнительные аргументы запуска 1cv8.exe (например /UseHwLicenses+)
 
 .PARAMETER AdditionalIbcmdArguments
     Дополнительные аргументы запуска ibcmd (форма --ключ=значение)
-
-.PARAMETER Dbms
-    Только ibcmd: СУБД информационной базы (PostgreSQL, MSSQLServer, IBMDB2, OracleDatabase).
-    Не указывается для файловой базы
-
-.PARAMETER DbServer
-    Только ibcmd: сервер СУБД; нестандартный порт PostgreSQL — "host port=5433"
-
-.PARAMETER DbName
-    Только ibcmd: имя базы данных
-
-.PARAMETER DbUser
-    Только ibcmd: пользователь СУБД
-
-.PARAMETER DbPassword
-    Только ibcmd: пароль пользователя СУБД
-
-.PARAMETER IbcmdDataPath
-    Только ibcmd: каталог данных сервера (--data); по умолчанию временный каталог.
-    Должен поддерживать переименование файлов — не общая папка VirtualBox
-
-.PARAMETER IbcmdTempPath
-    Только ibcmd: каталог временных файлов (--temp)
 
 .EXAMPLE
     .\db-update.ps1 -InfoBasePath "C:\Bases\MyDB"
@@ -123,36 +92,10 @@ param(
     [switch]$WarningsAsErrors,
 
     [Parameter(Mandatory=$false)]
-    [ValidateSet('', 'disable', 'prompt', 'force')]
-    [string]$SessionTerminate = '',
-
-    [Parameter(Mandatory=$false)]
     [string[]]$AdditionalV8Arguments = @(),
 
     [Parameter(Mandatory=$false)]
-    [string[]]$AdditionalIbcmdArguments = @(),
-
-    [Parameter(Mandatory=$false)]
-    [ValidateSet('', 'PostgreSQL', 'MSSQLServer', 'IBMDB2', 'OracleDatabase')]
-    [string]$Dbms = '',
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbServer,
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbName,
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbUser,
-
-    [Parameter(Mandatory=$false)]
-    [string]$DbPassword,
-
-    [Parameter(Mandatory=$false)]
-    [string]$IbcmdDataPath,
-
-    [Parameter(Mandatory=$false)]
-    [string]$IbcmdTempPath
+    [string[]]$AdditionalIbcmdArguments = @()
 )
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -479,58 +422,14 @@ $argHints = @{ '/F' = '-InfoBasePath'; '/S' = '-InfoBaseServer + -InfoBaseRef'; 
 $extraArgs = @(Resolve-ExtraArgs $engine $AdditionalV8Arguments $AdditionalIbcmdArguments $argHints)
 
 # --- Validate connection ---
-# ibcmd reaches a file infobase (--db-path) or a DBMS infobase directly, without a 1C
-# cluster; the --dbms / --db-* / --temp keys are driven by the parameters below.
-$isDbms = [bool]($Dbms -or $DbServer -or $DbName -or $DbUser -or $DbPassword)
-$ibConn = @()
 if ($engine -eq "ibcmd") {
-    foreach ($tok in $extraArgs) {
-        foreach ($k in @('--dbms', '--database-server', '--db-server', '--database-name', '--db-name',
-                         '--database-user', '--db-user', '--database-password', '--db-pwd', '--temp')) {
-            if (Test-ArgKeyMatch $tok $k) {
-                Write-Host "Error: $k is controlled by the skill and cannot be passed via -AdditionalIbcmdArguments (use the matching -Db* / -Ibcmd*Path parameter)" -ForegroundColor Red
-                exit 1
-            }
-        }
-    }
-    if ($isDbms) {
-        if ($InfoBasePath) {
-            Write-Host "Error: specify either -InfoBasePath (file infobase) or -Dbms + -DbServer + -DbName (DBMS infobase), not both" -ForegroundColor Red
-            exit 1
-        }
-        if (-not ($Dbms -and $DbServer -and $DbName)) {
-            Write-Host "Error: a DBMS infobase needs -Dbms, -DbServer and -DbName" -ForegroundColor Red
-            exit 1
-        }
-        $ibConn = @("--dbms=$Dbms", "--db-server=$DbServer", "--db-name=$DbName")
-        if ($DbUser) { $ibConn += "--db-user=$DbUser" }
-        if ($DbPassword) { $ibConn += "--db-pwd=$DbPassword" }
-    } elseif (-not $InfoBasePath) {
-        Write-Host "Error: ibcmd needs -InfoBasePath (file infobase) or -Dbms + -DbServer + -DbName (DBMS infobase)" -ForegroundColor Red
+    if (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
         exit 1
-    } else {
-        $ibConn = @("--db-path=$InfoBasePath")
     }
-} elseif ($isDbms -or $IbcmdDataPath -or $IbcmdTempPath) {
-    Write-Host "Error: -Dbms / -DbServer / -DbName / -DbUser / -DbPassword / -IbcmdDataPath / -IbcmdTempPath apply to ibcmd only; point -V8Path at ibcmd (a DBMS infobase under 1cv8 goes through -InfoBaseServer + -InfoBaseRef)" -ForegroundColor Red
-    exit 1
 } elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
-}
-
-# --- Session termination: one source of the key, and Designer takes force only ---
-if ($SessionTerminate) {
-    foreach ($tok in $extraArgs) {
-        if ((Test-ArgKeyMatch $tok '--session-terminate') -or (Test-ArgKeyMatch $tok '-SessionTerminate')) {
-            Write-Host "Error: session termination is set by -SessionTerminate; remove it from the additional arguments" -ForegroundColor Red
-            exit 1
-        }
-    }
-    if ($engine -ne "ibcmd" -and $SessionTerminate -eq "prompt") {
-        Write-Host "Error: -SessionTerminate prompt is ibcmd only; for 1cv8 use force, or omit the parameter to keep sessions" -ForegroundColor Red
-        exit 1
-    }
 }
 
 # --- Temp dir ---
@@ -539,22 +438,20 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
     if ($engine -eq "ibcmd") {
-        # --- ibcmd branch (file or DBMS infobase, no 1C cluster) ---
+        # --- ibcmd branch (file infobase only) ---
         if ($AllExtensions) {
             Write-Host "Error: ibcmd config apply does not support -AllExtensions (use -Extension)" -ForegroundColor Red
             exit 1
         }
-        $arguments = @("infobase", "config", "apply") + $ibConn + @("--force")
+        $arguments = @("infobase", "config", "apply", "--db-path=$InfoBasePath", "--force")
         if ($Dynamic -eq "+") { $arguments += "--dynamic=auto" }
         elseif ($Dynamic -eq "-") { $arguments += "--dynamic=disable" }
         if ($Extension) { $arguments += "--extension=$Extension" }
-        if ($SessionTerminate) { $arguments += "--session-terminate=$SessionTerminate" }
         if ($UserName) { $arguments += "--user=$UserName" }
         if ($Password) { $arguments += "--password=$Password" }
-        $arguments += "--data=$(if ($IbcmdDataPath) { $IbcmdDataPath } else { $tempDir })"
-        if ($IbcmdTempPath) { $arguments += "--temp=$IbcmdTempPath" }
+        $arguments += "--data=$tempDir"
         $arguments += $extraArgs
-        Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $arguments $engine) -join ' ') @($Password, $UserName, $DbPassword))"
+        Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $arguments $engine) -join ' ') @($Password, $UserName))"
         $__ib = Invoke-PlatformProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
@@ -591,9 +488,6 @@ try {
     }
     if ($WarningsAsErrors) {
         $arguments += "-WarningsAsErrors"
-    }
-    if ($SessionTerminate -eq "force") {
-        $arguments += "-SessionTerminate", "force"
     }
 
     # --- Extensions ---

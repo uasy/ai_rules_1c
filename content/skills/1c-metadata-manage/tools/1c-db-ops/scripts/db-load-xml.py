@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # db-load-xml v1.19 — Load 1C configuration from XML files
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
-# 1c-rules: the ibcmd branch also loads into a DBMS infobase (-Dbms / -DbServer / -DbName /
-# -DbUser / -DbPassword), takes -IbcmdDataPath / -IbcmdTempPath / -SessionTerminate and applies
-# the loaded extension on -UpdateDB; the .ps1 mirrors it (NOTICE.md).
+# Local: the ibcmd branch also loads into a DBMS infobase without a 1C cluster (-Dbms /
+#        -DbServer / -DbName / -DbUser / -DbPassword), takes -IbcmdDataPath / -IbcmdTempPath /
+#        -SessionTerminate and applies the loaded extension on -UpdateDB. db-load-xml.ps1 has
+#        none of this.
 
 import argparse
 import atexit

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # db-update v1.13 — Update 1C database configuration
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
-# 1c-rules: the ibcmd branch also applies to a DBMS infobase (-Dbms / -DbServer / -DbName /
-# -DbUser / -DbPassword) and takes -IbcmdDataPath / -IbcmdTempPath; -SessionTerminate drives
-# session termination for both engines; the .ps1 mirrors it (NOTICE.md).
+# Local: the ibcmd branch also applies to a DBMS infobase without a 1C cluster (-Dbms /
+#        -DbServer / -DbName / -DbUser / -DbPassword) and takes -IbcmdDataPath / -IbcmdTempPath;
+#        -SessionTerminate drives session termination for both engines. db-update.ps1 has none
+#        of this.
 
 import argparse
 import atexit

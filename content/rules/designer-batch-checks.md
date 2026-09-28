@@ -92,7 +92,7 @@ the three result signals. Reuse a result only while both source and relevant tar
 
 ## The check ladder — cheapest gate first, stop at the first failure
 
-Run in this order. Each step costs more than the one before it, and a failure at any step makes the rest meaningless. Steps 1–3 are scripted as `db-check` of the `1c-metadata-manage` skill (`docs/db-manage.md → 11. Designer Checks`), which applies the three-signal verdict below to each step.
+Run in this order. Each step costs more than the one before it, and a failure at any step makes the rest meaningless.
 
 | # | Check | Batch operation | Catches |
 |---|---|---|---|

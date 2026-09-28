@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # db-create v1.10 — Create 1C information base
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
-# 1c-rules: -Locale (1cv8 and ibcmd) and -PageSize (1cv8, file infobase); the ibcmd branch
-# also creates a DBMS infobase (-Dbms / -DbServer / -DbName / -DbUser / -DbPassword) and
-# takes -IbcmdDataPath / -IbcmdTempPath; the .ps1 mirrors it (NOTICE.md).
+# Local: -Locale (1cv8 and ibcmd) and -PageSize (1cv8, file infobase); the ibcmd branch also
+#        creates a DBMS infobase without a 1C cluster (-Dbms / -DbServer / -DbName / -DbUser /
+#        -DbPassword) and takes -IbcmdDataPath / -IbcmdTempPath. db-create.ps1 has none of this.
 
 import argparse
 import atexit

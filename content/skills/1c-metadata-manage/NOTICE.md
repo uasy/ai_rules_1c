@@ -98,17 +98,17 @@ CRLF run per tool). The pin above is not to be advanced without re-running
 Its deviations — Linux / macOS Apache layouts and `publishExtensionsByDefault="true"`
 in `default.vrd` — are listed in its header.
 
-`tools/1c-db-ops/scripts/db-create.{ps1,py}` (upstream v1.10), `db-load-dt.{ps1,py}`
-(upstream v1.12), `db-load-xml.{ps1,py}` (upstream v1.19) and `db-update.{ps1,py}`
-(upstream v1.13) carry a local delta, listed in each header: the `ibcmd` branch also
-reaches a DBMS infobase without a 1C cluster (`-Dbms` / `-DbServer` / `-DbName` /
-`-DbUser` / `-DbPassword`) and takes `-IbcmdDataPath` / `-IbcmdTempPath`; `db-create`
-adds `-Locale` (both engines) and `-PageSize` (`1cv8` file infobase); `db-update` adds
+`tools/1c-db-ops/scripts/db-create.py` (upstream v1.10), `db-load-dt.py` (upstream v1.12),
+`db-load-xml.py` (upstream v1.19) and `db-update.py` (upstream v1.13) carry a local delta,
+listed under `# Local:` in each header; their `.ps1` peers are unchanged. The `ibcmd` branch
+also reaches a DBMS infobase without a 1C cluster (`-Dbms` / `-DbServer` / `-DbName` /
+`-DbUser` / `-DbPassword`) and takes `-IbcmdDataPath` / `-IbcmdTempPath`; `db-create` adds
+`-Locale` (both engines) and `-PageSize` (`1cv8` file infobase); `db-update` adds
 `-SessionTerminate` (both engines); `db-load-xml` adds `-SessionTerminate` for its `ibcmd`
 `-UpdateDB` step and applies the loaded extension there (`--extension`), not the main
-configuration. The shared Python
-part is `ibcmd_connection()` in `tools/_common/platform_args.py`. `db-check.{ps1,py}` is
-not upstream code: the Designer check ladder of `content/rules/designer-batch-checks.md`.
+configuration. The shared part is `ibcmd_connection()` in `tools/_common/platform_args.py`.
+`db-check.py` is not upstream code and has no `.ps1` peer: the Designer check ladder of
+`content/rules/designer-batch-checks.md`.
 
 ### MIT licence text
 

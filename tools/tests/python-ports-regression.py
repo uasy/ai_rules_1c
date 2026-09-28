@@ -1590,6 +1590,118 @@ def _read_form(form):
         return handle.read().decode("utf-8-sig")
 
 
+
+# ------------------------------------------------- db-ops: ibcmd against a DBMS infobase (Local)
+
+DB_OPS_DIR = os.path.join(TOOLS_DIR, "1c-db-ops", "scripts")
+
+
+def _ibcmd_stub(work, name="ibcmd"):
+    """A platform executable that records its argv (one argument per line, calls separated
+    by ---) and succeeds. The tools pick the engine by the executable's name."""
+    bin_dir = os.path.join(work, "bin-" + name)
+    os.makedirs(bin_dir, exist_ok=True)
+    stub = os.path.join(bin_dir, name)
+    with open(stub, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write('#!/bin/sh\nfor a in "$@"; do printf \'%s\\n\' "$a"; done >> "$(dirname "$0")/argv.log"\n'
+                     'printf -- \'---\\n\' >> "$(dirname "$0")/argv.log"\nexit 0\n')
+    os.chmod(stub, 0o755)
+    return stub
+
+
+def _ibcmd_calls(stub):
+    log = os.path.join(os.path.dirname(stub), "argv.log")
+    if not os.path.isfile(log):
+        return []
+    with open(log, encoding="utf-8") as handle:
+        return [c.strip("\n").split("\n") for c in handle.read().split("---\n") if c.strip()]
+
+
+def _db_tool(name, args, work):
+    return run_python_tool(os.path.join(DB_OPS_DIR, name + ".py"), args, work)
+
+
+DBMS_ARGS = ["-Dbms", "PostgreSQL", "-DbServer", "pg port=5433", "-DbName", "base1",
+             "-DbUser", "u1", "-DbPassword", "Secr3tX"]
+
+
+@case("db-ops: the ibcmd branch reaches a DBMS infobase with the right keys, the password masked")
+def _(work):
+    if os.name == "nt":
+        raise CaseSkipped("the ibcmd stub is a POSIX shell script")
+    stub = _ibcmd_stub(work)
+    data, temp = os.path.join(work, "data"), os.path.join(work, "tmp")
+    common = ["--dbms=PostgreSQL", "--db-server=pg port=5433", "--db-name=base1", "--db-user=u1", "--db-pwd=Secr3tX"]
+
+    run = _db_tool("db-create", ["-V8Path", stub, *DBMS_ARGS, "-Locale", "ru_RU",
+                                 "-IbcmdDataPath", data, "-IbcmdTempPath", temp], work)
+    assert_equal(0, run["exit_code"], f"db-create: {run['stdout'][-300:]}{run['stderr'][-300:]}")
+    assert_equal([["infobase", "create", *common, "--create-database", "--locale=ru_RU",
+                   f"--data={data}", f"--temp={temp}"]], _ibcmd_calls(stub), "db-create argv")
+    assert_true("Secr3tX" not in run["stdout"] + run["stderr"], "db-create printed the DBMS password")
+
+    for name, extra, expected in (
+        ("db-update", ["-SessionTerminate", "force"], ["infobase", "config", "apply", *common, "--force", "--session-terminate=force"]),
+        ("db-load-dt", ["-InputFile", os.path.join(work, "base.dt")], ["infobase", "restore", *common]),
+    ):
+        os.remove(os.path.join(os.path.dirname(stub), "argv.log"))
+        if name == "db-load-dt":
+            open(os.path.join(work, "base.dt"), "wb").close()
+        run = _db_tool(name, ["-V8Path", stub, *DBMS_ARGS, "-IbcmdDataPath", data, *extra], work)
+        assert_equal(0, run["exit_code"], f"{name}: {run['stdout'][-300:]}{run['stderr'][-300:]}")
+        calls = _ibcmd_calls(stub)
+        assert_equal(1, len(calls), f"{name}: one ibcmd call expected, got {calls}")
+        assert_equal(expected, calls[0][:len(expected)], f"{name} argv head")
+        assert_true(f"--data={data}" in calls[0], f"{name}: --data missing: {calls[0]}")
+        assert_true("--create-database" not in calls[0], f"{name}: --create-database on an existing DBMS infobase")
+        assert_true("Secr3tX" not in run["stdout"] + run["stderr"], f"{name} printed the DBMS password")
+
+
+@case("db-ops: db-load-xml -UpdateDB applies the loaded extension through ibcmd")
+def _(work):
+    if os.name == "nt":
+        raise CaseSkipped("the ibcmd stub is a POSIX shell script")
+    stub = _ibcmd_stub(work)
+    src = os.path.join(work, "ext")
+    os.makedirs(src)
+    run = _db_tool("db-load-xml", ["-V8Path", stub, *DBMS_ARGS, "-ConfigDir", src, "-Extension", "Расш",
+                                   "-UpdateDB", "-SessionTerminate", "force"], work)
+    assert_equal(0, run["exit_code"], f"db-load-xml: {run['stdout'][-300:]}{run['stderr'][-300:]}")
+    calls = _ibcmd_calls(stub)
+    assert_equal(2, len(calls), f"import and apply expected, got {calls}")
+    assert_equal(["infobase", "config", "import"], calls[0][:3], "first call is the import")
+    assert_equal(["infobase", "config", "apply"], calls[1][:3], "second call is the apply")
+    assert_true("--extension=Расш" in calls[1] and "--session-terminate=force" in calls[1],
+                f"the apply does not target the loaded extension: {calls[1]}")
+    data0 = [a for a in calls[0] if a.startswith("--data=")]
+    assert_true(data0 and data0 == [a for a in calls[1] if a.startswith("--data=")],
+                "import and apply must share one --data directory")
+
+
+@case("db-ops: DBMS parameters are refused where they cannot apply, before any ibcmd call")
+def _(work):
+    if os.name == "nt":
+        raise CaseSkipped("the ibcmd stub is a POSIX shell script")
+    stub = _ibcmd_stub(work)
+    designer = _ibcmd_stub(work, "1cv8")
+    src = os.path.join(work, "ext")
+    os.makedirs(src)
+    cases = (
+        ("1cv8 with -Dbms", "db-update", ["-V8Path", designer, "-InfoBasePath", work, *DBMS_ARGS]),
+        ("-Dbms with -InfoBasePath", "db-update", ["-V8Path", stub, *DBMS_ARGS, "-InfoBasePath", work]),
+        ("incomplete DBMS target", "db-update", ["-V8Path", stub, "-Dbms", "PostgreSQL", "-DbServer", "pg"]),
+        ("a controlled key in the extra arguments", "db-update",
+         ["-V8Path", stub, *DBMS_ARGS, "-AdditionalIbcmdArguments", "--db-pwd=other"]),
+        ("-AllExtensions with -UpdateDB", "db-load-xml",
+         ["-V8Path", stub, *DBMS_ARGS, "-ConfigDir", src, "-AllExtensions", "-UpdateDB"]),
+        ("-PageSize under ibcmd", "db-create", ["-V8Path", stub, *DBMS_ARGS, "-PageSize", "64k"]),
+    )
+    for label, name, args in cases:
+        run = _db_tool(name, args, work)
+        assert_true(run["exit_code"] != 0, f"{label}: {name} accepted it")
+        assert_equal([], _ibcmd_calls(stub) + _ibcmd_calls(designer), f"{label}: the platform was called before the refusal")
+
+
 @case("form-edit: a DynamicList attribute needs a source and gets its Settings block")
 def _(work):
     """mainTable or query is required (otherwise the form fails to open); the Settings block

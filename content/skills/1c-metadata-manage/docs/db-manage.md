@@ -190,7 +190,7 @@ Either `-InfoBasePath` or the `-InfoBaseServer` + `-InfoBaseRef` pair is require
 
 ### ibcmd: DBMS infobase without a cluster
 
-When `-V8Path` points at `ibcmd`, `db-create`, `db-load-dt`, `db-load-xml` and `db-update` also reach an infobase **in a DBMS directly** — no 1C server cluster needed:
+When `-V8Path` points at `ibcmd`, the Python entry points `db-create.py`, `db-load-dt.py`, `db-load-xml.py` and `db-update.py` also reach an infobase **in a DBMS directly** — no 1C server cluster needed. This is a local extension: the `.ps1` scripts do not have these parameters.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -225,16 +225,16 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 | `-UseTemplate <file>` | Create from template (.cf or .dt) |
 | `-AddToList` | Add to 1C infobase list |
 | `-ListName <name>` | Name in the infobase list |
-| `-Locale <name>` | Locale of the new infobase, e.g. `ru_RU` (`1cv8` — `Locale=` in the connection string, `ibcmd` — `--locale`) |
-| `-PageSize <size>` | `1cv8` file infobase only: `4k` … `64k` (`DBPageSize`, format 8.3.8) |
-| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
+| `-Locale <name>` | Python only. Locale of the new infobase, e.g. `ru_RU` (`1cv8` — `Locale=` in the connection string, `ibcmd` — `--locale`) |
+| `-PageSize <size>` | Python only, `1cv8` file infobase only: `4k` … `64k` (`DBPageSize`, format 8.3.8) |
+| `-Dbms` … `-IbcmdTempPath` | Python only, `ibcmd` only — DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
-A **large production DT may not fit a file infobase at all**: the load stops with `Превышен максимально допустимый размер внутреннего файла '…/1Cv8.1CD'` when one table (typically file storage in `BinaryData`) outgrows the file-DB limit. A bigger `-PageSize` raises the limit but is not a guaranteed fix — a 9.8 GB ZUP dump failed at 13.6 GB with 8k pages and at 17.2 GB with 64k. For such a dump create a DBMS infobase instead:
+A **large production DT may not fit a file infobase at all**: the load stops with `Превышен максимально допустимый размер внутреннего файла '…/1Cv8.1CD'` when one table (typically file storage in `BinaryData`) outgrows the file-DB limit. A bigger `-PageSize` raises the limit but is not a guaranteed fix: a dump with a large file storage can outgrow it even with 64k pages. For such a dump create a DBMS infobase instead:
 
 ```bash
 python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-create.py -V8Path /opt/1cv8/x86_64/8.3.27.2074/ibcmd \
-  -Dbms PostgreSQL -DbServer "pg01 port=5433" -DbName zup_test -DbUser postgres -DbPassword "***" \
-  -Locale ru_RU -UseTemplate /backup/zup.dt -IbcmdTempPath /big/tmp
+  -Dbms PostgreSQL -DbServer "<host> port=5433" -DbName <database> -DbUser <user> -DbPassword "***" \
+  -Locale ru_RU -UseTemplate <dump>.dt -IbcmdTempPath <dir with free space>
 ```
 
 After creation: offer to register via `1c-db-manage add`.
@@ -272,8 +272,8 @@ Applies main configuration changes to the database configuration (`/UpdateDBCfg`
 | `-Dynamic <+/->` | `+` dynamic update, `-` disable |
 | `-Server` | Server-side update |
 | `-WarningsAsErrors` | Treat warnings as errors |
-| `-SessionTerminate <mode>` | Terminate active sessions when the update needs an exclusive lock. `ibcmd`: `disable` / `prompt` / `force` → `--session-terminate=<mode>`; `1cv8`: `force` → `-SessionTerminate force`, `disable` = key omitted, `prompt` is refused. `force` only on a confirmed dev/test infobase |
-| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — apply to a DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
+| `-SessionTerminate <mode>` | Python only. Terminate active sessions when the update needs an exclusive lock. `ibcmd`: `disable` / `prompt` / `force` → `--session-terminate=<mode>`; `1cv8`: `force` → `-SessionTerminate force`, `disable` = key omitted, `prompt` is refused. `force` only on a confirmed dev/test infobase |
+| `-Dbms` … `-IbcmdTempPath` | Python only, `ibcmd` only — apply to a DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
 **Warning**: Non-dynamic update requires exclusive database access (all users must exit). Without `-SessionTerminate` `ibcmd` does not terminate sessions and the update fails while any session holds the base.
 
@@ -360,8 +360,8 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 | `-Extension <name>` | Load into extension |
 | `-Format <format>` | `Hierarchical` (default) / `Plain` |
 | `-UpdateDB` | Apply after the load; with `-Extension` the loaded extension is applied (`ibcmd config apply --extension`) |
-| `-SessionTerminate <mode>` | `ibcmd` only, with `-UpdateDB`: `disable` / `prompt` / `force` (see `db-update`) |
-| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
+| `-SessionTerminate <mode>` | Python only, `ibcmd` only, with `-UpdateDB`: `disable` / `prompt` / `force` (see `db-update`) |
+| `-Dbms` … `-IbcmdTempPath` | Python only, `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
 The `ibcmd` branch imports the hierarchical format only and uses one `--data` directory for the import and the apply. `-AllExtensions` with `-UpdateDB` is refused there — `ibcmd config apply` takes one extension; apply each through `db-update -Extension <name>`.
 
@@ -435,7 +435,7 @@ Mandatory order before running it:
 | `-InputFile <path>` | Input DT file (required) |
 | `-JobsCount <N>` | Background load jobs (`0` = one per CPU) |
 | `-UnlockCode <code>` | Unlock code (`/UC`) when session start is blocked |
-| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
+| `-Dbms` … `-IbcmdTempPath` | Python only, `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
 Do **not** use it to create a *new* base from a `.dt` — that is `db-create` from a DT template (with `-Locale` for a DBMS). A DBMS database without an infobase is refused (`база данных … не существует`); `--create-database` is never passed for a DBMS target, because on an existing infobase it fails with `уже зарегистрирована`. To update configuration only (no data) — `db-load-cf` / `db-load-xml`.
 
@@ -445,11 +445,11 @@ If the base is busy (active sessions), the load fails: for a server base pass `-
 
 ### 11. Designer Checks (check ladder)
 
-```powershell
-powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-check.ps1 -InfoBasePath "C:\Bases\Test" -Extension "МоёРасширение"
+```bash
+python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-check.py -InfoBasePath /bases/test -Extension "МоёРасширение"
 ```
 
-Runs the read-only steps of the check ladder (`content/rules/designer-batch-checks.md → The check ladder`) against the **loaded** configuration or extension: `/CheckModules` → `/CheckCanApplyConfigurationExtensions` (extension only) → `/CheckConfig`, stopping at the first failing check. Each check is judged by all three signals — exit code, `/DumpResult`, and log lines that keep a diagnostic after the success phrases (`Ошибок не обнаружено`, `Предупреждений: 0`) are neutralized. The script exits with the `/DumpResult` code of the first failing check (`1` when there is none), `0` when all passed.
+Python only — a local tool with no `.ps1` peer. Runs the read-only steps of the check ladder (`content/rules/designer-batch-checks.md → The check ladder`) against the **loaded** configuration or extension: `/CheckModules` → `/CheckCanApplyConfigurationExtensions` (extension only) → `/CheckConfig`, stopping at the first failing check. Each check is judged by all three signals — exit code, `/DumpResult`, and log lines that keep a diagnostic after the success phrases (`Ошибок не обнаружено`, `Предупреждений: 0`) are neutralized. The script exits with the `/DumpResult` code of the first failing check (`1` when there is none), `0` when all passed.
 
 | Extra Parameter | Description |
 |-----------------|-------------|

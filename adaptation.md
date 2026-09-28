@@ -59,6 +59,7 @@
 | `web-publish.py` | Linux / macOS: модуль `wsap24.so`, Apache не скачивается; `bin/httpd` — сборка с `--prefix` или ссылка на пакетный `apache2`, запуск с `-d`/`-f`, свой сервер узнаётся по командной строке | У апстрима нет Python-версии; раскладка Apache на Linux иная |
 | `web-publish.py` | В `default.vrd` задано `publishExtensionsByDefault="true"` | Без атрибута HTTP-сервисы расширений отвечают 404. В `web-publish.ps1` та же ошибка — кандидат в support |
 | `db-run.py` | Флаги `-Out`, `-Wait` и `-ClientKind` | В пакетном режиме ошибки запуска видны только в `/Out`; `-Wait` возвращает код завершения клиента; `-ClientKind thin` запускает тонкий клиент — толстый к автономному серверу (`ibsrv`) не подключается |
+| `db-create.py`, `db-load-dt.py`, `db-load-xml.py`, `db-update.py` (+ `ibcmd_connection()` в `_common/platform_args.py`) | Ветка `ibcmd` работает с базой в СУБД без кластера 1С (`-Dbms`, `-DbServer`, `-DbName`, `-DbUser`, `-DbPassword`, `-IbcmdDataPath`, `-IbcmdTempPath`); `db-create` — `-Locale` и `-PageSize`; `db-update` и `db-load-xml` — `-SessionTerminate`; `db-load-xml -UpdateDB` применяет загруженное расширение | Тестовая база в PostgreSQL без кластера — только через `ibcmd`, а у апстрима эта ветка умеет лишь файловую базу. Только в `.py`: `.ps1` остаются как в `main`; кандидат в upstream |
 | `content/skills/img-grid-analysis/scripts/overlay-grid.py` | Отклоняет `--cols <= 0` и `--rows < 0`, строит минимум одну строку сетки, выводит UTF-8 | Исправление ошибок; кандидат в support |
 
 Каждое отличие отмечено в коде комментарием `# Local:` или заголовком `Deviation`.
@@ -67,6 +68,7 @@
 
 - `tools/1c-cfe-manage/scripts/cfe-build.ps1`, `cfe-build.py` и раздел о сборке в `content/skills/1c-metadata-manage/docs/cfe-manage.md` — сборка `.cfe` из XML через одноразовую базу. У апстрима то же делается цепочкой `db-ops` вручную.
 - `tools/1c-form-decompile/` (`form-decompile.ps1`, `form-decompile.py`) и раздел «Decompile» в `content/skills/1c-metadata-manage/docs/form-manage.md` — черновик DSL из существующего `Form.xml`. Аналога у апстрима нет.
+- `tools/1c-db-ops/scripts/db-check.py` и раздел «11. Designer Checks» в `content/skills/1c-metadata-manage/docs/db-manage.md` — лестница проверок Конфигуратора из `content/rules/designer-batch-checks.md` (`/CheckModules` → `/CheckCanApplyConfigurationExtensions` → `/CheckConfig`) с вердиктом по трём признакам. Только Python, `.ps1` нет. Аналога у апстрима нет.
 
 ## D. Документация, точнее апстрима
 

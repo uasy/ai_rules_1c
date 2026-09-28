@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # db-check v1.0 — Designer batch check ladder: CheckModules, CheckCanApplyConfigurationExtensions, CheckConfig
-# 1c-rules: local tool, not vendored; canon — content/rules/designer-batch-checks.md.
-# The .ps1 peer mirrors it (NOTICE.md).
+# Local: our own tool, not vendored and Python only; canon — content/rules/designer-batch-checks.md.
 
 import argparse
 import glob

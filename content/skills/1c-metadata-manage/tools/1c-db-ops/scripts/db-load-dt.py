@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # db-load-dt v1.12 — Load 1C information base from DT file
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
-# 1c-rules: the ibcmd branch also restores into an existing DBMS infobase (-Dbms / -DbServer /
-# -DbName / -DbUser / -DbPassword) and takes -IbcmdDataPath / -IbcmdTempPath; the .ps1 mirrors
-# it (NOTICE.md). A new infobase from a DT is db-create -UseTemplate (with -Locale).
+# Local: the ibcmd branch also restores into an existing DBMS infobase without a 1C cluster
+#        (-Dbms / -DbServer / -DbName / -DbUser / -DbPassword) and takes -IbcmdDataPath /
+#        -IbcmdTempPath. db-load-dt.ps1 has none of this. A new infobase from a DT is
+#        db-create -UseTemplate (with -Locale).
 
 import argparse
 import atexit
