@@ -173,15 +173,21 @@ def main():
             ' '.join(platform_args.format_args_for_display(arguments, engine)),
             [args.Password, args.UserName]))
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
-        if result.returncode == 0:
+        exit_code = result.returncode
+        out_missing = exit_code == 0 and not platform_args.output_file_non_empty(args.OutputFile)
+        if out_missing:
+            exit_code = 1
+        if exit_code == 0:
             print(f"Configuration dumped successfully to: {args.OutputFile}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} \u2014 configuration was not dumped", file=sys.stderr)
         else:
-            print(f"Error dumping configuration (code: {result.returncode})", file=sys.stderr)
+            print(f"Error dumping configuration (code: {exit_code})", file=sys.stderr)
         if result.stdout:
             print(result.stdout)
         if result.stderr:
             print(result.stderr, file=sys.stderr)
-        sys.exit(result.returncode)
+        sys.exit(exit_code)
 
     # --- Temp dir ---
     temp_dir = os.path.join(tempfile.gettempdir(), f"db_dump_cf_{random.randint(0, 999999)}")
@@ -212,6 +218,8 @@ def main():
         # --- Output ---
         out_file = os.path.join(temp_dir, "dump_cf_log.txt")
         arguments.extend(["/Out", out_file])
+        result_file = os.path.join(temp_dir, "batch_result.txt")
+        arguments.extend(["/DumpResult", result_file])
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
@@ -225,10 +233,18 @@ def main():
             text=True,
         )
         exit_code = result.returncode
+        # The platform's own batch verdict (/DumpResult) before the exit code.
+        exit_code = platform_args.batch_verdict(exit_code, result_file)
 
         # --- Result ---
+        # Postcondition: exit 0 without the expected output is a false success.
+        out_missing = exit_code == 0 and not platform_args.output_file_non_empty(args.OutputFile)
+        if out_missing:
+            exit_code = 1
         if exit_code == 0:
             print(f"Configuration dumped successfully to: {args.OutputFile}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} \u2014 configuration was not dumped", file=sys.stderr)
         else:
             print(f"Error dumping configuration (code: {exit_code})", file=sys.stderr)
 

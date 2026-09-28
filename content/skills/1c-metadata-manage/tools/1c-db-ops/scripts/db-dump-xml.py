@@ -54,15 +54,6 @@ def _version_key(p):
     return [int(x) for x in re.findall(r"\d+", _version_dir(p))]
 
 
-def dir_non_empty(path):
-    # Postcondition: the platform must have written files into the output directory.
-    # Exit code 0 with an empty dir (broken/headless env) is a false success — reject it.
-    try:
-        return os.path.isdir(path) and any(True for _ in os.scandir(path))
-    except OSError:
-        return False
-
-
 def resolve_v8path(v8path):
     """Resolve path to a 1C executable (1cv8; ibcmd only when given explicitly)."""
     if not v8path:
@@ -214,7 +205,7 @@ def main():
             [args.Password, args.UserName]))
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
         exit_code = result.returncode
-        out_missing = exit_code == 0 and not dir_non_empty(args.ConfigDir)
+        out_missing = exit_code == 0 and not platform_args.output_dir_non_empty(args.ConfigDir)
         if out_missing:
             exit_code = 1
         if exit_code == 0:
@@ -297,26 +288,12 @@ def main():
         )
         exit_code = result.returncode
 
-        # The platform's own batch verdict: /DumpResult writes 0 on success. Read it before
-        # trusting the exit code - a batch command can fail while 1cv8 exits 0 (canon:
-        # content/rules/designer-batch-checks.md -> The verdict is three signals).
-        if exit_code == 0:
-            dump_code = ""
-            try:
-                with open(result_file, "r", encoding="utf-8-sig", errors="replace") as f:
-                    dump_code = re.sub(r"[^\d\-]", "", f.read())
-            except OSError:
-                pass
-            if dump_code != "0":
-                if dump_code:
-                    print(f"[error] batch result {dump_code} reported by /DumpResult (0 = success)", file=sys.stderr)
-                else:
-                    print("[error] /DumpResult wrote no result - the batch command did not complete", file=sys.stderr)
-                exit_code = 1
+        # The platform's own batch verdict (/DumpResult) before the exit code.
+        exit_code = platform_args.batch_verdict(exit_code, result_file)
 
         # --- Result ---
         # Postcondition: exit 0 with an empty output directory is a false success.
-        out_missing = exit_code == 0 and not dir_non_empty(args.ConfigDir)
+        out_missing = exit_code == 0 and not platform_args.output_dir_non_empty(args.ConfigDir)
         if out_missing:
             exit_code = 1
         if exit_code == 0:

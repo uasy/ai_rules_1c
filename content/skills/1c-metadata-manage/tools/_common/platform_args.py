@@ -190,6 +190,49 @@ def protect_secrets(text, secrets):
     return text
 
 
+# --- 1cv8 batch verdict and output postconditions ---------------------------
+# Python twin of the verdict block of the db-* / epf-* scripts (canon:
+# content/rules/designer-batch-checks.md -> The verdict is three signals).
+
+def batch_verdict(exit_code, result_file):
+    """Exit code after the platform's own verdict: /DumpResult writes 0 on success,
+    and a batch command can fail while 1cv8 exits 0. Read it before trusting the
+    exit code."""
+    if exit_code != 0:
+        return exit_code
+    dump_code = ""
+    try:
+        with open(result_file, "r", encoding="utf-8-sig", errors="replace") as handle:
+            dump_code = "".join(ch for ch in handle.read() if ch.isdigit() or ch == "-")
+    except OSError:
+        pass
+    if dump_code == "0":
+        return 0
+    if dump_code:
+        print(f"[error] batch result {dump_code} reported by /DumpResult (0 = success)", file=sys.stderr)
+    else:
+        print("[error] /DumpResult wrote no result - the batch command did not complete", file=sys.stderr)
+    return 1
+
+
+def output_file_non_empty(path):
+    """Postcondition: the platform must have produced a non-empty output file.
+    Exit code 0 without it (broken/headless env) is a false success."""
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
+def output_dir_non_empty(path):
+    """Postcondition: the platform must have written files into the output directory.
+    Exit code 0 with an empty dir (broken/headless env) is a false success."""
+    try:
+        return os.path.isdir(path) and any(True for _ in os.scandir(path))
+    except OSError:
+        return False
+
+
 # --- ibcmd: DBMS infobase and working directories ---------------------------
 # ibcmd reaches a file infobase (--db-path) or a DBMS infobase directly, without
 # a 1C cluster. The keys below are driven by -Dbms / -DbServer / -DbName /

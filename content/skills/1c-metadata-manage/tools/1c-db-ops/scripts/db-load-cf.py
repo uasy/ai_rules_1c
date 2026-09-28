@@ -212,6 +212,8 @@ def main():
         # --- Output ---
         out_file = os.path.join(temp_dir, "load_cf_log.txt")
         arguments.extend(["/Out", out_file])
+        result_file = os.path.join(temp_dir, "batch_result.txt")
+        arguments.extend(["/DumpResult", result_file])
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
@@ -225,6 +227,8 @@ def main():
             text=True,
         )
         exit_code = result.returncode
+        # The platform's own batch verdict (/DumpResult) before the exit code.
+        exit_code = platform_args.batch_verdict(exit_code, result_file)
 
         # --- Result ---
         if exit_code == 0:

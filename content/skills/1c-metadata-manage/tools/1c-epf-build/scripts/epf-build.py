@@ -189,15 +189,21 @@ def main():
                 ' '.join(platform_args.format_args_for_display(arguments, engine)),
                 [args.Password, args.UserName]))
             result = run_ibcmd([v8path] + arguments, warn_no_user=False)
-            if result.returncode == 0:
+            exit_code = result.returncode
+            out_missing = exit_code == 0 and not platform_args.output_file_non_empty(args.OutputFile)
+            if out_missing:
+                exit_code = 1
+            if exit_code == 0:
                 print(f"External data processor/report built successfully: {args.OutputFile}")
+            elif out_missing:
+                print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} \u2014 build produced no output", file=sys.stderr)
             else:
-                print(f"Error building external data processor/report (code: {result.returncode})", file=sys.stderr)
+                print(f"Error building external data processor/report (code: {exit_code})", file=sys.stderr)
             if result.stdout:
                 print(result.stdout)
             if result.stderr:
                 print(result.stderr, file=sys.stderr)
-            sys.exit(result.returncode)
+            sys.exit(exit_code)
 
         # --- Build arguments ---
         arguments = ["DESIGNER"]
@@ -217,6 +223,8 @@ def main():
         # --- Output ---
         out_file = os.path.join(temp_dir, "build_log.txt")
         arguments += ["/Out", out_file]
+        result_file = os.path.join(temp_dir, "batch_result.txt")
+        arguments += ["/DumpResult", result_file]
         arguments.append("/DisableStartupDialogs")
 
         # --- Execute ---
@@ -230,10 +238,18 @@ def main():
             text=True,
         )
         exit_code = result.returncode
+        # The platform's own batch verdict (/DumpResult) before the exit code.
+        exit_code = platform_args.batch_verdict(exit_code, result_file)
 
         # --- Result ---
+        # Postcondition: exit 0 without the expected output is a false success.
+        out_missing = exit_code == 0 and not platform_args.output_file_non_empty(args.OutputFile)
+        if out_missing:
+            exit_code = 1
         if exit_code == 0:
             print(f"Build completed successfully: {args.OutputFile}")
+        elif out_missing:
+            print(f"Error: exit code 0 but no non-empty file at {args.OutputFile} \u2014 build produced no output", file=sys.stderr)
         else:
             print(f"Error building (code: {exit_code})", file=sys.stderr)
 

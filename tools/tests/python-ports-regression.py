@@ -1653,6 +1653,73 @@ def _(work):
         assert_equal(expected, run["exit_code"], f"{label}: {run['stdout'][-300:]} {run['stderr'][-300:]}")
 
 
+def _batch_stub(work, dump_result, write_output):
+    """A 1cv8 that exits 0 and leaves the verdict to /DumpResult (nothing when None).
+    With write_output it produces what each batch command should: the /DumpCfg and
+    /DumpIB file, the built EPF, the dumped EPF sources."""
+    bin_dir = os.path.join(work, "bin-batch")
+    os.makedirs(bin_dir, exist_ok=True)
+    stub = os.path.join(bin_dir, "1cv8")
+    verdict = "" if dump_result is None else f"/DumpResult) printf '{dump_result}' > \"$a\";;\n"
+    outputs = ('/DumpCfg|/DumpIB) printf x > "$a";;\n'
+               '/DumpExternalDataProcessorOrReportToFiles) mkdir -p "$a"; printf x > "$a/Root.xml";;\n') if write_output else ""
+    built = 'case "$p2" in /LoadExternalDataProcessorOrReportFromFiles) printf x > "$a";; esac\n' if write_output else ""
+    with open(stub, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write('#!/bin/sh\np1=\np2=\nfor a in "$@"; do\ncase "$p1" in\n' + verdict + outputs + 'esac\n'
+                     + built + 'p2="$p1"\np1="$a"\ndone\nexit 0\n')
+    os.chmod(stub, 0o755)
+    return stub
+
+
+@case("db-ops / epf: every 1cv8 batch run reads /DumpResult, and every export needs its output")
+def _(work):
+    base = os.path.join(work, "base")
+    os.makedirs(base)
+    source = os.path.join(work, "source")
+    os.makedirs(os.path.join(source, "Catalogs"))
+    with open(os.path.join(source, "Catalogs", "A.xml"), "w", encoding="utf-8") as handle:
+        handle.write("<x/>")
+    subprocess.run(["git", "init", "-q", source], check=True)
+    input_file = os.path.join(work, "input.bin")
+    with open(input_file, "wb") as handle:
+        handle.write(b"x")
+    epf_root = os.path.join(work, "Epf.xml")
+    with open(epf_root, "w", encoding="utf-8") as handle:
+        handle.write("<x/>")
+    # tool, its arguments in a sandbox, whether it must produce an output
+    tools = (
+        ("1c-db-ops", "db-dump-cf", lambda s: ["-OutputFile", os.path.join(s, "out.cf")], True),
+        ("1c-db-ops", "db-dump-dt", lambda s: ["-OutputFile", os.path.join(s, "out.dt")], True),
+        ("1c-epf-build", "epf-build", lambda s: ["-SourceFile", epf_root, "-OutputFile", os.path.join(s, "out.epf")], True),
+        ("1c-epf-dump", "epf-dump", lambda s: ["-InputFile", input_file, "-OutputDir", os.path.join(s, "src")], True),
+        ("1c-db-ops", "db-load-cf", lambda s: ["-InputFile", input_file], False),
+        ("1c-db-ops", "db-load-dt", lambda s: ["-InputFile", input_file], False),
+        ("1c-db-ops", "db-load-git", lambda s: ["-ConfigDir", source], False),
+        ("1c-db-ops", "db-load-xml", lambda s: ["-ConfigDir", source], False),
+        ("1c-db-ops", "db-update", lambda s: [], False),
+    )
+    scenarios = (("verdict-0", "0", True, 0), ("verdict-1", "1", True, 1), ("no-verdict", None, True, 1),
+                 ("empty-output", "0", False, 1))
+    for tool_dir, name, tool_args, produces in tools:
+        script = os.path.join(TOOLS_DIR, tool_dir, "scripts", name + ".py")
+        for label, dump_result, write_output, expected in scenarios:
+            if label == "empty-output" and not produces:
+                continue
+            sandbox = os.path.join(work, name, label)
+            os.makedirs(sandbox)
+            stub = _batch_stub(sandbox, dump_result, write_output)
+            run = run_python_tool(script, ["-V8Path", stub, "-InfoBasePath", base] + tool_args(sandbox), sandbox)
+            assert_equal(expected, run["exit_code"],
+                         f"{name} {label}: {run['stdout'][-300:]} {run['stderr'][-300:]}")
+        if produces:
+            # ibcmd has no /DumpResult; an export that wrote nothing is still refused.
+            sandbox = os.path.join(work, name, "ibcmd-empty")
+            os.makedirs(sandbox)
+            run = run_python_tool(script, ["-V8Path", _ibcmd_stub(sandbox), "-InfoBasePath", base] + tool_args(sandbox), sandbox)
+            assert_equal(1, run["exit_code"], f"{name} ibcmd without output: {run['stdout'][-300:]}")
+            assert_true("exit code 0 but no" in run["stderr"], f"{name} ibcmd: {run['stderr'][-300:]}")
+
+
 FILES_UPDATE_PY = os.path.join(DB_OPS_DIR, "install-files-update.py")
 
 

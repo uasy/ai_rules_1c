@@ -94,9 +94,9 @@ An extension is the **default answer** when a typical object on vendor support n
 
 ## db-manage.md
 
-### Python `db-dump-xml` verdict, `install-files-update` for Linux (`2026-09-28`)
+### Python batch verdict, `install-files-update` for Linux (`2026-09-28`)
 
-`db-dump-xml.py` reads the `/DumpResult` verdict and refuses an empty output directory, as `db-dump-xml.ps1` does: exit code 0 of `1cv8` alone no longer counts as a dump. `install-files-update.py` is the Linux peer of `install-files-update.ps1` (`/installfilesupdatescript`): a systemd user timer instead of a Task Scheduler task, Python mirroring instead of `robocopy /MIR` that leaves unchanged files alone, symbolic links refused. Both pinned by `tools/tests/python-ports-regression.py`.
+Every Python `db-*` script that runs a `1cv8` batch command (`db-dump-cf`, `db-dump-dt`, `db-dump-xml`, `db-load-cf`, `db-load-dt`, `db-load-git`, `db-load-xml`, `db-update`) reads the `/DumpResult` verdict, and the exports refuse an empty result in both engines, as their `.ps1` peers do: exit code 0 of `1cv8` alone no longer counts as success. Shared helpers — `batch_verdict()` and the output checks in `tools/_common/platform_args.py`. `install-files-update.py` is the Linux peer of `install-files-update.ps1` (`/installfilesupdatescript`): a systemd user timer instead of a Task Scheduler task, Python mirroring instead of `robocopy /MIR` that leaves unchanged files alone, symbolic links refused. Both pinned by `tools/tests/python-ports-regression.py`.
 
 ### Recent Additions (upstream sync `2026-07-30`)
 
@@ -117,6 +117,10 @@ The PowerShell scripts under `tools/1c-db-ops/scripts/` were refreshed from [Nik
 `Invoke-1CEdit.ps1` and `MetadataAddress.ps1` arrived with an upstream sync as PowerShell-only helpers, which left a Linux / macOS install without logical addressing, unified diff and preview — while `AGENTS.md` required the preview unconditionally. Both helpers now ship Python peers (`Invoke-1CEdit.py`, `MetadataAddress.py`, stdlib only — the runtime requirement of the ports does not grow). Same contract, one deliberate difference: the Python wrapper wraps only the tools that carry a `.py` runtime — it introspects their `argparse` declarations through the `ast` module instead of the PowerShell param-block parser (importing a port would execute it, so the AST is the only safe reader) — and refuses a PowerShell-only tool with that explanation. The rollback backends are unchanged: `git checkout` / `git clean` over a verified-clean watched path, the copy snapshot otherwise; the diff is `git diff --no-index` in both runtimes. Pinned by `tools/tests/python-ports-regression.py`.
 
 ## epf-manage.md
+
+### Python batch verdict (`2026-09-28`)
+
+`epf-build.py` and `epf-dump.py` read the `/DumpResult` verdict of their `1cv8` run and refuse an empty result (no EPF/ERF file, no dumped sources) in both engines, as `epf-build.ps1` / `epf-dump.ps1` do. Pinned by `tools/tests/python-ports-regression.py`.
 
 ### Upstream sync `2026-07-30`
 
