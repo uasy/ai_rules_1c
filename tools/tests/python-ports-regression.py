@@ -1766,6 +1766,108 @@ def _(work):
         assert_equal(expected, 1 if run["exit_code"] else 0, f"{label}: exit code {run['exit_code']}")
 
 
+@case("form-validate: version, owner type, folder type, handlers and conversion context")
+def _(work):
+    """form-validate v1.10 checks 1, 12, 12b, 13 and 14 on a form-add scaffold - the
+    Python side of the metadata-tools-regression.ps1 case, plus the Description
+    binding, context, directive and arity diagnostics."""
+    copy_fixture("config-dump", work)
+    target = os.path.join(work, "Catalogs", "TestCatalog.xml")
+    forms_dir = os.path.join(work, "Catalogs", "TestCatalog", "Forms")
+    for name in ("Main", "Other"):
+        run = run_python_tool(FORM_ADD_PY, ["-ObjectPath", target, "-FormName", name, "-Purpose", "Object"], work)
+        assert_equal(0, run["exit_code"], f"form-add {name} (stderr: {run['stderr'][-400:]})")
+    form_xml = os.path.join(forms_dir, "Main", "Ext", "Form.xml")
+    module_path = os.path.join(forms_dir, "Main", "Ext", "Form", "Module.bsl")
+    pristine = file_facts(form_xml)["text"]
+    assert_true('<v8:Type>cfg:CatalogObject.TestCatalog</v8:Type>' in pristine, "form-add wrote another main attribute type")
+
+    def validate(form_text, module_text, path=form_xml):
+        with open(path, "w", encoding="utf-8-sig", newline="") as handle:
+            handle.write(form_text)
+        with open(module_path, "w", encoding="utf-8-sig", newline="") as handle:
+            handle.write(module_text)
+        run = run_python_tool(FORM_VALIDATE_PY, ["-FormPath", path], work)
+        return run["exit_code"], run["stdout"] + run["stderr"]
+
+    with_event = pristine.replace("<ChildItems/>", '<Events>\n\t\t<Event name="OnOpen">OnOpenHandler</Event>\n\t</Events>\n\t<ChildItems/>', 1)
+    assert_true(with_event != pristine, "the scaffold has no <ChildItems/> to anchor the event")
+    client_handler = "&AtClient\nProcedure OnOpenHandler(Cancel)\nEndProcedure\n"
+
+    code, text = validate(with_event, client_handler)
+    assert_equal(0, code, f"a matching handler was rejected: {text}")
+    assert_true("[WARN]" not in text, f"a matching handler was warned about: {text}")
+
+    code, text = validate(with_event, "&AtClient\nProcedure Unrelated()\nEndProcedure\n")
+    assert_equal(0, code, f"a missing handler must stay a warning: {text}")
+    assert_true(re.search(r"\[WARN\]\s+13\..*not found", text), f"no warning for a missing handler: {text}")
+
+    code, text = validate(with_event, client_handler + "\n" + client_handler)
+    assert_true(code != 0, f"a duplicate handler was accepted: {text}")
+    assert_true(re.search(r"\[ERROR\] 13\..*declared 2 times in Module\.bsl \(lines 2, 6\)", text), f"no error for a duplicate handler: {text}")
+
+    for module, expected in (
+            ("Procedure OnOpenHandler(Cancel)\nEndProcedure\n", "has no compilation directive"),
+            ("&AtServer\nProcedure OnOpenHandler(Cancel)\nEndProcedure\n", "is not &НаКлиенте"),
+            ("// comment\n&НаКлиенте\n\nПроцедура OnOpenHandler(Отказ, Лишний)\nКонецПроцедуры\n", "requires 2 parameters, the platform passes at most 1"),
+    ):
+        code, text = validate(with_event, module)
+        assert_equal(0, code, f"{expected}: must stay a warning: {text}")
+        assert_true(expected in text, f"no '{expected}' warning: {text}")
+        assert_equal(1, text.count("[WARN]"), f"{expected}: exactly one warning expected: {text}")
+    code, text = validate(with_event, "&НаКлиенте\nПроцедура OnOpenHandler(Отказ, Лишний = Неопределено, Строка = \"a,b\")\nКонецПроцедуры\n")
+    assert_true("[WARN]" not in text, f"optional parameters counted as required: {text}")
+
+    conversion = "\n&AtClient\nProcedure Convert()\n\tValue = FormAttributeToValue(\"Object\");\nEndProcedure\n"
+    code, text = validate(with_event, client_handler + conversion)
+    assert_true(code != 0, f"a client-side FormAttributeToValue was accepted: {text}")
+    assert_true(re.search(r"\[ERROR\] 14\. Module\.bsl line 7: FormAttributeToValue in 'Convert' compiled &НаКлиенте", text),
+                f"no error for a client-side conversion: {text}")
+    code, text = validate(with_event, client_handler + conversion.replace("&AtClient", "&AtServer"))
+    assert_equal(0, code, f"a server-side FormAttributeToValue was rejected: {text}")
+    code, text = validate(with_event, client_handler + conversion.replace("Value = ", "// Value = "))
+    assert_equal(0, code, f"a commented-out conversion was reported: {text}")
+
+    code, text = validate(pristine.replace('version="2.17"', 'version="2.20"', 1), "")
+    assert_true(code != 0, f"a Form.xml version different from Configuration.xml was accepted: {text}")
+    assert_true("differs from Configuration.xml (2.17)" in text, f"no version diagnostic: {text}")
+
+    code, text = validate(pristine.replace("cfg:CatalogObject.TestCatalog", "cfg:CatalogObject.OtherCatalog"), "")
+    assert_true(code != 0, f"the default object form with a foreign main attribute was accepted: {text}")
+    assert_true("[ERROR] 12b. Main attribute" in text and "DefaultObjectForm of Catalog.TestCatalog" in text,
+                f"no 12b diagnostic: {text}")
+
+    folder_attr = ('\t<Attribute name="Extra" id="2">\n\t\t\t<Type>\n\t\t\t\t<v8:Type>cfg:Catalogs.TestCatalog</v8:Type>'
+                   '\n\t\t\t</Type>\n\t\t</Attribute>\n\t</Attributes>')
+    code, text = validate(pristine.replace("</Attributes>", folder_attr, 1), "")
+    assert_true(code != 0, f"cfg:Catalogs.TestCatalog was accepted: {text}")
+    assert_true("export folder name 'Catalogs' instead of a type — a reference type is 'cfg:CatalogRef.<Name>'" in text,
+                f"no export-folder diagnostic: {text}")
+
+    # A zero-length Description does not exist on the object, so it cannot be bound.
+    bound = pristine.replace("<ChildItems/>", '<ChildItems>\n\t\t<InputField name="Name" id="1">\n\t\t\t<DataPath>Объект.Description</DataPath>'
+                             '\n\t\t\t<ContextMenu name="NameContextMenu" id="2"/>\n\t\t\t<ExtendedTooltip name="NameExtendedTooltip" id="3"/>'
+                             '\n\t\t</InputField>\n\t</ChildItems>', 1)
+    code, text = validate(bound, "")
+    assert_true("12b. 'Объект.Description' is bound" not in text, f"a Description of length 25 was refused: {text}")
+    catalog = file_facts(target)["text"]
+    with open(target, "w", encoding="utf-8", newline="") as handle:
+        handle.write(catalog.replace("<DescriptionLength>25</DescriptionLength>", "<DescriptionLength>0</DescriptionLength>", 1))
+    code, text = validate(bound, "")
+    assert_true(code != 0 and "12b. 'Объект.Description' is bound, but Catalog.TestCatalog has DescriptionLength=0" in text,
+                f"a zero-length Description binding was accepted: {text}")
+    with open(target, "w", encoding="utf-8", newline="") as handle:
+        handle.write(catalog)
+
+    # The second form is not a default form: a foreign main attribute is legitimate there.
+    other_xml = os.path.join(forms_dir, "Other", "Ext", "Form.xml")
+    other = file_facts(other_xml)["text"].replace("cfg:CatalogObject.TestCatalog", "cfg:CatalogObject.OtherCatalog")
+    with open(other_xml, "w", encoding="utf-8-sig", newline="") as handle:
+        handle.write(other)
+    run = run_python_tool(FORM_VALIDATE_PY, ["-FormPath", other_xml], work)
+    assert_equal(0, run["exit_code"], f"a non-default form with another main attribute was rejected: {run['stdout']}")
+
+
 @case("xml layout: form-edit puts new ChildItems, Attributes and Commands sections in place")
 def _(work):
     """Section order follows form-edit.ps1 (ChildItems after Events / AutoCommandBar, Attributes

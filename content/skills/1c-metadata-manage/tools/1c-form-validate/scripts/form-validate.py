@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-# form-validate v1.9 — Validate 1C managed form
+# form-validate v1.10 — Validate 1C managed form
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 # DynamicList attributes without MainTable and QueryText are an error —
 # the form loads but fails to open.
+# v1.10: the root version must equal Configuration.xml (1); a type spelled
+# with an export folder name (cfg:Catalogs.X) is an error (12); the main attribute
+# of a default object / record form belongs to the owner and a zero-length
+# Description / Code is not bound (12b); Module.bsl is checked against the
+# handlers Form.xml references (13) and for form-data conversion outside
+# &НаСервере (14).
 
 import argparse
 import os
@@ -50,9 +56,213 @@ VALID_CFG_PREFIXES = {
     'ReportObject', 'TaskObject', 'TaskRef',
 }
 
+# Export folder names that are sometimes written where a type belongs -> the
+# reference type, if the kind has one.
+EXPORT_FOLDER_TYPES = {
+    'Catalogs': 'CatalogRef', 'Documents': 'DocumentRef', 'Enums': 'EnumRef',
+    'ChartsOfAccounts': 'ChartOfAccountsRef', 'ChartsOfCharacteristicTypes': 'ChartOfCharacteristicTypesRef',
+    'ChartsOfCalculationTypes': 'ChartOfCalculationTypesRef', 'BusinessProcesses': 'BusinessProcessRef',
+    'ExchangePlans': 'ExchangePlanRef', 'Tasks': 'TaskRef', 'DefinedTypes': 'DefinedType',
+    'InformationRegisters': '', 'AccumulationRegisters': '', 'AccountingRegisters': '',
+    'CalculationRegisters': '', 'Constants': '', 'DataProcessors': '', 'Reports': '', 'DocumentJournals': '',
+}
+
+MD_NS = "http://v8.1c.ru/8.3/MDClasses"
+
+OWNER_KINDS = ('Catalog', 'Document', 'ChartOfAccounts', 'ChartOfCharacteristicTypes', 'ChartOfCalculationTypes',
+               'ExchangePlan', 'BusinessProcess', 'Task', 'InformationRegister')
+
+DIRECTIVE_MAP = {
+    "наклиенте": "client", "atclient": "client",
+    "насервере": "server", "atserver": "server",
+    "насерверебезконтекста": "servernc", "atservernocontext": "servernc",
+    "наклиентенасерверебезконтекста": "clientservernc", "atclientatservernocontext": "clientservernc",
+    "наклиентенасервере": "clientserver", "atclientatserver": "clientserver",
+}
+
+# Largest number of parameters the platform passes to a handler, per element tag and
+# event (a handler may declare fewer). Unlisted events are not arity-checked.
+# Keys are lower case: the PowerShell hashtable matches them case-insensitively.
+EVENT_ARITY = {k.lower(): v for k, v in {
+    "Form|OnCreateAtServer": 2, "Form|OnOpen": 1, "Form|NotificationProcessing": 3, "Form|ExternalEvent": 3,
+    "Form|FillCheckProcessingAtServer": 2, "Form|BeforeClose": 4, "Form|OnClose": 1, "Form|ChoiceProcessing": 2,
+    "Form|OnReadAtServer": 1, "Form|BeforeWrite": 2, "Form|BeforeWriteAtServer": 3, "Form|OnWriteAtServer": 3,
+    "Form|AfterWriteAtServer": 2, "Form|AfterWrite": 1,
+    "InputField|OnChange": 1, "InputField|StartChoice": 4, "InputField|Clearing": 2, "InputField|ChoiceProcessing": 5,
+    "InputField|AutoComplete": 6, "InputField|TextEditEnd": 5, "InputField|Opening": 2,
+    "CheckBoxField|OnChange": 1, "LabelDecoration|Click": 2, "LabelDecoration|URLProcessing": 3,
+    "LabelField|OnChange": 1, "LabelField|Click": 2, "LabelField|URLProcessing": 3, "RadioButtonField|OnChange": 1,
+    "Pages|OnCurrentPageChange": 2,
+    "Table|Selection": 4, "Table|OnActivateRow": 1, "Table|ChoiceProcessing": 3, "Table|OnStartEdit": 3,
+    "Table|BeforeAddRow": 6, "Table|BeforeRowChange": 2, "Table|BeforeDeleteRow": 2, "Table|AfterDeleteRow": 1,
+    "Table|OnChange": 1, "Table|OnEditEnd": 3,
+    "Command|Action": 1,
+}.items()}
+
+DECL_RE = re.compile(r'^\s*(?:(?:Асинх|Async)\s+)?(?:Процедура|Функция|Procedure|Function)\s+([\w]+)\s*\(', re.I)
+END_RE = re.compile(r'^\s*(?:КонецПроцедуры|КонецФункции|EndProcedure|EndFunction)\b', re.I)
+CALL_RE = re.compile(r'(?<![\w.])(РеквизитФормыВЗначение|ЗначениеВРеквизитФормы|FormAttributeToValue|ValueToFormAttribute)\s*\(', re.I)
+DIRECTIVE_RE = re.compile(r'^&\s*(\w+)')
+
 
 def localname(el):
     return etree.QName(el.tag).localname
+
+
+def read_lines(path):
+    # File.ReadAllLines: CR, LF and CRLF end a line; no empty line after the last break.
+    with open(path, encoding="utf-8-sig", errors="replace", newline="") as handle:
+        text = handle.read()
+    lines = re.split(r'\r\n|\r|\n', text)
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def directive_of(text):
+    dm = DIRECTIVE_RE.match(text)
+    if dm and dm.group(1).lower() in DIRECTIVE_MAP:
+        return DIRECTIVE_MAP[dm.group(1).lower()]
+    return None
+
+
+def bsl_procedures(lines):
+    # name (lower case) -> list of {Name, Line, Directive, Params, Required}
+    result = {}
+    for i, line in enumerate(lines):
+        m = DECL_RE.match(line)
+        if not m:
+            continue
+        name = m.group(1)
+        # Directive: walk back over blank lines, comments and annotations.
+        directive = None
+        for j in range(i - 1, -1, -1):
+            s = lines[j].strip()
+            if not s or s.startswith("//"):
+                continue
+            if s.startswith("&"):
+                found = directive_of(s)
+                if found:
+                    directive = found
+                continue
+            break
+        # Parameters: the text between the declaration's parentheses (strings and
+        # comments skipped, may span lines).
+        buf = []
+        depth = 0
+        in_str = False
+        closed = False
+        j = i
+        while j < min(i + 40, len(lines)) and not closed:
+            s = lines[j]
+            k = m.end() - 1 if j == i else 0
+            while k < len(s):
+                ch = s[k]
+                if in_str:
+                    buf.append(ch)
+                    if ch == '"':
+                        in_str = False
+                    k += 1
+                    continue
+                if ch == '"':
+                    in_str = True
+                    buf.append(ch)
+                elif ch == '/' and k + 1 < len(s) and s[k + 1] == '/':
+                    break
+                elif ch == '(':
+                    depth += 1
+                    if depth > 1:
+                        buf.append(ch)
+                elif ch == ')':
+                    depth -= 1
+                    if depth == 0:
+                        closed = True
+                        break
+                    buf.append(ch)
+                elif depth >= 1:
+                    buf.append(ch)
+                k += 1
+            buf.append(' ')
+            j += 1
+        params = required = None
+        if closed:
+            parts = []
+            cur = []
+            p_in_str = False
+            p_depth = 0
+            for ch in "".join(buf):
+                if p_in_str:
+                    cur.append(ch)
+                    if ch == '"':
+                        p_in_str = False
+                    continue
+                if ch == '"':
+                    p_in_str = True
+                if ch == '(':
+                    p_depth += 1
+                if ch == ')':
+                    p_depth -= 1
+                if ch == ',' and p_depth == 0:
+                    parts.append("".join(cur))
+                    cur = []
+                    continue
+                cur.append(ch)
+            parts.append("".join(cur))
+            parts = [part for part in parts if part.strip()]
+            params = len(parts)
+            required = sum(1 for part in parts if "=" not in part)
+        result.setdefault(name.lower(), []).append(
+            {"Name": name, "Line": i + 1, "Directive": directive, "Params": params, "Required": required})
+    return result
+
+
+def form_data_conversions(lines):
+    # {Line, Procedure, Directive, Call} for every unqualified conversion call
+    found = []
+    cur = cur_directive = pending = None
+    in_str = False
+    for i, line in enumerate(lines):
+        # Strip string literals (a multi-line literal continues on lines starting with |) and comments.
+        if in_str and not line.lstrip().startswith("|"):
+            in_str = False
+        code = []
+        k = 0
+        while k < len(line):
+            ch = line[k]
+            if in_str:
+                if ch == '"':
+                    if k + 1 < len(line) and line[k + 1] == '"':
+                        k += 2
+                        continue
+                    in_str = False
+                k += 1
+                continue
+            if ch == '"':
+                in_str = True
+                k += 1
+                continue
+            if ch == '/' and k + 1 < len(line) and line[k + 1] == '/':
+                break
+            code.append(ch)
+            k += 1
+        c = "".join(code)
+        s = c.strip()
+        if s.startswith("&"):
+            found_directive = directive_of(s)
+            if found_directive:
+                pending = found_directive
+            continue
+        dmatch = DECL_RE.match(c)
+        if dmatch:
+            cur = dmatch.group(1)
+            cur_directive = pending
+            pending = None
+        if END_RE.match(c):
+            cur = cur_directive = None
+            continue
+        for cm in CALL_RE.finditer(c):
+            found.append({"Line": i + 1, "Procedure": cur, "Directive": cur_directive, "Call": cm.group(1)})
+    return found
 
 
 def main():
@@ -108,6 +318,7 @@ def main():
 
     # Detect context: config vs EPF/ERF
     is_config_context = False
+    config_version = ""
     walk_dir = os.path.dirname(os.path.abspath(form_path))
     for _ in range(15):
         parent = os.path.dirname(walk_dir)
@@ -115,6 +326,15 @@ def main():
             break
         if os.path.isfile(os.path.join(walk_dir, 'Configuration.xml')):
             is_config_context = True
+            # The format version of the configuration (Check 1).
+            try:
+                with open(os.path.join(walk_dir, 'Configuration.xml'), encoding="utf-8-sig", errors="replace") as handle:
+                    cfg_head = handle.read(2000)
+                vm = re.search(r'<MetaDataObject[^>]+version="(\d+\.\d+)"', cfg_head, re.I)
+                if vm:
+                    config_version = vm.group(1)
+            except OSError:
+                pass
             break
         walk_dir = parent
 
@@ -163,7 +383,9 @@ def main():
         report_error(f"Root element is '{localname(root)}', expected 'Form'")
     else:
         version = root.get("version", "")
-        if version in ("2.17", "2.20"):
+        if version and config_version and version != config_version:
+            report_error(f"Form version='{version}' differs from Configuration.xml ({config_version}) \u2014 the Configurator refuses to load a dump with mixed format versions")
+        elif version in ("2.17", "2.20"):
             report_ok(f"Root element: Form version={version}")
         elif version:
             report_warn(f"Form version='{version}' (expected 2.17 or 2.20)")
@@ -743,7 +965,12 @@ def main():
             elif tv.startswith("cfg:"):
                 suffix = tv[4:]  # after "cfg:"
                 prefix = suffix.split(".")[0]
-                if prefix in VALID_CFG_PREFIXES or suffix == "DynamicList":
+                # cfg:Catalogs.X is the export folder name, not a type — the platform refuses it.
+                if "." in suffix and prefix and prefix in EXPORT_FOLDER_TYPES:
+                    folder_hint = f" \u2014 a reference type is 'cfg:{EXPORT_FOLDER_TYPES[prefix]}.<Name>'" if EXPORT_FOLDER_TYPES[prefix] else ""
+                    report_error(f"12. Type '{tv}': export folder name '{prefix}' instead of a type{folder_hint}")
+                    type_error_count += 1
+                elif prefix in VALID_CFG_PREFIXES or suffix == "DynamicList":
                     # ExternalDataProcessorObject/ExternalReportObject valid only in EPF/ERF context
                     if is_config_context and prefix in ('ExternalDataProcessorObject', 'ExternalReportObject'):
                         report_error(f'12. Type "{tv}": External* type in configuration context (use DataProcessorObject/ReportObject instead)')
@@ -762,6 +989,194 @@ def main():
                 report_ok(f'12. Types: {type_count} values, all valid')
             else:
                 report_ok('12. Types: no type values to check')
+
+    # --- Check 12b: the owner of a default object / record form ---
+    # A form reached through DefaultObjectForm / DefaultFolderForm / DefaultRecordForm
+    # (or the Auxiliary* twin) of a catalog, document, chart, exchange plan, business
+    # process, task or information register receives an object of that owner: its main
+    # attribute must be <Kind>Object.<Owner> (InformationRegisterRecordManager for a
+    # register). A form copied from another object keeps the other owner's type and
+    # loads, but fails when it is opened. Data processors and reports are not checked:
+    # vendor configurations share one processor's object between several of them.
+    # The same main attribute must not bind Description / Code when the owner's
+    # DescriptionLength / CodeLength is 0 — the standard attribute does not exist.
+    owner_descriptor = None
+    if not stopped and form_name:
+        form_dir_path = os.path.dirname(os.path.dirname(os.path.abspath(form_path)))
+        forms_dir_path = os.path.dirname(form_dir_path)
+        if os.path.basename(forms_dir_path) == "Forms":
+            owner_xml_path = os.path.dirname(forms_dir_path) + ".xml"
+            if os.path.isfile(owner_xml_path):
+                try:
+                    owner_descriptor = etree.parse(owner_xml_path).getroot()
+                except Exception:
+                    owner_descriptor = None
+    if owner_descriptor is not None:
+        md = {"md": MD_NS}
+        owner_node = next((c for c in owner_descriptor if isinstance(c.tag, str)), None)
+        owner_props = owner_node.find("md:Properties", md) if owner_node is not None else None
+        owner_kind = localname(owner_node) if owner_node is not None else ""
+        owner_name_node = owner_props.find("md:Name", md) if owner_props is not None else None
+        owner_name = "".join(owner_name_node.itertext()).strip() if owner_name_node is not None else ""
+        main_attr = None
+        for attr in attr_nodes:
+            main_node = attr.find(f"{{{F_NS}}}MainAttribute")
+            if main_node is not None and "".join(main_node.itertext()).lower() == "true":
+                main_attr = attr
+                break
+        main_types = []
+        if main_attr is not None:
+            for tn in main_attr.findall(f"{{{F_NS}}}Type/{{{V8_NS}}}Type"):
+                text = "".join(tn.itertext()).strip()
+                if text:
+                    main_types.append(text)
+        if owner_props is not None and owner_name and owner_kind in OWNER_KINDS:
+            own_form_ref = f"{owner_kind}.{owner_name}.Form.{form_name}"
+            slots = []
+            for slot in ("DefaultObjectForm", "DefaultFolderForm", "DefaultRecordForm",
+                         "AuxiliaryObjectForm", "AuxiliaryFolderForm", "AuxiliaryRecordForm"):
+                slot_node = owner_props.find(f"md:{slot}", md)
+                if slot_node is not None and "".join(slot_node.itertext()).strip() == own_form_ref:
+                    slots.append(slot)
+            if slots and main_attr is not None:
+                if owner_kind == "InformationRegister":
+                    expected_type = f"cfg:InformationRegisterRecordManager.{owner_name}"
+                else:
+                    expected_type = f"cfg:{owner_kind}Object.{owner_name}"
+                if len(main_types) != 1 or main_types[0] != expected_type:
+                    report_error(f"12b. Main attribute '{main_attr.get('name', '')}' has type '{', '.join(main_types)}', "
+                                 f"but the form is {' / '.join(slots)} of {owner_kind}.{owner_name} \u2014 expected "
+                                 f"'{expected_type}' (form copied from another object?)")
+                else:
+                    report_ok(f"12b. Owner: main attribute '{main_attr.get('name', '')}' is {expected_type}")
+            if main_attr is not None and len(main_types) == 1 and main_types[0] == f"cfg:{owner_kind}Object.{owner_name}":
+                main_name = main_attr.get("name", "")
+                bound_paths = {"".join(dp.itertext()).strip() for dp in root.iter(f"{{{F_NS}}}DataPath")}
+                for length_prop, standard in (("DescriptionLength", "Description"), ("CodeLength", "Code")):
+                    length_node = owner_props.find(f"md:{length_prop}", md)
+                    if (length_node is not None and "".join(length_node.itertext()).strip() == "0"
+                            and f"{main_name}.{standard}" in bound_paths):
+                        report_error(f"12b. '{main_name}.{standard}' is bound, but {owner_kind}.{owner_name} has "
+                                     f"{length_prop}=0 \u2014 the object has no {standard}")
+
+    # --- Check 13: Form.xml handlers against Module.bsl ---
+    # Every event handler and command Action named in Form.xml must be a procedure of
+    # the form module, declared once (a duplicate does not compile — error). The rest
+    # are warnings, because vendor configurations ship all of them: a handler that is
+    # missing, has no compilation directive, runs in the wrong context (client event
+    # on a server procedure, *AtServer event or command on a client one), or has more
+    # mandatory parameters than the platform passes for that event.
+    # Check 14: РеквизитФормыВЗначение / ЗначениеВРеквизитФормы need the form
+    # context on the server — a call in a procedure explicitly compiled &НаКлиенте,
+    # &НаСервереБезКонтекста or &НаКлиентеНаСервереБезКонтекста is an error. A procedure
+    # without a directive is server-side in a form module and is accepted.
+    module_path = os.path.join(os.path.dirname(os.path.abspath(form_path)), "Form", "Module.bsl")
+    if not stopped and os.path.isfile(module_path):
+        module_lines = read_lines(module_path)
+        procedures = bsl_procedures(module_lines)
+
+        # References: form events, element events, command actions. In a borrowed form
+        # (BaseForm) only the extension's own references are checked: an event with a
+        # callType, an element with id >= 1000000, a command absent from the base form.
+        refs = []
+        base_cmds = set()
+        if has_base_form:
+            for b_cmd in root.findall(f"{{{F_NS}}}BaseForm/{{{F_NS}}}Commands/{{{F_NS}}}Command"):
+                base_cmds.add(b_cmd.get("name", "").lower())
+        form_events_node = root.find(f"{{{F_NS}}}Events")
+        if form_events_node is not None:
+            for evt in form_events_node.findall(f"{{{F_NS}}}Event"):
+                if has_base_form and not evt.get("callType"):
+                    continue
+                refs.append({"Owner": "Form", "Event": evt.get("name", ""), "Handler": "".join(evt.itertext()).strip(),
+                             "Where": f"Form event '{evt.get('name', '')}'"})
+        for el in all_elements:
+            events_node = el["Node"].find(f"{{{F_NS}}}Events")
+            if events_node is None:
+                continue
+            is_base_element = False
+            if has_base_form:
+                try:
+                    is_base_element = int(el["Id"]) < 1000000
+                except ValueError:
+                    pass
+            for evt in events_node.findall(f"{{{F_NS}}}Event"):
+                if is_base_element and not evt.get("callType"):
+                    continue
+                refs.append({"Owner": el["Tag"], "Event": evt.get("name", ""), "Handler": "".join(evt.itertext()).strip(),
+                             "Where": f"[{el['Tag']}] '{el['Name']}' event '{evt.get('name', '')}'"})
+        for cmd in cmd_nodes:
+            c_name = cmd.get("name", "")
+            for action in cmd.findall(f"{{{F_NS}}}Action"):
+                if has_base_form and c_name.lower() in base_cmds and not action.get("callType"):
+                    continue
+                refs.append({"Owner": "Command", "Event": "Action", "Handler": "".join(action.itertext()).strip(),
+                             "Where": f"Command '{c_name}'"})
+
+        handler_errors = 0
+        handler_warnings = 0
+        handlers_checked = 0
+        seen_duplicates = set()
+        for ref in refs:
+            if stopped:
+                break
+            if not ref["Handler"]:
+                continue
+            handlers_checked += 1
+            decls = procedures.get(ref["Handler"].lower())
+            if not decls:
+                report_warn(f"13. {ref['Where']}: handler '{ref['Handler']}' not found in Module.bsl")
+                handler_warnings += 1
+                continue
+            if len(decls) > 1:
+                if ref["Handler"].lower() not in seen_duplicates:
+                    seen_duplicates.add(ref["Handler"].lower())
+                    report_error(f"13. Handler '{ref['Handler']}' is declared {len(decls)} times in Module.bsl "
+                                 f"(lines {', '.join(str(d['Line']) for d in decls)}) \u2014 the module does not compile")
+                    handler_errors += 1
+                continue
+            decl = decls[0]
+            # Events are named by an identifier; a UUID-named event carries no contract here.
+            if not re.match(r'^[A-Za-z]\w*$', ref["Event"]):
+                continue
+            if not decl["Directive"]:
+                report_warn(f"13. {ref['Where']}: handler '{decl['Name']}' (line {decl['Line']}) has no compilation "
+                            f"directive \u2014 it compiles &НаСервере")
+                handler_warnings += 1
+            else:
+                server_event = ref["Event"].endswith("AtServer")
+                if server_event and decl["Directive"] not in ("server", "servernc"):
+                    report_warn(f"13. {ref['Where']}: handler '{decl['Name']}' (line {decl['Line']}) is not a server "
+                                f"procedure \u2014 a *AtServer event needs &НаСервере")
+                    handler_warnings += 1
+                elif not server_event and decl["Directive"] != "client":
+                    report_warn(f"13. {ref['Where']}: handler '{decl['Name']}' (line {decl['Line']}) is not &НаКлиенте "
+                                f"\u2014 client events and commands run on the client")
+                    handler_warnings += 1
+            arity_key = f"{ref['Owner']}|{ref['Event']}".lower()
+            if arity_key in EVENT_ARITY and decl["Required"] is not None and decl["Required"] > EVENT_ARITY[arity_key]:
+                report_warn(f"13. {ref['Where']}: handler '{decl['Name']}' (line {decl['Line']}) requires "
+                            f"{decl['Required']} parameters, the platform passes at most {EVENT_ARITY[arity_key]}")
+                handler_warnings += 1
+        if handler_errors == 0 and handler_warnings == 0:
+            if handlers_checked > 0:
+                report_ok(f"13. Handlers: {handlers_checked} references match Module.bsl")
+            else:
+                report_ok("13. Handlers: none referenced")
+
+        conversion_errors = 0
+        directive_names = {"client": "&НаКлиенте", "servernc": "&НаСервереБезКонтекста",
+                           "clientservernc": "&НаКлиентеНаСервереБезКонтекста"}
+        for conv in form_data_conversions(module_lines):
+            if stopped:
+                break
+            if conv["Directive"] and conv["Directive"] != "server":
+                dir_name = directive_names.get(conv["Directive"], "&НаКлиентеНаСервере")
+                report_error(f"14. Module.bsl line {conv['Line']}: {conv['Call']} in '{conv['Procedure']}' compiled "
+                             f"{dir_name} \u2014 it needs the form context on the server (&НаСервере)")
+                conversion_errors += 1
+        if conversion_errors == 0:
+            report_ok("14. Form data conversion: server context only")
 
     # --- Finalize ---
     checks = ok_count + errors + warnings

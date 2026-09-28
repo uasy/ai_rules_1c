@@ -138,6 +138,10 @@ Rules taken from the static checks of [AzeevAN/mcp-1c](https://github.com/AzeevA
 - **`form-add` v1.12** (both runtimes): `-FormName` must be a 1C identifier (exit 2 before any path or XPath is built from it); the object form of an information register names its `RecordManager` main attribute `Запись`, as the Configurator does.
 - **`form-validate` v1.10**: version equal to `Configuration.xml` (check 1); `cfg:Catalogs.X` is an error (12); owner type of the main attribute in default object / record forms and no zero-length `Description` / `Code` binding (12b); handlers against `Module.bsl` (13 — duplicate declaration is an error, the rest are warnings because ERP ships them); `РеквизитФормыВЗначение` / `ЗначениеВРеквизитФормы` only in `&НаСервере` (14).
 
+### Python `form-validate` caught up with v1.10 (`2026-09-28`)
+
+`form-validate.py` runs checks 1, 12, 12b, 13 and 14 of `form-validate.ps1` v1.10 with the same messages and exit codes: the form version against `Configuration.xml`, `cfg:<export folder>.X` types, the owner of a default object / record form and zero-length `Description` / `Code` bindings, handlers against `Ext/Form/Module.bsl`, and form-data conversion outside `&НаСервере`. Pinned by `tools/tests/python-ports-regression.py`.
+
 ### Python `form-edit` / `form-validate` caught up with v1.6 / v1.9 (`2026-09-25`)
 
 `form-edit.py` now carries the `DynamicList` rule of `form-edit.ps1` v1.6: an attribute of that type needs `settings.mainTable` or `settings.query`, is refused without one, and gets `<Settings xsi:type="DynamicList">` instead of `<Columns>`. `form-validate.py` reports a `DynamicList` with neither `MainTable` nor `QueryText`, as `form-validate.ps1` v1.9 does. Along the way `form-edit.py` was aligned with the PowerShell writer in two more places: a new `<ChildItems>`, `<Attributes>` or `<Commands>` section is inserted at its place in the form on its own line (the port appended `<Attributes>` and `<Commands>` at the end, sharing a line with `</Form>`), and the declaration keeps Configurator's `encoding="UTF-8"`. Pinned by `tools/tests/python-ports-regression.py`.
