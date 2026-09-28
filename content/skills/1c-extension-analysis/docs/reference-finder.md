@@ -45,11 +45,10 @@ For each object: `[OWN CONTENT]` (if applicable), `[TYPE REFERENCE]` hits with f
 
 ## Known gaps (check manually before excluding an object)
 
-- **Fixed (previously a known gap):** earlier versions missed `Метаданные.Справочники.X` / `Метаданные.Документы.X`-style metadata lookups because the word-boundary regex rejected a match preceded by a dot (the dot in `Метаданные.`). The tool now searches for `Метаданные.<manager>.<name>` as its own literal token — see Provenance for the real-world case that surfaced this.
 - Does **not** scan compiled form layouts (`Forms/*/Ext/Form.xml`) for data-path bindings, or `Subsystems`/`Roles` composition lists (`<Item xsi:type="xr:MDObjectRef">Type.Name</Item>`) — an object referenced only from a subsystem's command-interface grouping or a role's rights list would show as "NO REFERENCE FOUND" here even though removing the adoption would break that composition. Cross-check with a plain `grep -r "<Object.Name>"` across `Subsystems/` and `Roles/` before deleting an adoption based solely on this tool's verdict.
 - Only searches inside the **extension's own** source tree — a reference living in the base configuration is irrelevant to *why the extension* had to adopt the object, so this is intentional, not a bug.
 - Word-bounded literal search, not a BSL parser — a match inside a comment or a string literal that happens to look like `Справочник.X` will still be reported (rare in practice, but read the printed line before concluding).
 
 ## Provenance
 
-Built from the methodology developed while auditing a real-world 1C configuration extension, and validated against it — including the `Метаданные.<manager>.<name>` regex fix described in "Known gaps" above. No specifics about that extension are reproduced here, to avoid disclosing details of a third party's codebase; the tool and its checks are fully general regardless.
+Built from the methodology developed while auditing a real-world 1C configuration extension, and validated against it. No specifics about that extension are reproduced here, to avoid disclosing details of a third party's codebase; the tool and its checks are fully general regardless.

@@ -70,7 +70,7 @@ Rewrites the whole file from scratch. `value` is an object: `template` (`OneColu
 ... -Operation set-home-page -Value '{"template":"TwoColumnsVariableWidth","left":["CommonForm.Start",{"form":"Catalog.Контрагенты.Form.ФормаСписка","height":50}]}'
 ```
 
-Both operations accept the same JSON either inline via `-Value` or through `-DefinitionFile`. See "Recent Additions" below for the full alias table and Russian-alias mapping for `set-panels`.
+Both operations accept the same JSON either inline via `-Value` or through `-DefinitionFile`. The full alias table and the Russian-alias mapping for `set-panels` — [CHANGELOG.md](CHANGELOG.md), section `cf-manage.md`.
 
 ### Examples
 

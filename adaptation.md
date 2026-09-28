@@ -51,7 +51,7 @@
 - **Порты:** `content/skills/1c-metadata-manage/tools/*/scripts/*.py`. Веб-команды `tools/1c-web-ops/` — реализация апстрима (`web_common.py`) с одним отличием, ниже. Не портирован `tools/_common/DevEnv.ps1` (его Python-аналог — `dev_env.py`).
 - **Общие помощники:** `tools/_common/Invoke-1CEdit.py`, `tools/_common/MetadataAddress.py`, `tools/_common/meta_dsl.py`, `tools/_common/platform_args.py`, `tools/_shared/support_guard.py`, `tools/_shared/xml_eol.py`.
 - **Документация:** `content/skills/1c-metadata-manage/SKILL.md` (уровни Python-портов, Python-обёртка preview), `content/skills/1c-metadata-manage/NOTICE.md` (локальные отличия портов), `content/skills/1c-metadata-manage/docs/CHANGELOG.md` (записи об изменениях портов), `content/skills/1c-metadata-manage/docs/edit-preview.md` (Python-обёртка и та же политика preview), `content/skills/1c-metadata-manage/docs/cf-manage.md` (вызов `dump-validate.py`), `content/skills/1c-metadata-manage/docs/template-manage.md` (абзац об `add-template.py`), `content/skills/1c-metadata-manage/docs/db-manage.md` (параметры `ibcmd` для базы в СУБД с пометкой «только Python»), `content/skills/1c-metadata-manage/docs/web-manage.md` (пункт о публикации HTTP-сервисов расширений), `content/commands/installfilesupdatescript.md` (раздел «Linux» для `install-files-update.py`).
-- **Тесты:** `tools/tests/python-ports-regression.py` и фикстура `tools/tests/fixtures/epf-with-template/`; отличие веб-команд — в `tools/tests/web-python-regression.py` апстрима.
+- **Тесты:** `tools/tests/python-ports-regression.py` и фикстура `tools/tests/fixtures/epf-with-template/`; отличие веб-команд — в `tools/tests/web-python-regression.py` апстрима. Проверка апстрима «ports: exactly the documented commands have a Python peer» у нас ослаблена до «у документированных команд есть `.py`»: `.py` есть у каждого инструмента, поэтому требование «больше ни у кого» к `dev` неприменимо.
 
 ### Отличия портов от поведения апстрима
 
@@ -84,10 +84,29 @@
 
 | Документ | Отличие |
 |---|---|
-| `content/skills/1c-metadata-manage/docs/cf-manage.md` | Описывает параметры `cf-init` (`-Synonym`, `-Version` и др.), которые есть в скрипте |
+| `content/skills/1c-metadata-manage/docs/cf-manage.md` | Описывает параметры `cf-init` (`-Synonym`, `-Version` и др.), операции `cf-edit` `set-panels` / `set-home-page` и параметры `cf-info` (`-Mode`, `-Section`, `-Limit`, `-Offset`, `-OutFile`) — всё это есть в скриптах |
 | `content/skills/1c-metadata-manage/docs/template-manage.md` | Описывает `-SetMainSKD` и тип `DataCompositionSchema` у `add-template` |
 | `content/skills/1c-metadata-manage/docs/skd-manage.md`, `content/skills/1c-metadata-manage/tools/1c-skd-info/modes-reference.md` | Описывают `skd-info -Raw` |
 | `content/skills/1c-metadata-manage/docs/meta-manage.md` | Раздел о составных типах атрибутов |
+
+## E. Правки внутри предложений апстрима
+
+Принцип 3 нарушен в этих местах сознательно или отложенно. При конфликте берётся текст апстрима и правка повторяется; отложенные со временем выносятся в отдельные абзацы.
+
+- Неизбежные — счётчики и списки агентов: `content/rules/subagents.md` (число агентов, `allowParallel`, список тира `coding`), `content/rules/subagent-core.md` (список read-only агентов).
+- Отложенные:
+  - `content/skills/1c-metadata-manage/SKILL.md`: таблица Python-рантайма заменена таблицей уровней, строка маршрута «Databases», слово «yet» в абзаце «A missing runtime…»;
+  - `content/skills/1c-metadata-manage/NOTICE.md`: число Python-точек входа, фраза «Other tool commands remain PowerShell-only»;
+  - `content/skills/1c-metadata-manage/docs/edit-preview.md`: заголовок, упоминание `MetadataAddress.py`, пункт о Python-обёртке;
+  - `content/skills/1c-metadata-manage/docs/cfe-manage.md`: заголовок и вводное предложение;
+  - `content/skills/1c-metadata-manage/docs/cf-manage.md`, `template-manage.md`, `skd-manage.md`: строки команд и таблиц из раздела D.
+
+## F. Известные ошибки апстрима без локального исправления
+
+Кандидаты в support; до исправления обходятся при установке.
+
+- `install.ps1`: при обновлении из манифеста выбрасываются записи без `userModified`, после чего `Invoke-OpenSpecArtifacts` считает существующие файлы OpenSpec пользовательскими и не обновляет их. Бандл остаётся старым, новые команды встают рядом. Обход: перед обновлением удалить установленные `opsx/*` и `openspec-*`.
+- `install.ps1`: навыки копируются из рабочего дерева целиком, включая игнорируемые git `__pycache__`. Обход: удалить `__pycache__` в `content/` перед установкой.
 
 ## Этот файл
 

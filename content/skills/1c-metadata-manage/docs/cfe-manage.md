@@ -227,7 +227,7 @@ Builds a compiled `.cfe` file from extension XML sources via a **throwaway local
 
 ### Why `-BaseCfFile` is (usually) required
 
-Verified empirically: loading an extension with adopted objects into a **truly empty** infobase (no base configuration at all) fails at the platform level with dozens-to-hundreds of `Не найден объект <Тип>.<Имя>` errors and a non-zero exit code — every reference to a base-configuration object (subsystems, style elements, common pictures, catalogs, documents, registers, …) is unresolved. A standalone extension with zero adopted objects can omit `-BaseCfFile` and build against a genuinely empty base.
+Loading an extension with adopted objects into a **truly empty** infobase (no base configuration at all) fails at the platform level with dozens-to-hundreds of `Не найден объект <Тип>.<Имя>` errors and a non-zero exit code — every reference to a base-configuration object (subsystems, style elements, common pictures, catalogs, documents, registers, …) is unresolved. A standalone extension with zero adopted objects can omit `-BaseCfFile` and build against a genuinely empty base.
 
 **Keep the `.cf` fresh.** `-BaseCfFile` must match the configuration version the extension was borrowed from — a stale `.cf` (wrong `NamePrefix`/UUID generation for objects added or removed since) will produce the same "object not found" failures or, worse, a `.cfe` that silently drops references. Rebuild it from the current XML source when in doubt:
 

@@ -123,7 +123,7 @@ def collect_tests(tests_dir):
 def qualify(tests, prefix):
     """Gives every test its `id` (for lookup) and `object` (the extension object name).
 
-    Two capabilities can in principle camel-case to one token (`yaml-library` and `yaml_library`
+    Two capabilities can in principle camel-case to one token (`foo-bar` and `foo_bar`
     would), and the collision would silently eat one of the tests, the manifest being a dict. The
     build stops on it instead, naming both source paths.
     """

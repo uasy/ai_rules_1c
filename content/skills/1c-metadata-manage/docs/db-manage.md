@@ -201,11 +201,11 @@ When `-V8Path` points at `ibcmd`, the Python entry points `db-create.py`, `db-lo
 | `-IbcmdDataPath <dir>` | `ibcmd` server data directory (`--data`); default is a fresh temporary directory |
 | `-IbcmdTempPath <dir>` | `ibcmd` temporary files (`--temp`); a large DT load writes multi-GB files here |
 
-Facts that shape these parameters (verified on 8.3.27, Linux):
+Facts that shape these parameters:
 
 - **The DBMS must be a 1C build.** Vanilla PostgreSQL fails at infobase creation with `extension "mchar" is not available` — the 1C patch changes the server core, not only `contrib`; installing an extension alone does not help. Use PostgreSQL with the 1C patch or Postgres Pro for 1C.
 - **Set the locale on creation** (`-Locale ru_RU`). Without it the infobase gets the locale of the process environment, and with `LANG=en_US` a DBMS answers `Порядок сортировки не поддерживается базой данных`. `ibcmd infobase restore` has no `--locale`, so a new DBMS infobase from a DT is **`db-create -UseTemplate <dt> -Locale ru_RU`**, not `db-load-dt`.
-- **`--data` needs file renames.** On a VirtualBox shared folder (`vboxsf`) `ibcmd` fails with `Text file busy` renaming its registry; keep `-IbcmdDataPath` on a local disk. Large temporary files can still go elsewhere through `-IbcmdTempPath`.
+- **`--data` needs file renames.** On a shared or network folder that refuses to rename an open file `ibcmd` fails with `Text file busy` renaming its registry; keep `-IbcmdDataPath` on a local disk. Large temporary files can still go elsewhere through `-IbcmdTempPath`.
 - **IB authentication in `ibcmd config …`** goes through `--user` / `--password`; the standalone `ibcmd extension …` mode has no such keys and, with stdin closed, repeats its `Имя пользователя:` prompt forever — use `ibcmd config extension …` instead.
 
 ### Database Resolution
@@ -232,7 +232,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 A **large production DT may not fit a file infobase at all**: the load stops with `Превышен максимально допустимый размер внутреннего файла '…/1Cv8.1CD'` when one table (typically file storage in `BinaryData`) outgrows the file-DB limit. A bigger `-PageSize` raises the limit but is not a guaranteed fix: a dump with a large file storage can outgrow it even with 64k pages. For such a dump create a DBMS infobase instead:
 
 ```bash
-python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-create.py -V8Path /opt/1cv8/x86_64/8.3.27.2074/ibcmd \
+python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-create.py -V8Path /opt/1cv8/x86_64/<version>/ibcmd \
   -Dbms PostgreSQL -DbServer "<host> port=5433" -DbName <database> -DbUser <user> -DbPassword "***" \
   -Locale ru_RU -UseTemplate <dump>.dt -IbcmdTempPath <dir with free space>
 ```

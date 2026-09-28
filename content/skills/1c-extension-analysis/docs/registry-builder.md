@@ -1,4 +1,4 @@
-# 1c-registry-builder
+# 1c-change-registry-builder
 
 Builds the change registry required by `../SKILL.md` workflow step 1 — one row per atomic own change (own attribute, own tabular section, own interceptor, own form module) — generated directly from the extension source tree instead of from a search for an already-known pattern name.
 
@@ -23,7 +23,7 @@ Every generated row has an empty `Блок` column — filling it in is step 3's
 ## Usage
 
 ```
-python3 registry-builder.py -ExtensionPath <path> [-Object "Type.Name"] [-CompareAgainst <report.md>]
+python3 skills/1c-extension-analysis/tools/1c-change-registry-builder/scripts/registry-builder.py -ExtensionPath <path> [-Object "Type.Name"] [-CompareAgainst <report.md>]
 ```
 
 - No `-Object` — walks the whole extension tree.

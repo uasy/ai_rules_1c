@@ -3619,11 +3619,11 @@ WEB_COMMON_PY = os.path.join(TOOLS_DIR, "1c-web-ops", "scripts", "web_common.py"
 def _(work):
     """The scope claim is itself a gate. Every command documented as locally
     hardened must have a runnable entry point - so the day one of them
-    disappears, the docs are forced to shrink with it. Upstream ships many more
-    vendored ``.py`` files under ``tools/`` (cf-*, cfe-*, db-*, skd-*, mxl-*,
-    xdto-*, ...); they are covered by the notice and packaging cases, not by
-    this gate - requiring "exactly five on disk" died with the upstream merge
-    that vendored them."""
+    disappears, the docs are forced to shrink with it. This package also ships
+    a ``.py`` for every other tool under ``tools/`` (cf-*, cfe-*, db-*, skd-*,
+    mxl-*, xdto-*, ...), so the upstream check "nothing else has a Python
+    peer" does not apply; those ports are covered by the notice and packaging
+    cases."""
     found = {}
     for entry in sorted(os.listdir(TOOLS_DIR)):
         scripts = os.path.join(TOOLS_DIR, entry, "scripts")
