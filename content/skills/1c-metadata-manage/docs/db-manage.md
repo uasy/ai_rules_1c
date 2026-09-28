@@ -275,7 +275,9 @@ Applies main configuration changes to the database configuration (`/UpdateDBCfg`
 | `-SessionTerminate <mode>` | Python only. Terminate active sessions when the update needs an exclusive lock. `ibcmd`: `disable` / `prompt` / `force` → `--session-terminate=<mode>`; `1cv8`: `force` → `-SessionTerminate force`, `disable` = key omitted, `prompt` is refused. `force` only on a confirmed dev/test infobase |
 | `-Dbms` … `-IbcmdTempPath` | Python only, `ibcmd` only — apply to a DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
-**Warning**: Non-dynamic update requires exclusive database access (all users must exit). Without `-SessionTerminate` `ibcmd` does not terminate sessions and the update fails while any session holds the base.
+**Warning**: Non-dynamic update requires exclusive database access (all users must exit).
+
+The `ibcmd` branch does not terminate sessions by itself: the update fails while any session holds the base. `db-update.py` takes `-SessionTerminate` for that (Python only).
 
 ---
 
@@ -359,7 +361,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 | `-ListFile <path>` | File with path list (alternative to `-Files`) |
 | `-Extension <name>` | Load into extension |
 | `-Format <format>` | `Hierarchical` (default) / `Plain` |
-| `-UpdateDB` | Apply after the load; with `-Extension` the loaded extension is applied (`ibcmd config apply --extension`) |
+| `-UpdateDB` | Apply after the load. Python only, `ibcmd` branch: with `-Extension` the loaded extension is applied (`ibcmd config apply --extension`); `db-load-xml.ps1` applies the main configuration there |
 | `-SessionTerminate <mode>` | Python only, `ibcmd` only, with `-UpdateDB`: `disable` / `prompt` / `force` (see `db-update`) |
 | `-Dbms` … `-IbcmdTempPath` | Python only, `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
@@ -437,7 +439,9 @@ Mandatory order before running it:
 | `-UnlockCode <code>` | Unlock code (`/UC`) when session start is blocked |
 | `-Dbms` … `-IbcmdTempPath` | Python only, `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
-Do **not** use it to create a *new* base from a `.dt` — that is `db-create` from a DT template (with `-Locale` for a DBMS). A DBMS database without an infobase is refused (`база данных … не существует`); `--create-database` is never passed for a DBMS target, because on an existing infobase it fails with `уже зарегистрирована`. To update configuration only (no data) — `db-load-cf` / `db-load-xml`.
+Do **not** use it to create a *new* base from a `.dt` — that is `db-create` from a DT template. To update configuration only (no data) — `db-load-cf` / `db-load-xml`.
+
+A DBMS target (Python only): a new infobase is `db-create` from the DT template with `-Locale`. A DBMS database without an infobase is refused (`база данных … не существует`); `--create-database` is never passed for a DBMS target, because on an existing infobase it fails with `уже зарегистрирована`.
 
 If the base is busy (active sessions), the load fails: for a server base pass `-UnlockCode`, otherwise free the base and retry.
 

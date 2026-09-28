@@ -91,7 +91,7 @@ if ($BaseCfFile -and -not (Test-Path $BaseCfFile -PathType Leaf)) {
 
 # --- Resolve V8Path ---
 # -V8Path is normally supplied explicitly by the calling agent, populated from
-# .dev.env's PLATFORM_PATH (see AGENTS.md / dev-standards-core.md §1). The
+# .dev.env's PLATFORM_PATH (see AGENTS.md / dev-standards-env.md §1). The
 # scan below is only a fallback for when it isn't passed.
 if (-not $V8Path) {
     $found = Get-ChildItem @("C:\Program Files\1cv8\*\bin\1cv8.exe", "C:\Program Files (x86)\1cv8\*\bin\1cv8.exe") -ErrorAction SilentlyContinue |

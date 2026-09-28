@@ -33,6 +33,8 @@ A relative XML path is resolved from the current directory, then from `SrcDir`. 
 
 `meta-edit add-template` is refused before any mutation in both runtimes; use this scaffold and select `TemplateType` explicitly. This scaffold currently ships as PowerShell only.
 
+On Linux / macOS use `tools/1c-template-manage/scripts/add-template.py` with the same parameters; it also accepts the object's XML path in `-ObjectName`.
+
 ### Type Mapping
 
 User may specify type in free form. Determine the correct one from context:

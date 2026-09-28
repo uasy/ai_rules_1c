@@ -6,7 +6,7 @@
 #
 # Deviation from the original tools, which resolve the guard policy from .v8-project.json's editingAllowedCheck. Here the policy
 # comes from .dev.env's SUPPORT_GUARD instead — .dev.env is this project's single
-# source of truth for operational parameters (see AGENTS.md / dev-standards-core.md §1).
+# source of truth for operational parameters (see AGENTS.md / dev-standards-env.md §1).
 # .v8-project.json in this project is documentation-only for the guard (no script reads
 # it for this purpose — see docs/db-manage.md; it remains in legitimate use as the
 # optional multi-base registry for 1c-db-ops / 1c-epf-build / 1c-epf-dump, a separate

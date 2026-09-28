@@ -134,6 +134,11 @@ configuration. The shared part is `ibcmd_connection()` in `tools/_common/platfor
 `db-check.py` is not upstream code and has no `.ps1` peer: the Designer check ladder of
 `content/rules/designer-batch-checks.md`.
 
+`tools/1c-db-ops/scripts/db-run.py` (upstream v1.7) adds three flags its `.ps1` peer does not have,
+listed under `Deviation` in its header: `-Out` (startup errors of a batch run are written only there),
+`-Wait` (wait for the client and return its exit code) and `-ClientKind thin` (the thin client —
+the thick one cannot connect to a standalone server).
+
 ### MIT licence text
 
 ```
