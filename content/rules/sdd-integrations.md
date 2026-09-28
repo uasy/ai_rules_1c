@@ -35,6 +35,8 @@ Reusable test authoring and execution workflows are available through `content/s
 
 When eligible `1c-data-mcp` capabilities are available, plan focused result checks wherever they close a concrete correctness gap; execute them during apply verification under Gate 3a's read-only dev/test scope. `UI_TESTING=off`, a lower verification depth or economy orchestration does not disable these checks. The absence of a test-suite framework is not a reason to omit them.
 
+Without `1c-data-mcp`, the Gate 3a alternative through `Dbg_Executor` (`verification-gates.md`) counts as an available capability for this planning.
+
 Propose is ready only when each criterion has a verification task and executable acceptance conditions. Preserve this mapping during `/opsx:update`; do not weaken approved criteria to fit the implementation. If an older change lacks DoD or verification tasks, derive them from its approved requirements and this contract before apply. Ask only when that exposes a material unresolved decision; adding the required checks alone needs no new approval.
 
 ### Apply until DoD is satisfied

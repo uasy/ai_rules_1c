@@ -85,6 +85,8 @@ Gate 3a supplies narrowly scoped evidence from a dev/test infobase. When eligibl
 2. The required `1c-data-mcp` capability is exposed in this session and allowed by tool policy (`validatequery`, `vcexecutequery` or `vcexecutecode`, as applicable).
 3. The connected infobase is a development / test base (`INFOBASE_ROLE`). **On a production infobase this gate is not run** — record the skip and move on.
 
+**Without `1c-data-mcp`.** When `TOOL_DATA` is `auto` and no `1c-data-mcp` capability is exposed (not installed or not running), run the same read-only checks through `Dbg_Executor` of the `1c-test-debug` skill on the dev/test infobase; every rule of this gate applies, report `Gate 3a (Dbg_Executor)`. `TOOL_DATA=off` or `required` is not replaced this way.
+
 **Execution:**
 
 - **Query parsing → `validatequery`.** Pass criterion: `"нет ошибок"`. This parses the query and discovers parameter names; it does **not** execute it, verify that tables / fields exist, check parameter values or evaluate RLS (`content/skills/mcp-1c-tools/docs/1c-data-mcp.md`).

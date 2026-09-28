@@ -21,6 +21,8 @@ Relevant project routing:
 - `content/skills/1c-live-ib/SKILL.md` — exact exposed live-IB calls and their limits; Gate 3a remains read-only and does not become a fixture writer.
 - `content/skills/1c-metadata-manage/SKILL.md` — any test module / metadata creation; installed test code is still subject to the ordinary metadata, repository and validation gates.
 
+When `content/skills/1c-ui-testing/SKILL.md` is installed, its `unit` kind is a verified project runner: one BSL file per check under `openspec/tests/<capability>/unit/` (or where the project rules keep tests), run by that skill's runner by test name through `Dbg_Executor` of `1c-test-debug`. Add the first check there when the project has none.
+
 ## Define the cases before implementing them
 
 For each relevant acceptance criterion record:

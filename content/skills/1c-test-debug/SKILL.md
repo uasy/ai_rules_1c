@@ -46,6 +46,15 @@ and only against a test infobase. `Dbg_Executor` runs any code it receives
 **Use `ib-http.py`, not `curl`.** With `curl -u user:password` the password lands on the command
 line and in every log of the session; the script takes it from `.dev.env`.
 
+## `Dbg_Executor` and Gate 3a
+
+Two kinds of check go through `Dbg_Executor`, and only the first is Gate 3a (`content/rules/verification-gates.md`):
+
+- **Read-only** — reads data and computes a value; no `Записать`, `Удалить`, `НачатьТранзакцию`, register movements. It stands in for Gate 3a only when `TOOL_DATA` is `auto` and `1c-data-mcp` is not available in the session; state the expected result before the run and report it as `Gate 3a (Dbg_Executor)`. With `1c-data-mcp` available, Gate 3a goes through it.
+- **With a rolled-back transaction** (below) — creates the state it needs. Gate 3a forbids that, so it is reported as a server-side check of this skill, not as Gate 3a. A check worth repeating is saved as a `unit` test of `1c-ui-testing` — the project runner `content/skills/1c-business-tests/SKILL.md` reuses.
+
+No debug extension in the infobase — Gate 3a is not run (`Gate 3a not run — debug extension not loaded`); installing it is offered as above.
+
 ## Server-side checks
 
 A rule whose outcome depends on data or schema state the infobase does not have is checked inside
