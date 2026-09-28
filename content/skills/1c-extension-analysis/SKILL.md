@@ -1,6 +1,6 @@
 ---
 name: 1c-extension-analysis
-description: "Analyze why a 1C configuration extension (CFE) modifies the base configuration — inventory adopted vs. own objects, trace why an unchanged object was adopted, find uniform code patterns across documents, and produce a structured customer-facing Markdown report. Use when asked to analyze/audit/document why an extension diverges from the typical configuration, before a configuration update, or when refactoring an extension down to its real footprint."
+description: "Audit why a 1C extension (CFE) changes the base configuration: adopted vs own objects, why an unchanged object was adopted, repeated code patterns, a customer-facing Markdown report. Use before a configuration update or when cutting an extension down to its real footprint."
 ---
 
 # 1C Extension Analysis — Skill Dispatch

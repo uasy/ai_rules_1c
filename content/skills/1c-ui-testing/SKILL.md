@@ -1,6 +1,6 @@
 ---
 name: 1c-ui-testing
-description: "Automated UI testing of a 1C thick/thin client through the platform's own mechanism — test client (/TestClient) driven by a test manager (/TestManager) that runs the scenario from a test extension of its own infobase. Use when a task needs interactive UI verification of forms, commands and controls, or when a manual test plan has to be turned into a repeatable run."
+description: "UI tests of the 1C thin / thick client through the platform's TestClient / TestManager, scenario in a test extension. Use for interactive checks of forms, commands and controls, or to make a manual test plan repeatable. Web client suites: 1c-ui-regression."
 ---
 
 # 1C UI testing — test manager and test client

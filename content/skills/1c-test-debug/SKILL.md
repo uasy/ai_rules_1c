@@ -1,6 +1,6 @@
 ---
 name: 1c-test-debug
-description: "Debugging and verifying behaviour on a 1C test infobase: run BSL and read the event log through a debug extension over HTTP, call HTTP services with credentials from .dev.env, check module compilation with Designer. Use when a task needs facts from a running infobase — server-side checks, runtime errors, HTTP service tests, why a UI scenario produced no protocol."
+description: "Facts from a running 1C test infobase: run BSL and read the event log through a debug extension over HTTP, call HTTP services with .dev.env credentials, check module compilation in Designer. Use for server-side checks, runtime errors and HTTP service tests."
 ---
 
 # 1C test and debug tools

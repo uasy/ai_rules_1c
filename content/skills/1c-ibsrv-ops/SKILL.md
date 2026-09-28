@@ -1,6 +1,6 @@
 ---
 name: 1c-ibsrv-ops
-description: "The 1C standalone server (ibsrv) as the publication of a test infobase: create the base and the server configuration, publish HTTP services of the configuration and of extensions, start / restart / stop it, see its sessions and locks, terminate leftovers. Use when a task needs a published infobase without an external web server, or when a client cannot reach one."
+description: "Standalone 1C server (ibsrv) as the publication of a test infobase: create the base and server config, publish configuration and extension HTTP services, start / stop, sessions and locks. Use when a task needs a published infobase without an external web server."
 ---
 
 # 1C standalone server operations

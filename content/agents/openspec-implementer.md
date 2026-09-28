@@ -1,6 +1,6 @@
 ---
 name: openspec-implementer
-description: "Implements the tasks of an OpenSpec change (tasks.md) in 1C sources: metadata through the 1c-metadata-manage skill, BSL modules, load into the test infobase, mandatory checks including /CheckModules. Makes the change's tests green; never writes the acceptance tests, never commits. Use when a reviewed change with test-plan.md is ready for implementation."
+description: "Implements tasks.md of a reviewed OpenSpec change in 1C sources — metadata via 1c-metadata-manage, BSL, test-infobase load, /CheckModules — until its tests pass. Never writes acceptance tests, never commits."
 modelTier: coding
 tools: ["Read", "Write", "Edit", "Grep", "Glob", "Shell", "MCP"]
 isSubagent: true

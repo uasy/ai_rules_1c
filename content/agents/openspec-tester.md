@@ -1,6 +1,6 @@
 ---
 name: openspec-tester
-description: "Writes and runs automated tests for OpenSpec requirements (UI test client scenarios, dbg_executor server checks, HTTP checks) in openspec/tests/<capability>/, fills test-plan.md and verify.md of a change. Tests are derived from the spec, not from the implementation. Never edits product sources, specs or git. Use when a change needs its scenarios covered by tests or an accepted implementation needs verification."
+description: "Writes and runs tests for OpenSpec requirements (UI client scenarios, dbg_executor and HTTP checks) in openspec/tests/, fills test-plan.md and verify.md. Tests come from the spec; never edits product sources, specs or git."
 modelTier: coding
 tools: ["Read", "Write", "Edit", "Grep", "Glob", "Shell", "MCP"]
 isSubagent: true

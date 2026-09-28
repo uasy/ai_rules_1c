@@ -1,6 +1,6 @@
 ---
 name: audit-review
-description: "Read what is about to enter the repository and give a verdict — leaks of local context (people, whose data a file was written from, how systems are reached, third-party records) and whether the content still matches what that file is for. Covers everything committed: documentation, code, configs, fixtures, exported metadata, screenshots. Use before committing, and when a file is created or substantially edited."
+description: "Verdict on what is about to be committed: leaks of local context (people, whose data a file came from, how systems are reached, third-party records) and whether content still fits its file. Docs, code, configs, fixtures, metadata, screenshots. Use before committing or after a substantial edit."
 ---
 
 # Audit review — leaks of context and fitness for purpose

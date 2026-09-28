@@ -1,6 +1,6 @@
 ---
 name: openspec-agents
-description: "Delegating an OpenSpec change to agents: openspec-tester writes tests from the spec and verifies, openspec-implementer implements tasks.md; review.md / test-plan.md / verify.md artifacts; running an agent non-interactively with claude -p (permissions, session protocol, log, resume). Use when a change is to be implemented or verified by agents rather than in the main session."
+description: "Delegate an OpenSpec change to agents: openspec-tester writes tests from the spec and verifies, openspec-implementer implements tasks.md; review / test-plan / verify artifacts; non-interactive runs via claude -p. Use when agents, not the main session, do the change."
 ---
 
 # OpenSpec agents
