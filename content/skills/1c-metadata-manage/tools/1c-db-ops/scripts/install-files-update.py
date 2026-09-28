@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # install-files-update — Install a Linux systemd user timer that refreshes a dedicated MCP Designer XML dump.
 # Python peer of install-files-update.ps1: the same plan checks, ownership marker, task identity,
-# messages and exit codes. Differences are only where Linux has no Windows counterpart:
+# messages and exit codes.
+# Local: the differences, only where Linux has no Windows counterpart:
 #   - a systemd user timer and service replace the interactive current-user Task Scheduler task;
 #     like that task, the timer runs only while the user is logged in (no linger);
 #   - the stage is mirrored into the destination in Python instead of robocopy /MIR, and a file

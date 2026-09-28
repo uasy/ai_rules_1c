@@ -14,7 +14,7 @@
 8. **MCP-серверы: канон — документация апстрима** `content/skills/mcp-1c-tools/docs/`. В наших навыках — только маршруты использования (какой инструмент отвечает на какой вопрос и что не годится); настройка сервера, имена аргументов и флаги развёртывания — у апстрима.
 9. **Навыки описывают только целевое поведение**: без истории проверок, дат сборок и условий совместимости. Провенанс инструмента — в его `docs/`.
 10. **Правки навыков из рабочих проектов.** Рабочий проект несёт установленную, как правило более старую, версию навыков; правки сверяются с версией установки. Сначала перенос как есть отдельным коммитом, затем редактура по этим принципам.
-11. **`AGENTS.md` не дополняется маршрутами наших навыков** — хост находит навыки по `description` в `SKILL.md`. После синхронизации размер `AGENTS.md` проверяется на лимит валидатора (16384 байт): CI для `dev` его не проверяет.
+11. **`AGENTS.md` не дополняется маршрутами наших навыков** — хост находит навыки по `description` в `SKILL.md`. После синхронизации бюджеты `tools/validate-rules.ps1` проверяются вручную: CI для `dev` их не проверяет. Это размер `AGENTS.md`, отдельного правила, набора полного цикла и стартового набора субагента (`AGENTS.md` + `subagent-core.md` + промпт агента), длина описаний навыков, агентов и правил; пределы — в параметрах валидатора.
 12. **История `dev` переписывается только диапазоном `dev ^upstream/main ^origin/dev`.** Иначе меняются хэши коммитов апстрима, включая подписанные merge-коммиты, и следующая синхронизация приносит дубли.
 13. **Документы перед коммитом проверяются навыком `audit-review`.**
 
@@ -22,8 +22,8 @@
 
 - [ ] `git diff --name-status upstream/main dev` — каждый путь покрыт этим файлом.
 - [ ] Ревизия пар по изменённым `.ps1`/`.py` (принцип 4).
-- [ ] `python3 -B tools/tests/python-ports-regression.py --python-only` — без падений.
-- [ ] Размер `AGENTS.md` не больше 16384 байт.
+- [ ] `python3 -B tools/tests/python-ports-regression.py --python-only` и `python3 -B tools/tests/web-python-regression.py` — без падений.
+- [ ] Бюджеты валидатора (принцип 11) не превышены.
 
 ## A. Собственные навыки и агенты
 
@@ -38,11 +38,11 @@
 
 ## B. Python-рантайм `1c-metadata-manage`
 
-Апстрим поставляет Python-точки входа для пяти команд метаданных и четырёх веб-команд `1c-web-ops`. `dev` поставляет Python-двойник почти для каждого инструмента, чтобы навык работал на Linux / macOS без PowerShell.
+Апстрим поставляет Python-точки входа для пяти команд метаданных и четырёх веб-команд `1c-web-ops`. `dev` поставляет Python-двойник для каждого инструмента, чтобы навык работал на Linux / macOS без PowerShell.
 
 - **Порты:** `content/skills/1c-metadata-manage/tools/*/scripts/*.py`. Веб-команды `tools/1c-web-ops/` — реализация апстрима (`web_common.py`) с одним отличием, ниже. Не портирован `tools/_common/DevEnv.ps1` (его Python-аналог — `dev_env.py`).
 - **Общие помощники:** `tools/_common/Invoke-1CEdit.py`, `tools/_common/MetadataAddress.py`, `tools/_common/meta_dsl.py`, `tools/_common/platform_args.py`, `tools/_shared/support_guard.py`, `tools/_shared/xml_eol.py`.
-- **Документация:** `content/skills/1c-metadata-manage/SKILL.md` (уровни Python-портов, Python-обёртка preview), `content/skills/1c-metadata-manage/NOTICE.md` (локальные отличия портов), `content/skills/1c-metadata-manage/docs/CHANGELOG.md` (записи об изменениях портов), `content/skills/1c-metadata-manage/docs/edit-preview.md` (Python-обёртка и та же политика preview).
+- **Документация:** `content/skills/1c-metadata-manage/SKILL.md` (уровни Python-портов, Python-обёртка preview), `content/skills/1c-metadata-manage/NOTICE.md` (локальные отличия портов), `content/skills/1c-metadata-manage/docs/CHANGELOG.md` (записи об изменениях портов), `content/skills/1c-metadata-manage/docs/edit-preview.md` (Python-обёртка и та же политика preview), `content/skills/1c-metadata-manage/docs/cf-manage.md` (вызов `dump-validate.py`), `content/skills/1c-metadata-manage/docs/db-manage.md` (параметры `ibcmd` для базы в СУБД с пометкой «только Python»), `content/skills/1c-metadata-manage/docs/web-manage.md` (пункт о публикации HTTP-сервисов расширений), `content/commands/installfilesupdatescript.md` (раздел «Linux» для `install-files-update.py`).
 - **Тесты:** `tools/tests/python-ports-regression.py` и фикстура `tools/tests/fixtures/epf-with-template/`; отличие веб-команд — в `tools/tests/web-python-regression.py` апстрима.
 
 ### Отличия портов от поведения апстрима
@@ -56,8 +56,8 @@
 | `remove-template.py` | Гейт `-DryRun` / `-Force`, предварительный разбор, атомарная запись корневого XML | Так же, как `remove-template.ps1` апстрима |
 | `meta-edit.py` | Отказ на `add-template` называет и `add-template.py` | У апстрима сказано, что Python-версии нет; `dev` её поставляет |
 | `support_guard.py` | Режим защиты берётся только из `SUPPORT_GUARD` в `.dev.env`, без обращения к `.v8-project.json` | `.dev.env` — единственный источник рабочих параметров проекта |
-| `web_common.py` (`vrd_content()`) | В `default.vrd` задано `publishExtensionsByDefault="true"` | Без атрибута HTTP-сервисы расширений отвечают 404. У апстрима та же ошибка и в `web_common.py`, и в `web-publish.ps1` — кандидат в support |
-| `install-files-update.py` | Таймер systemd пользователя вместо задачи планировщика Windows; зеркалирование на Python вместо `robocopy /MIR`, неизменённые файлы не перезаписываются; отказ на символических ссылках; `1cv8` — `PLATFORM_PATH/bin/1cv8` или `PLATFORM_PATH/1cv8` | У `.ps1` нет Linux-варианта; таймер без linger, как и задача Windows, работает только в сеансе пользователя — конфигуратору нужен дисплей. Неперезапись неизменённых файлов не заставляет MCP переиндексировать весь каталог |
+| `web_common.py` (`vrd_content()`) | В `default.vrd` задано `publishExtensionsByDefault="true"`; описано в `docs/web-manage.md` и `NOTICE.md` | Без атрибута HTTP-сервисы расширений отвечают 404. У апстрима та же ошибка и в `web_common.py`, и в `web-publish.ps1` — кандидат в support |
+| `install-files-update.py` | Таймер systemd пользователя вместо задачи планировщика Windows; зеркалирование на Python вместо `robocopy /MIR`, неизменённые файлы не перезаписываются; отказ на символических ссылках; `1cv8` — `PLATFORM_PATH/bin/1cv8` или `PLATFORM_PATH/1cv8`. В `content/commands/installfilesupdatescript.md` — раздел «Linux» и две правки внутри текста апстрима: `description` и шаг 1 («Windows only») | У `.ps1` нет Linux-варианта; таймер без linger, как и задача Windows, работает только в сеансе пользователя — конфигуратору нужен дисплей. Неперезапись неизменённых файлов не заставляет MCP переиндексировать весь каталог. Правки внутри текста апстрима оставлены сознательно: без них команда запрещает Linux; при конфликте берётся текст апстрима и правка повторяется |
 | `db-run.py` | Флаги `-Out`, `-Wait` и `-ClientKind` | В пакетном режиме ошибки запуска видны только в `/Out`; `-Wait` возвращает код завершения клиента; `-ClientKind thin` запускает тонкий клиент — толстый к автономному серверу (`ibsrv`) не подключается |
 | `db-create.py`, `db-load-dt.py`, `db-load-xml.py`, `db-update.py` (+ `ibcmd_connection()` в `_common/platform_args.py`) | Ветка `ibcmd` работает с базой в СУБД без кластера 1С (`-Dbms`, `-DbServer`, `-DbName`, `-DbUser`, `-DbPassword`, `-IbcmdDataPath`, `-IbcmdTempPath`); `db-create` — `-Locale` и `-PageSize`; `db-update` и `db-load-xml` — `-SessionTerminate`; `db-load-xml -UpdateDB` применяет загруженное расширение | Тестовая база в PostgreSQL без кластера — только через `ibcmd`, а у апстрима эта ветка умеет лишь файловую базу. Только в `.py`: `.ps1` остаются как в `main`; кандидат в upstream |
 | `content/skills/img-grid-analysis/scripts/overlay-grid.py` | Отклоняет `--cols <= 0` и `--rows < 0`, строит минимум одну строку сетки, выводит UTF-8 | Исправление ошибок; кандидат в support |
