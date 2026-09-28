@@ -381,7 +381,7 @@ skills/1c-ui-testing/scripts/run-ui-test.sh [<port>] --test <test name> [--via-m
 The runner rebuilds the test extension when the sources changed, finds the test by name and runs it
 ([docs/test-extension.md](docs/test-extension.md)). A `unit` test goes straight to `Dbg_Executor`
 without any 1C session; `--via-manager` forces it through the manager instead.
- This `unit` kind is the verified project runner that `content/skills/1c-business-tests/SKILL.md` reuses for saved business-logic checks.
+This `unit` kind is the verified project runner that `content/skills/1c-business-tests/SKILL.md` reuses for saved business-logic checks.
 
 The name is the short one (`ЗаполнениеНаименования`) while it belongs to a single test, or
 `<capability>/<kind>/<name>` when two capabilities share it — the runner prints both candidates
