@@ -188,3 +188,96 @@ def protect_secrets(text, secrets):
         if s:
             text = text.replace(s, "***")
     return text
+
+
+# --- ibcmd: DBMS infobase and working directories ---------------------------
+# ibcmd reaches a file infobase (--db-path) or a DBMS infobase directly, without
+# a 1C cluster. The keys below are driven by -Dbms / -DbServer / -DbName /
+# -DbUser / -DbPassword / -Locale / -IbcmdDataPath / -IbcmdTempPath, so they are
+# refused in the extra arguments of the scripts that take those parameters.
+
+IBCMD_DBMS_KINDS = ["PostgreSQL", "MSSQLServer", "IBMDB2", "OracleDatabase"]
+IBCMD_CONNECTION_KEYS = [
+    "--dbms", "--database-server", "--db-server", "--database-name", "--db-name",
+    "--database-user", "--db-user", "--database-password", "--db-pwd",
+    "--locale", "--temp",
+]
+
+
+def add_ibcmd_connection_arguments(parser, with_locale=True):
+    """Register the ibcmd DBMS / working-directory parameters on an argparse parser.
+    with_locale=False leaves -Locale out (a tool that never creates an infobase)."""
+    parser.add_argument("-Dbms", default="", choices=[""] + IBCMD_DBMS_KINDS,
+                        help="ibcmd only: DBMS of the infobase (omit for a file infobase)")
+    parser.add_argument("-DbServer", default="",
+                        help="ibcmd only: DBMS server; a non-default PostgreSQL port "
+                             "goes as 'host port=5433'")
+    parser.add_argument("-DbName", default="", help="ibcmd only: database name")
+    parser.add_argument("-DbUser", default="", help="ibcmd only: DBMS user")
+    parser.add_argument("-DbPassword", default="", help="ibcmd only: DBMS user password")
+    if with_locale:
+        parser.add_argument("-Locale", default="",
+                            help="locale of the new infobase, e.g. ru_RU (default: the locale "
+                                 "of the process environment, which a DBMS may reject)")
+    parser.add_argument("-IbcmdDataPath", default="",
+                        help="ibcmd only: server data directory (--data); default is a "
+                             "fresh temporary directory. Must support file renames — "
+                             "not a VirtualBox shared folder")
+    parser.add_argument("-IbcmdTempPath", default="",
+                        help="ibcmd only: temporary files directory (--temp); large DT "
+                             "loads write multi-GB files here")
+
+
+def ibcmd_connection(args, engine, extra_args, locale_for_1cv8=False):
+    """Validate the ibcmd connection parameters and return
+    (connection_keys, is_dbms, secrets).
+
+    connection_keys is either [--db-path=...] or the --dbms/--db-* set; the
+    caller adds --data / --temp through ibcmd_work_dirs(). locale_for_1cv8 lets
+    a caller that also passes -Locale to 1cv8 (db-create) accept it there.
+    """
+    dbms_given = any([args.Dbms, args.DbServer, args.DbName, args.DbUser,
+                      args.DbPassword])
+    locale = getattr(args, "Locale", "")
+    ibcmd_only = dbms_given or any([args.IbcmdDataPath, args.IbcmdTempPath]) or (
+        bool(locale) and not locale_for_1cv8)
+    if engine != "ibcmd":
+        if ibcmd_only:
+            _fail("-Dbms / -DbServer / -DbName / -DbUser / -DbPassword / -IbcmdDataPath / "
+                  "-IbcmdTempPath%s apply to ibcmd only; point -V8Path at ibcmd (a DBMS "
+                  "infobase under 1cv8 goes through -InfoBaseServer + -InfoBaseRef)"
+                  % ("" if locale_for_1cv8 or not hasattr(args, "Locale") else " / -Locale"))
+        return [], False, []
+    for tok in extra_args:
+        for k in IBCMD_CONNECTION_KEYS:
+            if key_matches(tok, k):
+                _fail("%s is controlled by the skill and cannot be passed via "
+                      "-AdditionalIbcmdArguments (use the matching -Db* / -Locale / "
+                      "-Ibcmd*Path parameter)" % k)
+    if dbms_given:
+        if args.InfoBasePath:
+            _fail("specify either -InfoBasePath (file infobase) or -Dbms + -DbServer + "
+                  "-DbName (DBMS infobase), not both")
+        if not (args.Dbms and args.DbServer and args.DbName):
+            _fail("a DBMS infobase needs -Dbms, -DbServer and -DbName")
+        keys = ["--dbms=%s" % args.Dbms, "--db-server=%s" % args.DbServer,
+                "--db-name=%s" % args.DbName]
+        if args.DbUser:
+            keys.append("--db-user=%s" % args.DbUser)
+        if args.DbPassword:
+            keys.append("--db-pwd=%s" % args.DbPassword)
+        return keys, True, [args.DbPassword]
+    if not args.InfoBasePath:
+        _fail("ibcmd needs -InfoBasePath (file infobase) or -Dbms + -DbServer + "
+              "-DbName (DBMS infobase)")
+    return ["--db-path=%s" % args.InfoBasePath], False, []
+
+
+def ibcmd_work_dirs(args, make_temp_dir):
+    """--data (caller-given or a fresh temporary directory from make_temp_dir())
+    and, when given, --temp."""
+    data = args.IbcmdDataPath or make_temp_dir()
+    keys = ["--data=%s" % data]
+    if args.IbcmdTempPath:
+        keys.append("--temp=%s" % args.IbcmdTempPath)
+    return keys

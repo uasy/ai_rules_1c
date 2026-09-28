@@ -1,6 +1,9 @@
 ﻿# db-load-xml v1.19 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
+# 1c-rules: the ibcmd branch also loads into a DBMS infobase (-Dbms / -DbServer / -DbName / -DbUser /
+# -DbPassword), takes -IbcmdDataPath / -IbcmdTempPath / -SessionTerminate and applies the loaded
+# extension on -UpdateDB; mirrored in db-load-xml.py (NOTICE.md).
 <#
 .SYNOPSIS
     Загрузка конфигурации 1С из XML-файлов
@@ -53,6 +56,33 @@
 
 .PARAMETER AdditionalIbcmdArguments
     Дополнительные аргументы запуска ibcmd (форма --ключ=значение)
+
+.PARAMETER SessionTerminate
+    Только ibcmd, вместе с -UpdateDB: завершение активных сеансов, если обновлению нужна
+    монопольная блокировка (disable, prompt, force). force — только для dev/test-баз
+
+.PARAMETER Dbms
+    Только ibcmd: СУБД информационной базы (PostgreSQL, MSSQLServer, IBMDB2, OracleDatabase).
+    Не указывается для файловой базы
+
+.PARAMETER DbServer
+    Только ibcmd: сервер СУБД; нестандартный порт PostgreSQL — "host port=5433"
+
+.PARAMETER DbName
+    Только ibcmd: имя базы данных
+
+.PARAMETER DbUser
+    Только ibcmd: пользователь СУБД
+
+.PARAMETER DbPassword
+    Только ibcmd: пароль пользователя СУБД
+
+.PARAMETER IbcmdDataPath
+    Только ibcmd: каталог данных сервера (--data); по умолчанию временный каталог.
+    Должен поддерживать переименование файлов — не общая папка VirtualBox
+
+.PARAMETER IbcmdTempPath
+    Только ibcmd: каталог временных файлов (--temp)
 
 .EXAMPLE
     .\db-load-xml.ps1 -InfoBasePath "C:\Bases\MyDB" -ConfigDir "C:\src" -Mode Full
@@ -114,7 +144,33 @@ param(
     [string[]]$AdditionalV8Arguments = @(),
 
     [Parameter(Mandatory=$false)]
-    [string[]]$AdditionalIbcmdArguments = @()
+    [string[]]$AdditionalIbcmdArguments = @(),
+
+    [Parameter(Mandatory=$false)]
+    [ValidateSet('', 'disable', 'prompt', 'force')]
+    [string]$SessionTerminate = '',
+
+    [Parameter(Mandatory=$false)]
+    [ValidateSet('', 'PostgreSQL', 'MSSQLServer', 'IBMDB2', 'OracleDatabase')]
+    [string]$Dbms = '',
+
+    [Parameter(Mandatory=$false)]
+    [string]$DbServer,
+
+    [Parameter(Mandatory=$false)]
+    [string]$DbName,
+
+    [Parameter(Mandatory=$false)]
+    [string]$DbUser,
+
+    [Parameter(Mandatory=$false)]
+    [string]$DbPassword,
+
+    [Parameter(Mandatory=$false)]
+    [string]$IbcmdDataPath,
+
+    [Parameter(Mandatory=$false)]
+    [string]$IbcmdTempPath
 )
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -443,14 +499,62 @@ $argHints = @{ '/F' = '-InfoBasePath'; '/S' = '-InfoBaseServer + -InfoBaseRef'; 
 $extraArgs = @(Resolve-ExtraArgs $engine $AdditionalV8Arguments $AdditionalIbcmdArguments $argHints)
 
 # --- Validate connection ---
+# ibcmd reaches a file infobase (--db-path) or a DBMS infobase directly, without a 1C
+# cluster; the --dbms / --db-* / --temp keys are driven by the parameters below.
+$isDbms = [bool]($Dbms -or $DbServer -or $DbName -or $DbUser -or $DbPassword)
+$ibConn = @()
 if ($engine -eq "ibcmd") {
-    if (-not $InfoBasePath) {
-        Write-Host "Error: ibcmd supports file infobases only (use -InfoBasePath)" -ForegroundColor Red
-        exit 1
+    foreach ($tok in $extraArgs) {
+        foreach ($k in @('--dbms', '--database-server', '--db-server', '--database-name', '--db-name',
+                         '--database-user', '--db-user', '--database-password', '--db-pwd', '--temp')) {
+            if (Test-ArgKeyMatch $tok $k) {
+                Write-Host "Error: $k is controlled by the skill and cannot be passed via -AdditionalIbcmdArguments (use the matching -Db* / -Ibcmd*Path parameter)" -ForegroundColor Red
+                exit 1
+            }
+        }
     }
+    if ($isDbms) {
+        if ($InfoBasePath) {
+            Write-Host "Error: specify either -InfoBasePath (file infobase) or -Dbms + -DbServer + -DbName (DBMS infobase), not both" -ForegroundColor Red
+            exit 1
+        }
+        if (-not ($Dbms -and $DbServer -and $DbName)) {
+            Write-Host "Error: a DBMS infobase needs -Dbms, -DbServer and -DbName" -ForegroundColor Red
+            exit 1
+        }
+        $ibConn = @("--dbms=$Dbms", "--db-server=$DbServer", "--db-name=$DbName")
+        if ($DbUser) { $ibConn += "--db-user=$DbUser" }
+        if ($DbPassword) { $ibConn += "--db-pwd=$DbPassword" }
+    } elseif (-not $InfoBasePath) {
+        Write-Host "Error: ibcmd needs -InfoBasePath (file infobase) or -Dbms + -DbServer + -DbName (DBMS infobase)" -ForegroundColor Red
+        exit 1
+    } else {
+        $ibConn = @("--db-path=$InfoBasePath")
+    }
+} elseif ($isDbms -or $IbcmdDataPath -or $IbcmdTempPath) {
+    Write-Host "Error: -Dbms / -DbServer / -DbName / -DbUser / -DbPassword / -IbcmdDataPath / -IbcmdTempPath apply to ibcmd only; point -V8Path at ibcmd (a DBMS infobase under 1cv8 goes through -InfoBaseServer + -InfoBaseRef)" -ForegroundColor Red
+    exit 1
 } elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
+}
+
+# --- Session termination: ibcmd -UpdateDB step only, one source of the key ---
+if ($SessionTerminate) {
+    if ($engine -ne "ibcmd") {
+        Write-Host "Error: -SessionTerminate applies to the ibcmd -UpdateDB step only (for 1cv8 use db-update -SessionTerminate)" -ForegroundColor Red
+        exit 1
+    }
+    if (-not $UpdateDB) {
+        Write-Host "Error: -SessionTerminate needs -UpdateDB (a load alone does not update the database)" -ForegroundColor Red
+        exit 1
+    }
+    foreach ($tok in $extraArgs) {
+        if (Test-ArgKeyMatch $tok '--session-terminate') {
+            Write-Host "Error: session termination is set by -SessionTerminate; remove it from the additional arguments" -ForegroundColor Red
+            exit 1
+        }
+    }
 }
 
 # --- Validate config dir ---
@@ -471,13 +575,17 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
     if ($engine -eq "ibcmd") {
-        # --- ibcmd branch (file infobase only; hierarchical full-directory import) ---
+        # --- ibcmd branch (file or DBMS infobase, no 1C cluster; hierarchical format) ---
         if ($Format -eq "Plain") {
             Write-Host "Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)" -ForegroundColor Red
             exit 1
         }
         if ($AllExtensions) {
-            $arguments = @("infobase", "config", "import", "all-extensions", "$ConfigDir", "--db-path=$InfoBasePath")
+            if ($UpdateDB) {
+                Write-Host "Error: ibcmd config apply does not support all extensions at once; load with -AllExtensions, then run db-update -Extension <name> per extension" -ForegroundColor Red
+                exit 1
+            }
+            $arguments = @("infobase", "config", "import", "all-extensions", "$ConfigDir") + $ibConn
         } elseif ($Mode -eq "Partial" -or $Files -or $ListFile) {
             # partial: import specific files (relative to ConfigDir)
             $fileList = @()
@@ -495,18 +603,22 @@ try {
                 exit 1
             }
             $arguments = @("infobase", "config", "import", "files") + $fileList
-            $arguments += "--base-dir=$ConfigDir", "--db-path=$InfoBasePath"
+            $arguments += @("--base-dir=$ConfigDir") + $ibConn
             if ($Extension) { $arguments += "--extension=$Extension" }
         } else {
-            $arguments = @("infobase", "config", "import", "--db-path=$InfoBasePath")
+            $arguments = @("infobase", "config", "import") + $ibConn
             if ($Extension) { $arguments += "--extension=$Extension" }
             $arguments += "$ConfigDir"
         }
+        # One --data for both steps: the import and the apply share the server directory.
+        $workDirs = @("--data=$(if ($IbcmdDataPath) { $IbcmdDataPath } else { $tempDir })")
+        if ($IbcmdTempPath) { $workDirs += "--temp=$IbcmdTempPath" }
+        $secrets = @($Password, $UserName, $DbPassword)
         if ($UserName) { $arguments += "--user=$UserName" }
         if ($Password) { $arguments += "--password=$Password" }
-        $arguments += "--data=$tempDir"
+        $arguments += $workDirs
         $arguments += $extraArgs
-        Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $arguments $engine) -join ' ') @($Password, $UserName))"
+        Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $arguments $engine) -join ' ') $secrets)"
         $__ib = Invoke-PlatformProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
@@ -519,12 +631,15 @@ try {
         Write-PlatformOutput $output
 
         if ($UpdateDB) {
-            $applyArgs = @("infobase", "config", "apply", "--db-path=$InfoBasePath", "--force")
+            $applyArgs = @("infobase", "config", "apply") + $ibConn + @("--force")
+            # The loaded extension is what gets applied, not the main configuration.
+            if ($Extension) { $applyArgs += "--extension=$Extension" }
+            if ($SessionTerminate) { $applyArgs += "--session-terminate=$SessionTerminate" }
             if ($UserName) { $applyArgs += "--user=$UserName" }
             if ($Password) { $applyArgs += "--password=$Password" }
-            $applyArgs += "--data=$tempDir"
+            $applyArgs += $workDirs
             $applyArgs += $extraArgs
-            Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $applyArgs $engine) -join ' ') @($Password, $UserName))"
+            Write-Host "Running: ibcmd $(Protect-Secrets ((Format-ArgsForDisplay $applyArgs $engine) -join ' ') $secrets)"
             $__ib = Invoke-PlatformProcess $V8Path $applyArgs
             $applyOut = $__ib.Output
             $exitCode = $__ib.ExitCode

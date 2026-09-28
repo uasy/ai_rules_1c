@@ -188,6 +188,26 @@ Either `-InfoBasePath` or the `-InfoBaseServer` + `-InfoBaseRef` pair is require
 
 **Additional arguments are validated, not passed through blindly.** The platform accepts only one batch operation per launch, and a duplicate connection / output key fails with an opaque 1C error — so the scripts reject any argument the tool owns itself (`/F`, `/S`, `/N`, `/P`, `/DumpIB`, `/UpdateDBCfg`, `--db-path`, `--out`, …) and name the proper parameter instead. Passing a `1cv8` argument to an `ibcmd` run (or vice versa) is also an error. Project-wide defaults live in **`.dev.env` as `PLATFORM_ARGS` / `IBCMD_ARGS`** (comma-separated) — same validation applies; the upstream `.v8-project.json` `v8args` / `ibcmdargs` keys remain as a fallback. Secrets in these arguments (`/P`, `/UC`, `--password`) are masked in the echoed command line.
 
+### ibcmd: DBMS infobase without a cluster
+
+When `-V8Path` points at `ibcmd`, `db-create`, `db-load-dt`, `db-load-xml` and `db-update` also reach an infobase **in a DBMS directly** — no 1C server cluster needed:
+
+| Parameter | Description |
+|-----------|-------------|
+| `-Dbms <kind>` | `PostgreSQL` / `MSSQLServer` / `IBMDB2` / `OracleDatabase`; replaces `-InfoBasePath` |
+| `-DbServer <server>` | DBMS server; a non-default PostgreSQL port goes as `"host port=5433"` |
+| `-DbName <name>` | Database name |
+| `-DbUser <name>` / `-DbPassword <password>` | DBMS credentials (masked in the echoed command) |
+| `-IbcmdDataPath <dir>` | `ibcmd` server data directory (`--data`); default is a fresh temporary directory |
+| `-IbcmdTempPath <dir>` | `ibcmd` temporary files (`--temp`); a large DT load writes multi-GB files here |
+
+Facts that shape these parameters (verified on 8.3.27, Linux):
+
+- **The DBMS must be a 1C build.** Vanilla PostgreSQL fails at infobase creation with `extension "mchar" is not available` — the 1C patch changes the server core, not only `contrib`; installing an extension alone does not help. Use PostgreSQL with the 1C patch or Postgres Pro for 1C.
+- **Set the locale on creation** (`-Locale ru_RU`). Without it the infobase gets the locale of the process environment, and with `LANG=en_US` a DBMS answers `Порядок сортировки не поддерживается базой данных`. `ibcmd infobase restore` has no `--locale`, so a new DBMS infobase from a DT is **`db-create -UseTemplate <dt> -Locale ru_RU`**, not `db-load-dt`.
+- **`--data` needs file renames.** On a VirtualBox shared folder (`vboxsf`) `ibcmd` fails with `Text file busy` renaming its registry; keep `-IbcmdDataPath` on a local disk. Large temporary files can still go elsewhere through `-IbcmdTempPath`.
+- **IB authentication in `ibcmd config …`** goes through `--user` / `--password`; the standalone `ibcmd extension …` mode has no such keys and, with stdin closed, repeats its `Имя пользователя:` prompt forever — use `ibcmd config extension …` instead.
+
 ### Database Resolution
 
 Take the platform path from `.dev.env` `PLATFORM_PATH` (falling back to `.v8-project.json` `v8path`, then auto-detect) and the connection parameters from `.dev.env` (`INFOBASE_KIND`, `INFOBASE_PATH`, `IB_USER`, `IB_PASSWORD`). Only when the project deliberately keeps a `.v8-project.json` multi-base registry does the alias / Git-branch resolution of Part 1 apply.
@@ -205,6 +225,17 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 | `-UseTemplate <file>` | Create from template (.cf or .dt) |
 | `-AddToList` | Add to 1C infobase list |
 | `-ListName <name>` | Name in the infobase list |
+| `-Locale <name>` | Locale of the new infobase, e.g. `ru_RU` (`1cv8` — `Locale=` in the connection string, `ibcmd` — `--locale`) |
+| `-PageSize <size>` | `1cv8` file infobase only: `4k` … `64k` (`DBPageSize`, format 8.3.8) |
+| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
+
+A **large production DT may not fit a file infobase at all**: the load stops with `Превышен максимально допустимый размер внутреннего файла '…/1Cv8.1CD'` when one table (typically file storage in `BinaryData`) outgrows the file-DB limit. A bigger `-PageSize` raises the limit but is not a guaranteed fix — a 9.8 GB ZUP dump failed at 13.6 GB with 8k pages and at 17.2 GB with 64k. For such a dump create a DBMS infobase instead:
+
+```bash
+python3 skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-create.py -V8Path /opt/1cv8/x86_64/8.3.27.2074/ibcmd \
+  -Dbms PostgreSQL -DbServer "pg01 port=5433" -DbName zup_test -DbUser postgres -DbPassword "***" \
+  -Locale ru_RU -UseTemplate /backup/zup.dt -IbcmdTempPath /big/tmp
+```
 
 After creation: offer to register via `1c-db-manage add`.
 
@@ -241,8 +272,10 @@ Applies main configuration changes to the database configuration (`/UpdateDBCfg`
 | `-Dynamic <+/->` | `+` dynamic update, `-` disable |
 | `-Server` | Server-side update |
 | `-WarningsAsErrors` | Treat warnings as errors |
+| `-SessionTerminate <mode>` | Terminate active sessions when the update needs an exclusive lock. `ibcmd`: `disable` / `prompt` / `force` → `--session-terminate=<mode>`; `1cv8`: `force` → `-SessionTerminate force`, `disable` = key omitted, `prompt` is refused. `force` only on a confirmed dev/test infobase |
+| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — apply to a DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
-**Warning**: Non-dynamic update requires exclusive database access (all users must exit).
+**Warning**: Non-dynamic update requires exclusive database access (all users must exit). Without `-SessionTerminate` `ibcmd` does not terminate sessions and the update fails while any session holds the base.
 
 ---
 
@@ -326,6 +359,11 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 | `-ListFile <path>` | File with path list (alternative to `-Files`) |
 | `-Extension <name>` | Load into extension |
 | `-Format <format>` | `Hierarchical` (default) / `Plain` |
+| `-UpdateDB` | Apply after the load; with `-Extension` the loaded extension is applied (`ibcmd config apply --extension`) |
+| `-SessionTerminate <mode>` | `ibcmd` only, with `-UpdateDB`: `disable` / `prompt` / `force` (see `db-update`) |
+| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
+
+The `ibcmd` branch imports the hierarchical format only and uses one `--data` directory for the import and the apply. `-AllExtensions` with `-UpdateDB` is refused there — `ibcmd config apply` takes one extension; apply each through `db-update -Extension <name>`.
 
 Partial mode accepts **file paths** through exactly one of `-Files` / `-ListFile`; validate scope, existence and dependencies first. A raw platform list is UTF-8 with no blank lines. The Designer branch writes its own list, adds `-partial -updateConfigDumpInfo`, and uses `-Format`; confirm the platform supports the intended flags. It excludes service files (`ConfigDumpInfo.xml`, `ParentConfigurations.bin`) from partial loading. If those exclusions omit part of the requested change, resolve the scope instead of reporting a complete deployment. Do not combine partial mode with `-AllExtensions`.
 
@@ -397,10 +435,34 @@ Mandatory order before running it:
 | `-InputFile <path>` | Input DT file (required) |
 | `-JobsCount <N>` | Background load jobs (`0` = one per CPU) |
 | `-UnlockCode <code>` | Unlock code (`/UC`) when session start is blocked |
+| `-Dbms` … `-IbcmdTempPath` | `ibcmd` only — load into an **existing** DBMS infobase, see *ibcmd: DBMS infobase without a cluster* |
 
-Do **not** use it to create a *new* base from a `.dt` — that is `db-create` from a DT template. To update configuration only (no data) — `db-load-cf` / `db-load-xml`.
+Do **not** use it to create a *new* base from a `.dt` — that is `db-create` from a DT template (with `-Locale` for a DBMS). A DBMS database without an infobase is refused (`база данных … не существует`); `--create-database` is never passed for a DBMS target, because on an existing infobase it fails with `уже зарегистрирована`. To update configuration only (no data) — `db-load-cf` / `db-load-xml`.
 
 If the base is busy (active sessions), the load fails: for a server base pass `-UnlockCode`, otherwise free the base and retry.
+
+---
+
+### 11. Designer Checks (check ladder)
+
+```powershell
+powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-check.ps1 -InfoBasePath "C:\Bases\Test" -Extension "МоёРасширение"
+```
+
+Runs the read-only steps of the check ladder (`content/rules/designer-batch-checks.md → The check ladder`) against the **loaded** configuration or extension: `/CheckModules` → `/CheckCanApplyConfigurationExtensions` (extension only) → `/CheckConfig`, stopping at the first failing check. Each check is judged by all three signals — exit code, `/DumpResult`, and log lines that keep a diagnostic after the success phrases (`Ошибок не обнаружено`, `Предупреждений: 0`) are neutralized. The script exits with the `/DumpResult` code of the first failing check (`1` when there is none), `0` when all passed.
+
+| Extra Parameter | Description |
+|-----------------|-------------|
+| `-Extension <name>` | Check this extension instead of the main configuration |
+| `-Checks <list>` | Subset in ladder order: `Modules`, `Apply`, `Config`. Default: all three with `-Extension`, `Modules,Config` without |
+| `-ModuleModes <list>` | `/CheckModules` keys (default `ThinClient,Server,ExternalConnection`) |
+| `-ConfigModes <list>` | `/CheckConfig` keys (default `ConfigLogIntegrity,IncorrectReferences,ThinClient,Server,ExternalConnection,HandlersExistence,ExtendedModulesCheck`) |
+| `-ContinueOnFailure` | Run the remaining checks after a failure |
+| `-TimeoutSeconds <N>` | Per-check timeout (default 3600); a Designer waiting on a modal dialog never exits |
+
+Designer only: `ibcmd` has no module or applicability check — `ibcmd config check` validates metadata and passes an extension that `/CheckCanApplyConfigurationExtensions` rejects (a stale controlled `CompatibilityMode` after the base raised its own). A DBMS infobase reached without a cluster cannot be checked here; its gate is `db-update` through `ibcmd` (`infobase config apply`).
+
+`-ExtendedModulesCheck` on an extension reports every "through the dot" access to a base object it cannot resolve (`Возможно ошибочное свойство`) and every base-form handler of an adopted form (`Отсутствует обработчик`) — a `/CheckConfig` failure on an extension needs the lines classified before anything is "fixed".
 
 ---
 

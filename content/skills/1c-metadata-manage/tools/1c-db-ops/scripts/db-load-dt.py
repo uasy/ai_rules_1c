@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # db-load-dt v1.12 — Load 1C information base from DT file
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# 1c-rules: the ibcmd branch also restores into an existing DBMS infobase (-Dbms / -DbServer /
+# -DbName / -DbUser / -DbPassword) and takes -IbcmdDataPath / -IbcmdTempPath; the .ps1 mirrors
+# it (NOTICE.md). A new infobase from a DT is db-create -UseTemplate (with -Locale).
 
 import argparse
 import atexit
@@ -131,6 +134,7 @@ def main():
     parser.add_argument("-AdditionalIbcmdArguments", action="append", default=[],
                         help="Extra ibcmd arguments, --key=value form "
                              "(comma-separated or repeated). Use -Flag=value to pass them.")
+    platform_args.add_ibcmd_connection_arguments(parser, with_locale=False)
     args = parser.parse_args()
 
     v8path = resolve_v8path(args.V8Path)
@@ -139,11 +143,8 @@ def main():
         engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
 
     # --- Validate connection ---
-    if engine == "ibcmd":
-        if not args.InfoBasePath:
-            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
-            sys.exit(1)
-    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    ib_conn, is_dbms, db_secrets = platform_args.ibcmd_connection(args, engine, extra_args)
+    if engine != "ibcmd" and not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -152,28 +153,39 @@ def main():
         print(f"Error: input file not found: {args.InputFile}", file=sys.stderr)
         sys.exit(1)
 
-    # --- ibcmd branch (file infobase only) ---
+    # --- ibcmd branch (file or DBMS infobase, no 1C cluster) ---
     if engine == "ibcmd":
-        arguments = ["infobase", "restore", f"--db-path={args.InfoBasePath}"]
-        if not os.path.isfile(os.path.join(args.InfoBasePath, "1Cv8.1CD")):
+        def make_data_dir():
+            d = tempfile.mkdtemp(prefix="ibcmd_data_")
+            atexit.register(shutil.rmtree, d, ignore_errors=True)
+            return d
+        work_dirs = platform_args.ibcmd_work_dirs(args, make_data_dir)
+        secrets = [args.Password, args.UserName] + db_secrets
+
+        # --create-database creates the database AND registers the infobase in it, so it
+        # fails with "уже зарегистрирована" on an infobase that already exists. A file
+        # target without 1Cv8.1CD keeps the upstream create-on-restore; a DBMS target must
+        # already hold an infobase — a new one is db-create -UseTemplate <dt> -Locale.
+        target_new = not is_dbms and not os.path.isfile(os.path.join(args.InfoBasePath, "1Cv8.1CD"))
+
+        arguments = ["infobase", "restore"] + ib_conn
+        if target_new:
             arguments.append("--create-database")
         if args.UserName:
             arguments.append(f"--user={args.UserName}")
         if args.Password:
             arguments.append(f"--password={args.Password}")
         arguments.append(args.InputFile)
-        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
-        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
-        arguments.append(f"--data={ib_data}")
-        arguments = arguments + extra_args
+        arguments = arguments + work_dirs + extra_args
         print("Running: ibcmd " + platform_args.protect_secrets(
-            ' '.join(platform_args.format_args_for_display(arguments, engine)),
-            [args.Password, args.UserName]))
+            ' '.join(platform_args.format_args_for_display(arguments, engine)), secrets))
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
         if result.returncode == 0:
             print(f"Information base restored successfully from: {args.InputFile}")
         else:
-            print(f"Error restoring information base (code: {result.returncode})", file=sys.stderr)
+            hint = ("; a new DBMS infobase is created by db-create -UseTemplate <dt> -Locale ru_RU"
+                    if is_dbms else "")
+            print(f"Error restoring information base (code: {result.returncode}){hint}", file=sys.stderr)
         if result.stdout:
             print(result.stdout)
         if result.stderr:

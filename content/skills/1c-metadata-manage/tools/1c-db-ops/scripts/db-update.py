@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # db-update v1.13 — Update 1C database configuration
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# 1c-rules: the ibcmd branch also applies to a DBMS infobase (-Dbms / -DbServer / -DbName /
+# -DbUser / -DbPassword) and takes -IbcmdDataPath / -IbcmdTempPath; -SessionTerminate drives
+# session termination for both engines; the .ps1 mirrors it (NOTICE.md).
 
 import argparse
 import atexit
@@ -109,6 +112,23 @@ def run_ibcmd(cmd, has_username=False, warn_no_user=True):
     return subprocess.run(cmd, input="", capture_output=True, encoding="utf-8", errors="replace")
 
 
+def check_session_terminate(args, engine, extra_args):
+    """-SessionTerminate is the one source of the session-termination key: reject a
+    duplicate in the extra arguments, and for 1cv8 accept only what Designer takes."""
+    if not args.SessionTerminate:
+        return
+    for tok in extra_args:
+        if platform_args.key_matches(tok, "--session-terminate") or \
+                platform_args.key_matches(tok, "-SessionTerminate"):
+            print("Error: session termination is set by -SessionTerminate; remove it from "
+                  "the additional arguments", file=sys.stderr)
+            sys.exit(1)
+    if engine != "ibcmd" and args.SessionTerminate == "prompt":
+        print("Error: -SessionTerminate prompt is ibcmd only; for 1cv8 use force, or omit "
+              "the parameter to keep sessions", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -127,12 +147,17 @@ def main():
     parser.add_argument("-Dynamic", default="", choices=["", "+", "-"])
     parser.add_argument("-Server", action="store_true")
     parser.add_argument("-WarningsAsErrors", action="store_true")
+    parser.add_argument("-SessionTerminate", default="", choices=["", "disable", "prompt", "force"],
+                        help="terminate active sessions when the update needs an exclusive lock: "
+                             "ibcmd --session-terminate=<value>; 1cv8 takes force only "
+                             "(disable = key omitted). force is for dev/test infobases only")
     parser.add_argument("-AdditionalV8Arguments", action="append", default=[],
                         help="Extra 1cv8 arguments (comma-separated or repeated). "
                              "A value starting with '-' needs the -Flag=value form.")
     parser.add_argument("-AdditionalIbcmdArguments", action="append", default=[],
                         help="Extra ibcmd arguments, --key=value form "
                              "(comma-separated or repeated). Use -Flag=value to pass them.")
+    platform_args.add_ibcmd_connection_arguments(parser, with_locale=False)
     args = parser.parse_args()
 
     v8path = resolve_v8path(args.V8Path)
@@ -142,37 +167,38 @@ def main():
         engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
 
     # --- Validate connection ---
-    if engine == "ibcmd":
-        if not args.InfoBasePath:
-            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
-            sys.exit(1)
-    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    ib_conn, is_dbms, db_secrets = platform_args.ibcmd_connection(args, engine, extra_args)
+    check_session_terminate(args, engine, extra_args)
+    if engine != "ibcmd" and not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
-    # --- ibcmd branch (file infobase only) ---
+    # --- ibcmd branch (file or DBMS infobase, no 1C cluster) ---
     if engine == "ibcmd":
         if args.AllExtensions:
             print("Error: ibcmd config apply does not support -AllExtensions (use -Extension)", file=sys.stderr)
             sys.exit(1)
-        arguments = ["infobase", "config", "apply", f"--db-path={args.InfoBasePath}", "--force"]
+        arguments = ["infobase", "config", "apply"] + ib_conn + ["--force"]
         if args.Dynamic == "+":
             arguments.append("--dynamic=auto")
         elif args.Dynamic == "-":
             arguments.append("--dynamic=disable")
         if args.Extension:
             arguments.append(f"--extension={args.Extension}")
-        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
-        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
+        if args.SessionTerminate:
+            arguments.append(f"--session-terminate={args.SessionTerminate}")
+        def make_data_dir():
+            d = tempfile.mkdtemp(prefix="ibcmd_data_")
+            atexit.register(shutil.rmtree, d, ignore_errors=True)
+            return d
         if args.UserName:
             arguments.append(f"--user={args.UserName}")
         if args.Password:
             arguments.append(f"--password={args.Password}")
-        arguments.append(f"--data={ib_data}")
-        arguments = arguments + extra_args
+        arguments = arguments + platform_args.ibcmd_work_dirs(args, make_data_dir) + extra_args
         print("Running: ibcmd " + platform_args.protect_secrets(
             ' '.join(platform_args.format_args_for_display(arguments, engine)),
-            [args.Password, args.UserName]))
+            [args.Password, args.UserName] + db_secrets))
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
         if result.returncode == 0:
             print("Database configuration updated successfully")
@@ -211,6 +237,8 @@ def main():
             arguments.append("-Server")
         if args.WarningsAsErrors:
             arguments.append("-WarningsAsErrors")
+        if args.SessionTerminate == "force":
+            arguments.extend(["-SessionTerminate", "force"])
 
         # --- Extensions ---
         if args.Extension:

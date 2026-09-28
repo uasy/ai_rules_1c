@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # db-load-xml v1.19 — Load 1C configuration from XML files
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# 1c-rules: the ibcmd branch also loads into a DBMS infobase (-Dbms / -DbServer / -DbName /
+# -DbUser / -DbPassword), takes -IbcmdDataPath / -IbcmdTempPath / -SessionTerminate and applies
+# the loaded extension on -UpdateDB; the .ps1 mirrors it (NOTICE.md).
 
 import argparse
 import atexit
@@ -109,6 +112,19 @@ def run_ibcmd(cmd, has_username=False, warn_no_user=True):
     return subprocess.run(cmd, input="", capture_output=True, encoding="utf-8", errors="replace")
 
 
+def check_session_terminate(args, engine, extra_args):
+    """-SessionTerminate is the one source of the session-termination key: reject a
+    duplicate in the extra arguments, and for 1cv8 accept only what Designer takes."""
+    if not args.SessionTerminate:
+        return
+    for tok in extra_args:
+        if platform_args.key_matches(tok, "--session-terminate") or \
+                platform_args.key_matches(tok, "-SessionTerminate"):
+            print("Error: session termination is set by -SessionTerminate; remove it from "
+                  "the additional arguments", file=sys.stderr)
+            sys.exit(1)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -140,6 +156,9 @@ def main():
         help="File format (default: Hierarchical)",
     )
     parser.add_argument("-UpdateDB", action="store_true", help="Also update database configuration after load")
+    parser.add_argument("-SessionTerminate", default="", choices=["", "disable", "prompt", "force"],
+                        help="ibcmd only, with -UpdateDB: terminate active sessions when the "
+                             "update needs an exclusive lock (force — dev/test infobases only)")
     parser.add_argument(
         "-StrictLog",
         action="store_true",
@@ -151,6 +170,7 @@ def main():
     parser.add_argument("-AdditionalIbcmdArguments", action="append", default=[],
                         help="Extra ibcmd arguments, --key=value form "
                              "(comma-separated or repeated). Use -Flag=value to pass them.")
+    platform_args.add_ibcmd_connection_arguments(parser, with_locale=False)
     args = parser.parse_args()
 
     # --- Resolve V8Path ---
@@ -161,11 +181,17 @@ def main():
         engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
 
     # --- Validate connection ---
-    if engine == "ibcmd":
-        if not args.InfoBasePath:
-            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
-            sys.exit(1)
-    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    ib_conn, is_dbms, db_secrets = platform_args.ibcmd_connection(args, engine, extra_args)
+    if engine != "ibcmd" and args.SessionTerminate:
+        print("Error: -SessionTerminate applies to the ibcmd -UpdateDB step only "
+              "(for 1cv8 use db-update -SessionTerminate)", file=sys.stderr)
+        sys.exit(1)
+    if args.SessionTerminate and not args.UpdateDB:
+        print("Error: -SessionTerminate needs -UpdateDB (a load alone does not update the database)",
+              file=sys.stderr)
+        sys.exit(1)
+    check_session_terminate(args, engine, extra_args)
+    if engine != "ibcmd" and not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -179,13 +205,18 @@ def main():
         print("Error: -Files or -ListFile required for Partial mode", file=sys.stderr)
         sys.exit(1)
 
-    # --- ibcmd branch (file infobase only; hierarchical full-directory import) ---
+    # --- ibcmd branch (file or DBMS infobase, no 1C cluster; hierarchical format) ---
     if engine == "ibcmd":
         if args.Format == "Plain":
             print("Error: ibcmd config import supports hierarchical format only (use -Format Hierarchical or 1cv8)", file=sys.stderr)
             sys.exit(1)
         if args.AllExtensions:
-            arguments = ["infobase", "config", "import", "all-extensions", args.ConfigDir, f"--db-path={args.InfoBasePath}"]
+            if args.UpdateDB:
+                print("Error: ibcmd config apply does not support all extensions at once; "
+                      "load with -AllExtensions, then run db-update -Extension <name> per extension",
+                      file=sys.stderr)
+                sys.exit(1)
+            arguments = ["infobase", "config", "import", "all-extensions", args.ConfigDir] + ib_conn
         elif args.Mode == "Partial" or args.Files or args.ListFile:
             # partial: import specific files (relative to ConfigDir)
             if args.ListFile:
@@ -202,25 +233,28 @@ def main():
                 print("Error: -Files or -ListFile required for partial import", file=sys.stderr)
                 sys.exit(1)
             arguments = ["infobase", "config", "import", "files"] + file_list
-            arguments += [f"--base-dir={args.ConfigDir}", f"--db-path={args.InfoBasePath}"]
+            arguments += [f"--base-dir={args.ConfigDir}"] + ib_conn
             if args.Extension:
                 arguments.append(f"--extension={args.Extension}")
         else:
-            arguments = ["infobase", "config", "import", f"--db-path={args.InfoBasePath}"]
+            arguments = ["infobase", "config", "import"] + ib_conn
             if args.Extension:
                 arguments.append(f"--extension={args.Extension}")
             arguments.append(args.ConfigDir)
-        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
-        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
+        def make_data_dir():
+            d = tempfile.mkdtemp(prefix="ibcmd_data_")
+            atexit.register(shutil.rmtree, d, ignore_errors=True)
+            return d
+        # One --data for both steps: the import and the apply share the server directory.
+        work_dirs = platform_args.ibcmd_work_dirs(args, make_data_dir)
+        secrets = [args.Password, args.UserName] + db_secrets
         if args.UserName:
             arguments.append(f"--user={args.UserName}")
         if args.Password:
             arguments.append(f"--password={args.Password}")
-        arguments.append(f"--data={ib_data}")
-        arguments = arguments + extra_args
+        arguments = arguments + work_dirs + extra_args
         print("Running: ibcmd " + platform_args.protect_secrets(
-            ' '.join(platform_args.format_args_for_display(arguments, engine)),
-            [args.Password, args.UserName]))
+            ' '.join(platform_args.format_args_for_display(arguments, engine)), secrets))
         result = run_ibcmd([v8path] + arguments, bool(args.UserName))
         if result.returncode != 0:
             print(f"Error loading configuration from files (code: {result.returncode})", file=sys.stderr)
@@ -234,16 +268,19 @@ def main():
             print(result.stdout)
         exit_code = 0
         if args.UpdateDB:
-            apply_args = ["infobase", "config", "apply", f"--db-path={args.InfoBasePath}", "--force"]
+            apply_args = ["infobase", "config", "apply"] + ib_conn + ["--force"]
+            # The loaded extension is what gets applied, not the main configuration.
+            if args.Extension:
+                apply_args.append(f"--extension={args.Extension}")
+            if args.SessionTerminate:
+                apply_args.append(f"--session-terminate={args.SessionTerminate}")
             if args.UserName:
                 apply_args.append(f"--user={args.UserName}")
             if args.Password:
                 apply_args.append(f"--password={args.Password}")
-            apply_args.append(f"--data={ib_data}")
-            apply_args = apply_args + extra_args
+            apply_args = apply_args + work_dirs + extra_args
             print("Running: ibcmd " + platform_args.protect_secrets(
-                ' '.join(platform_args.format_args_for_display(apply_args, engine)),
-                [args.Password, args.UserName]))
+                ' '.join(platform_args.format_args_for_display(apply_args, engine)), secrets))
             ar = run_ibcmd([v8path] + apply_args, bool(args.UserName))
             exit_code = ar.returncode
             if exit_code == 0:

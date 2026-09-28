@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # db-create v1.10 — Create 1C information base
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+# 1c-rules: -Locale (1cv8 and ibcmd) and -PageSize (1cv8, file infobase); the ibcmd branch
+# also creates a DBMS infobase (-Dbms / -DbServer / -DbName / -DbUser / -DbPassword) and
+# takes -IbcmdDataPath / -IbcmdTempPath; the .ps1 mirrors it (NOTICE.md).
 
 import argparse
 import atexit
@@ -129,6 +132,10 @@ def main():
     parser.add_argument("-AdditionalIbcmdArguments", action="append", default=[],
                         help="Extra ibcmd arguments, --key=value form "
                              "(comma-separated or repeated). Use -Flag=value to pass them.")
+    parser.add_argument("-PageSize", default="", choices=["", "4k", "8k", "16k", "32k", "64k"],
+                        help="1cv8 file infobase only: page size (DBPageSize, format 8.3.8). "
+                             "A larger page raises the size limit of an internal file of 1Cv8.1CD")
+    platform_args.add_ibcmd_connection_arguments(parser)
     args = parser.parse_args()
 
     v8path = resolve_v8path(args.V8Path)
@@ -137,11 +144,13 @@ def main():
         engine, args.AdditionalV8Arguments, args.AdditionalIbcmdArguments)
 
     # --- Validate connection ---
-    if engine == "ibcmd":
-        if not args.InfoBasePath:
-            print("Error: ibcmd supports file infobases only (use -InfoBasePath)", file=sys.stderr)
-            sys.exit(1)
-    elif not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
+    ib_conn, is_dbms, db_secrets = platform_args.ibcmd_connection(
+        args, engine, extra_args, locale_for_1cv8=True)
+    if args.PageSize and (engine == "ibcmd" or not args.InfoBasePath):
+        print("Error: -PageSize applies to a 1cv8 file infobase only (ibcmd infobase create has no page size)",
+              file=sys.stderr)
+        sys.exit(1)
+    if engine != "ibcmd" and not args.InfoBasePath and (not args.InfoBaseServer or not args.InfoBaseRef):
         print("Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef", file=sys.stderr)
         sys.exit(1)
 
@@ -150,22 +159,27 @@ def main():
         print(f"Error: template file not found: {args.UseTemplate}", file=sys.stderr)
         sys.exit(1)
 
-    # --- ibcmd branch (file infobase only) ---
+    # --- ibcmd branch (file or DBMS infobase, no 1C cluster) ---
     if engine == "ibcmd":
-        arguments = ["infobase", "create", f"--db-path={args.InfoBasePath}", "--create-database"]
+        arguments = ["infobase", "create"] + ib_conn + ["--create-database"]
+        if args.Locale:
+            arguments.append(f"--locale={args.Locale}")
         if args.UseTemplate:
             if os.path.splitext(args.UseTemplate)[1].lower() == ".dt":
                 arguments.append(f"--restore={args.UseTemplate}")
             else:
                 arguments.extend([f"--load={args.UseTemplate}", "--apply"])
-        ib_data = tempfile.mkdtemp(prefix="ibcmd_data_")
-        atexit.register(shutil.rmtree, ib_data, ignore_errors=True)
-        arguments.append(f"--data={ib_data}")
-        arguments = arguments + extra_args
-        print("Running: ibcmd " + ' '.join(platform_args.format_args_for_display(arguments, engine)))
+        def make_data_dir():
+            d = tempfile.mkdtemp(prefix="ibcmd_data_")
+            atexit.register(shutil.rmtree, d, ignore_errors=True)
+            return d
+        arguments = arguments + platform_args.ibcmd_work_dirs(args, make_data_dir) + extra_args
+        print("Running: ibcmd " + platform_args.protect_secrets(
+            ' '.join(platform_args.format_args_for_display(arguments, engine)), db_secrets))
         result = run_ibcmd([v8path] + arguments, warn_no_user=False)
         if result.returncode == 0:
-            print(f"Information base created successfully: {args.InfoBasePath}")
+            target = f"{args.Dbms} {args.DbServer} / {args.DbName}" if is_dbms else args.InfoBasePath
+            print(f"Information base created successfully: {target}")
         else:
             print(f"Error creating information base (code: {result.returncode})", file=sys.stderr)
         if result.stdout:
@@ -185,9 +199,15 @@ def main():
         if args.InfoBaseServer and args.InfoBaseRef:
             # No embedded quotes: subprocess quotes the whole token; 1C's argv parser
             # strips outer quotes. Inner quotes get escaped by list2cmdline and break parsing.
-            arguments.append(f'Srvr={args.InfoBaseServer};Ref={args.InfoBaseRef}')
+            conn = f'Srvr={args.InfoBaseServer};Ref={args.InfoBaseRef}'
         else:
-            arguments.append(f'File={args.InfoBasePath}')
+            conn = f'File={args.InfoBasePath}'
+            if args.PageSize:
+                # DBPageSize needs the 8.3.8 file format.
+                conn += f';DBFormat=8.3.8;DBPageSize={args.PageSize}'
+        if args.Locale:
+            conn += f';Locale={args.Locale}'
+        arguments.append(conn)
 
         # --- Template ---
         if args.UseTemplate:
