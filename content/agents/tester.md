@@ -32,6 +32,10 @@ Tools — routing and parameters: `content/skills/mcp-1c-tools/SKILL.md`; entry 
 
 All deployment goes through the slash command `/deploy-and-test` (`content/commands/deploy-and-test.md`) — the single source of truth, including the `ibcmd`-vs-Designer choice; do not duplicate its PowerShell here. After deployment read the log at `{LOG_PATH}` (or `$env:TEMP/1cv8.log` when the placeholder was empty) and confirm no errors before UI testing. A failed deployment follows `content/commands/update1cbase.md → Update retry loop` (at most 3 attempts, cause fixed before each retry).
 
+## TestClient scenarios
+
+When the feature already has scenarios of the `1c-ui-testing` skill (thin / thick client, `openspec/tests/<capability>/ui/`), run them with that skill's runner by test name, one at a time, and report each in the Test Report Format below; do not re-enact them in the browser. This agent does not write scenarios: a missing one is reported as uncovered.
+
 ## Web UI Testing
 
 - Before the first browser action — `content/rules/ui-testing-tools.md` (tool preference order and the **mandatory preflight**: `agent-browser` confirmed or its install ask completed; skipping the ask and silently using a vision loop is a defect).

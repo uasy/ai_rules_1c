@@ -16,6 +16,10 @@ Whether UI tests run at all is still gated by `UI_TESTING` + `INFOBASE_PUBLISH_U
 
 Any interactive exploration or debugging needed to author/fix the suite still follows the preflight and driver order below. Both lanes retain the interaction rules from `web-client-driving.md`; saved tests use observed stable locators rather than ephemeral snapshot refs.
 
+## Thin / thick client scenarios (TestClient)
+
+When `content/skills/1c-ui-testing/SKILL.md` is installed, the platform's TestClient / TestManager is the route for the thin and thick client and for the scenarios a feature already has there — before the browser, instead of `Windows-MCP`. This covers `1c-tester`, `/deploy-and-test` Step 4 and `/test-fix-loop`: run those scenarios with the skill's runner by test name, one at a time, and do not re-enact them in the web client. `UI_TESTING` governs these runs too; the web-client route below is unchanged.
+
 ## Preflight before web UI tests (hard gate)
 
 Runs before an authorized interactive web UI test (saved suites use the preceding section). First apply `TOOL_AGENT_BROWSER`, `TOOL_BROWSER`, `TOOL_WINDOWS_MCP` (`content/rules/mcp-policy.md → Tool availability`). In `auto`, use the preflight below. With `TOOL_AGENT_BROWSER=off`, skip its probes/install question and select an eligible built-in browser. With `required`, a missing agent-browser blocks execution. If no permitted web driver works, report the test unrun; do not substitute desktop automation for a web scenario. A selected built-in driver's `required` failure also blocks the test.

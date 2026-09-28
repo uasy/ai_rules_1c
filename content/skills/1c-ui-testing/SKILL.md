@@ -31,6 +31,18 @@ this skill to the end, read the project's own test tooling section (a project ma
 runner and add diagnostics), and check that the MCP servers you will use for platform methods and
 code navigation actually answer.
 
+## This skill or another UI route
+
+| Check | Route |
+|---|---|
+| The feature already has TestClient scenarios (`openspec/tests/<capability>/ui/`, or where the project rules keep them) | run them with the runner below by test name, never re-enact them in a browser |
+| The thin or thick client, or a new repeatable scenario for it | this skill |
+| Interactive check in the web client at `INFOBASE_PUBLISH_URL` | agent `1c-tester`, `content/rules/ui-testing-tools.md` |
+| Saved suite for the web client | `content/skills/1c-ui-regression/SKILL.md` |
+| Server-side fact without a UI | `1c-test-debug` |
+
+`UI_TESTING` governs these runs as it governs browser tests (`content/rules/dev-standards-env.md → UI_TESTING`): `off` — none; `manual` — on an explicit request, and a task given to `openspec-tester` is one; `auto` — during verification. Runs go one at a time (*Running from an autonomous agent*).
+
 ## Preconditions
 
 - **An X server is mandatory.** Both sessions are ordinary 1C windows; there is no headless mode

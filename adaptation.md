@@ -28,7 +28,7 @@
 ## A. Собственные навыки и агенты
 
 - `content/skills/1c-extension-analysis/` — анализ расширения конфигурации: зачем оно изменяет типовую, реестр изменений, отчёт для заказчика.
-- `content/skills/1c-ui-testing/` — UI-тестирование через тестовый клиент и менеджер тестирования платформы.
+- `content/skills/1c-ui-testing/` — UI-тестирование через тестовый клиент и менеджер тестирования платформы. Маршрут относительно UI-путей апстрима (`1c-tester`, `1c-ui-regression`) — отдельными разделами: «Thin / thick client scenarios (TestClient)» в `content/rules/ui-testing-tools.md` (его читают `1c-tester`, шаг 4 `/deploy-and-test` и `/test-fix-loop`) и «TestClient scenarios» в `content/agents/tester.md`; `UI_TESTING` распространяется и на прогоны TestClient.
 - `content/skills/1c-test-debug/` — проверки на тестовой базе без человека у экрана: код и журнал регистрации через отладочное расширение, HTTP-вызовы с учётными данными из `.dev.env`, `/CheckModules`. Раннер `1c-ui-testing` вызывает его `ib-errors.py` для диагностики.
 - `content/skills/1c-ibsrv-ops/` — автономный сервер 1С (`ibsrv`) как публикация тестовой базы: создание базы и конфигурации сервера, публикация HTTP-сервисов конфигурации и расширений, запуск, перезапуск, остановка, сеансы и блокировки. На него опираются `1c-test-debug` и `1c-ui-testing`.
 - `content/skills/openspec-agents/` — порядок работы над изменением OpenSpec с агентами (`review.md`, `test-plan.md`, `verify.md`, дерево `openspec/tests/`) и неинтерактивный запуск агента через `claude -p`.
