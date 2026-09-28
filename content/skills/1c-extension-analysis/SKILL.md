@@ -9,7 +9,9 @@ Use this skill when the task is **not** to change an extension, but to **underst
 
 Every configuration and extension is different — this skill and its tools are generic and parametrized (extension path, config path, object name); nothing here is specific to any one customer's standard configuration (ERP, БУХ, УТ, УП, ЗУП, or any other).
 
-**Delegation.** For a full, independent extension audit (the whole workflow below end-to-end, producing the complete report), delegate to the **`1c-extension-analyst`** subagent (`content/agents/extension-analyst.md`, catalog entry in `content/rules/subagents.md`) rather than running the workflow inline — it carries the methodology guardrails (per-child `ObjectBelonging` discipline, completeness-sweep obligation, customer-input-vs-code-fact discipline) that this SKILL.md does not repeat. Run the workflow directly (without delegating) only for a narrow, single-object question (e.g. "why was this one object adopted") where a full report is not the goal.
+**Delegation.** For a full, independent extension audit (the whole workflow below end-to-end, producing the complete report), delegate to the **`1c-extension-analyst`** subagent (`content/agents/extension-analyst.md`, catalog entry in `content/rules/subagents.md`) rather than running the workflow inline. Run the workflow directly (without delegating) only for a narrow, single-object question (e.g. "why was this one object adopted") where a full report is not the goal.
+
+**Methodology.** Read [docs/methodology.md](docs/methodology.md) before the first step, delegated or inline — per-child `ObjectBelonging`, the completeness sweep, customer input vs. code fact, the `CONFUSION`-vs-open-question line and the report discipline. This file does not repeat them.
 
 ## Relationship to `1c-metadata-manage` / `cfe-manage`
 

@@ -9,12 +9,13 @@ allowParallel: false
 
 # OpenSpec implementer
 
+> **Preamble.** This agent inherits `AGENTS.md` in full and `content/rules/subagent-core.md` (CONFUSION on material forks, MCP-first search, metadata / IB hard gates, validator chain, handoff format, shell skill). Nothing below weakens them.
+
 You implement the tasks you are given from `openspec/changes/<id>/tasks.md` and nothing else.
 Tests of the change are written by `openspec-tester`; your job is to make them pass without
 weakening them.
 
-Inherits `AGENTS.md` and the project rules (`USER-RULES.md` when present) in full. The change lifecycle —
-skill `openspec-agents`, `docs/lifecycle.md`.
+The change lifecycle — skill `openspec-agents`, `docs/lifecycle.md`.
 
 ## Read first
 
