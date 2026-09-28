@@ -2,12 +2,14 @@ name: validate-rules
 
 # Structural validation of the ruleset: frontmatter against the adapter schemas,
 # cross-reference and Markdown-link resolution, section anchors, MCP-only router
-# targets, and the 16 KiB always-on byte budget of AGENTS.md. The bodies of the
+# targets, the 16 KiB always-on byte budget of AGENTS.md and the load-set budgets
+# (per rule, full-cycle set, subagent start set). The bodies of the
 # routed standards live in the 1C-docs-mcp repository, so the router/body heading
 # sync runs only locally (tools/validate-rules.ps1 -StandardsDir <path>); in CI it
 # is skipped with a notice. See tools/validate-rules.ps1.
 #
-# Two jobs, because the skill ships two runtimes:
+# Jobs cover the content skills and both metadata-tool runtimes:
+#   content-skills (linux) — real DOCX output and offline Gemini model selection.
 #   validate (windows) — the ruleset validator, the PowerShell tool regressions,
 #     and the full Python suite including the PowerShell/Python parity and
 #     installer packaging gates, which need a PowerShell host.
@@ -15,9 +17,8 @@ name: validate-rules
 #     platform they exist for. Runs with --python-only, so the PowerShell-bound
 #     cases are skipped rather than silently passing.
 #
-# Neither job reaches the network during the tests themselves: every case
-# materializes its fixtures from tools/tests/fixtures. The only dependency is
-# lxml, installed explicitly below.
+# Tests do not reach the network: they use local fixtures and mocked API calls.
+# Runtime dependencies (docx and lxml) are installed explicitly below.
 
 on:
   push:
@@ -26,6 +27,23 @@ on:
   workflow_dispatch:
 
 jobs:
+  content-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install DOCX runtime
+        run: npm ci --prefix content/skills/md-to-docx --ignore-scripts --no-audit --no-fund
+      - name: Markdown to DOCX regressions
+        run: python -B tools/tests/md-to-docx-regression.py
+      - name: Transcription model regressions (offline)
+        run: python -B tools/tests/transcribe-regression.py
+
   validate:
     runs-on: windows-latest
     steps:
@@ -45,6 +63,25 @@ jobs:
         shell: powershell
         run: .\tools\validate-rules.ps1
 
+      - name: Tool policy settings migration
+        shell: powershell
+        run: .\tools\tests\tool-policy-settings.ps1
+
+      - name: Optional initial source dump
+        shell: powershell
+        run: .\tools\tests\initial-source-dump.ps1
+
+      - name: Scheduled MCP source refresh
+        shell: powershell
+        run: .\tools\tests\files-update-task.ps1
+
+      # The acceptance corpus must still render into eval cases. Running them needs a
+      # model and live MCP servers, so CI only proves the corpus and the renderer
+      # agree; the rendered cases are run with `claude plugin eval` before a release.
+      - name: Render gate evals
+        shell: powershell
+        run: .\tools\render-gate-evals.ps1 -OutDir "$env:RUNNER_TEMP\gate-evals"
+
       # Behaviour regressions for the meta-edit / meta-compile tool scripts of the
       # 1c-metadata-manage skill. Same interpreter, no 1C platform needed: the cases
       # materialize their own fixtures and assert on the resulting bytes.
@@ -57,12 +94,24 @@ jobs:
         shell: powershell
         run: .\tools\tests\marketplace-bootstrap.ps1
 
+      - name: Agent adapter install lifecycle
+        shell: powershell
+        run: .\tools\tests\agent-adapters.ps1
+
+      - name: Installer paths and source discovery
+        shell: powershell
+        run: .\tools\tests\installer-paths-regression.ps1
+
       # Full Python suite: the port safety contract plus the two gates that need a
       # PowerShell host — remove-form PS/Python parity and installer packaging.
       # -B keeps CI from writing __pycache__ into the checked-out tree.
       - name: Python port regressions (with PowerShell parity)
         shell: powershell
         run: python -B "tools/tests/python-ports-regression.py"
+
+      - name: Python web operation regressions (offline)
+        shell: powershell
+        run: python -B "tools/tests/web-python-regression.py"
 
   python-ports:
     runs-on: ubuntu-latest
@@ -81,3 +130,6 @@ jobs:
       # those. -B keeps __pycache__ out of the tree.
       - name: Python port safety contract
         run: python -B "tools/tests/python-ports-regression.py" --python-only
+
+      - name: Python web operation regressions (offline)
+        run: python -B "tools/tests/web-python-regression.py"

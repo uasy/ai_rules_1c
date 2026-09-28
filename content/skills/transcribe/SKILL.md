@@ -5,7 +5,7 @@ description: "Transcribe video and audio files via Gemini API. Use when the user
 
 # transcribe — video and audio transcription
 
-Transcribes audio and video files via the Gemini 2.5 Flash API.
+Transcribes audio and video files via the Gemini API (`gemini-3.6-flash` by default).
 
 ## Modes
 
@@ -48,7 +48,8 @@ Output files:
 
 - Python packages: `google-genai`, `python-dotenv`
 - System: `ffmpeg`, `ffprobe` in PATH
-- API key: environment variable `GEMINI_API_KEY`, or `<skill-dir>/.env` with `GEMINI_API_KEY=...` (the script also checks supported user-skill locations and then `cwd/.env`)
+- API key: environment variable `GEMINI_API_KEY`, or `<skill-dir>/.env` with `GEMINI_API_KEY=...` (the script also checks supported user-skill locations and then `cwd/.env`). Use a named assignment `GEMINI_API_KEY=<value>`; a bare key without the variable name is ignored.
+- Model (optional): `GEMINI_MODEL` in the environment or the same `.env` files overrides `gemini-3.6-flash`. Existing environment variables take precedence. Empty or whitespace-only values use the default. Choose a model supporting audio/video input and text output through `generate_content`; see the [Gemini model catalog](https://ai.google.dev/gemini-api/docs/models).
 
 ## Procedure
 
@@ -73,7 +74,7 @@ On macOS / Linux use `PYTHONUNBUFFERED=1 python ...` instead.
 
 ## Cost
 
-~$0.10 per 1 hour of recording (Gemini 2.5 Flash). Long files cost proportionally.
+Cost depends on the selected model, media token count and generated output. Check the [current Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) for `GEMINI_MODEL` or the default model before processing long recordings.
 
 ## Limitations
 

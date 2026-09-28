@@ -5,7 +5,7 @@
  * Usage:
  *   node md_to_docx.js input.md [output.docx] \
  *       [--author "Author Name"] [--title "Document Title"] \
- *       [--no-shading | --shading=on|off]
+ *       [--no-shading | --shading=on|off] [--justify]
  *
  *   - Output is optional; if omitted, replaces .md with .docx next to input.
  *   - --author writes core property dc:creator and cp:lastModifiedBy.
@@ -13,6 +13,8 @@
  *   - --no-shading (alias: --shading=off) disables grey background fill
  *     for inline `code` and fenced ``` code blocks. Table header shading
  *     is structural and is NOT affected by this flag.
+ *   - --justify (alias: --align=justify) justifies body paragraphs and list
+ *     items, including block quotes. Headings and table cells are unchanged.
  *   - Both --flag value and --flag=value forms are supported.
  *
  * Requires: npm ci in the skill directory (package-lock.json pins docx).
@@ -34,6 +36,7 @@ const positional = [];
 let author = null;
 let titleOverride = null;
 let codeShading = true;
+let justify = false;
 for (let k = 0; k < rawArgs.length; k++) {
   const a = rawArgs[k];
   if (a === "--author") {
@@ -50,13 +53,19 @@ for (let k = 0; k < rawArgs.length; k++) {
     codeShading = (rawArgs[++k] || "").toLowerCase() !== "off";
   } else if (a.startsWith("--shading=")) {
     codeShading = a.slice("--shading=".length).toLowerCase() !== "off";
+  } else if (a === "--justify") {
+    justify = true;
+  } else if (a === "--align") {
+    justify = (rawArgs[++k] || "").toLowerCase() === "justify";
+  } else if (a.startsWith("--align=")) {
+    justify = a.slice("--align=".length).toLowerCase() === "justify";
   } else {
     positional.push(a);
   }
 }
 const inputPath = positional[0];
 if (!inputPath) {
-  console.error('Usage: node md_to_docx.js input.md [output.docx] [--author "Author Name"] [--title "Document Title"] [--no-shading]');
+  console.error('Usage: node md_to_docx.js input.md [output.docx] [--author "Author Name"] [--title "Document Title"] [--no-shading] [--justify]');
   process.exit(1);
 }
 const outputPath = positional[1] || inputPath.replace(/\.md$/i, ".docx");
@@ -130,6 +139,8 @@ function collectWrappedLines() {
 }
 
 function pushQuoteInner(innerLines) {
+  // Each separately parsed quote owns its lists, even next to another quote.
+  const quoteId = i;
   let j = 0;
   while (j < innerLines.length) {
     const raw = innerLines[j];
@@ -143,19 +154,19 @@ function pushQuoteInner(innerLines) {
         parts.push(innerLines[j]);
         j++;
       }
-      blocks.push({ type: "quote-bullet", indent, text: joinWrapped(parts) });
+      blocks.push({ type: "quote-bullet", indent, text: joinWrapped(parts), quoteId });
       continue;
     }
-    const numbered = raw.match(/^(\s*)\d+\.\s+(.*)/);
+    const numbered = raw.match(/^(\s*)(\d+)\.\s+(.*)/);
     if (numbered) {
       const indent = Math.floor((numbered[1] || "").length / 2);
-      const parts = [numbered[2]];
+      const parts = [numbered[3]];
       j++;
       while (j < innerLines.length && !isBlank(innerLines[j]) && !isBullet(innerLines[j]) && !isNumbered(innerLines[j])) {
         parts.push(innerLines[j]);
         j++;
       }
-      blocks.push({ type: "quote-numbered", indent, text: joinWrapped(parts) });
+      blocks.push({ type: "quote-numbered", indent, text: joinWrapped(parts), num: Number(numbered[2]), quoteId });
       continue;
     }
     const parts = [raw];
@@ -254,11 +265,11 @@ while (i < lines.length) {
   }
 
   // List item (numbered)
-  const numMatch = line.match(/^(\s*)\d+\.\s+(.*)/);
+  const numMatch = line.match(/^(\s*)(\d+)\.\s+(.*)/);
   if (numMatch) {
     const indent = Math.floor((numMatch[1] || "").length / 2);
-    const parts = [numMatch[2], ...collectWrappedLines()];
-    blocks.push({ type: "numbered", indent, text: joinWrapped(parts) });
+    const parts = [numMatch[3], ...collectWrappedLines()];
+    blocks.push({ type: "numbered", indent, text: joinWrapped(parts), num: Number(numMatch[2]) });
     i++;
     continue;
   }
@@ -350,7 +361,7 @@ function getImageType(filePath) {
   return map[ext] || "png";
 }
 
-function tryLoadImage(src) {
+function tryLoadImage(src, hasCaption) {
   const filePath = resolveImagePath(src);
   if (!fs.existsSync(filePath)) {
     console.warn(`  Warning: image not found: ${filePath}`);
@@ -358,7 +369,7 @@ function tryLoadImage(src) {
   }
   const data = fs.readFileSync(filePath);
   const type = getImageType(filePath);
-  // Get dimensions (simple approach: fit within content width)
+  // Get dimensions, then fit inside the actual section's printable area.
   // Default: max 600px wide, auto height (assume 4:3 if unknown)
   let width = 600;
   let height = 450;
@@ -381,13 +392,16 @@ function tryLoadImage(src) {
       off += 2 + segLen;
     }
   }
-  // Scale to fit content width (max ~6 inches = 576px at 96dpi)
-  const maxWidth = 576;
-  if (width > maxWidth) {
-    const scale = maxWidth / width;
-    width = maxWidth;
-    height = Math.round(height * scale);
-  }
+  // DOCX image sizes are pixels at 96 dpi; page sizes/spacing are twips.
+  // Allow for the inline image's text baseline and one caption line. Longer
+  // captions may wrap onto the following page normally.
+  const captionHeight = hasCaption ? CAPTION_SPACING.before + CAPTION_SPACING.after + CAPTION_LINE_HEIGHT : 0;
+  const maxWidth = CONTENT_WIDTH / 15;
+  const maxHeight = (PAGE_HEIGHT - 2 * MARGIN - IMAGE_SPACING.before - IMAGE_SPACING.after
+    - IMAGE_LINE_PADDING - captionHeight) / 15;
+  const scale = Math.min(1, maxWidth / width, maxHeight / height);
+  width = Math.max(1, Math.floor(width * scale));
+  height = Math.max(1, Math.floor(height * scale));
   return { data, type, width, height };
 }
 
@@ -401,10 +415,48 @@ const headingMap = {
 const border = { style: BorderStyle.SINGLE, size: 1, color: "999999" };
 const cellBorders = { top: border, bottom: border, left: border, right: border };
 const PAGE_WIDTH = 12240; // US Letter
+const PAGE_HEIGHT = 15840;
 const MARGIN = 1440; // 1 inch
 const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN; // 9360
+const IMAGE_SPACING = { before: 120, after: 120 };
+const IMAGE_LINE_PADDING = 240;
+const CAPTION_SPACING = { before: 40, after: 120 };
+const CAPTION_LINE_HEIGHT = 240;
+const bodyAlignment = justify ? AlignmentType.JUSTIFIED : undefined;
+
+// Markdown numbers after the first item are only markers ("1., 1." is valid).
+// Track lists by structure, preserving a parent's counter across child lists.
+// Each nested list gets its own reference so its first ordinal also survives.
+const numberLists = [];
+let listStack = [];
+let listScope;
+function numberingFor(block) {
+  const type = block.type.replace(/^quote-/, "");
+  if (type !== "numbered" && type !== "bullet") {
+    listStack = [];
+    return undefined;
+  }
+  if (listScope !== block.quoteId) listStack = [];
+  listScope = block.quoteId;
+  while (listStack.length && listStack[listStack.length - 1].indent > block.indent) listStack.pop();
+  let current = listStack[listStack.length - 1];
+  if (current && current.indent === block.indent && current.type !== type) {
+    listStack.pop();
+    current = listStack[listStack.length - 1];
+  }
+  if (!current || current.indent < block.indent) {
+    current = { type, indent: block.indent, reference: "bullets" };
+    if (type === "numbered") {
+      current.reference = `numbers-${numberLists.length + 1}`;
+      numberLists.push({ reference: current.reference, start: block.num });
+    }
+    listStack.push(current);
+  }
+  return { reference: current.reference, level: Math.min(block.indent, 1) };
+}
 
 for (const block of blocks) {
+  const numbering = numberingFor(block);
   switch (block.type) {
     case "heading": {
       const headingRuns = makeRuns(block.text);
@@ -426,24 +478,27 @@ for (const block of blocks) {
         children: makeRuns(block.text),
         keepLines: true,
         spacing: { before: 80, after: 80 },
+        alignment: bodyAlignment,
       }));
       break;
 
     case "bullet":
       children.push(new Paragraph({
-        numbering: { reference: "bullets", level: Math.min(block.indent, 1) },
+        numbering,
         children: makeRuns(block.text),
         keepLines: true,
         spacing: { before: 40, after: 40 },
+        alignment: bodyAlignment,
       }));
       break;
 
     case "numbered":
       children.push(new Paragraph({
-        numbering: { reference: "numbers", level: Math.min(block.indent, 1) },
+        numbering,
         children: makeRuns(block.text),
         keepLines: true,
         spacing: { before: 40, after: 40 },
+        alignment: bodyAlignment,
       }));
       break;
 
@@ -451,11 +506,6 @@ for (const block of blocks) {
     case "quote-bullet":
     case "quote-numbered": {
       const quoteBorder = { style: BorderStyle.SINGLE, size: 24, color: "5B9BD5", space: 8 };
-      const numbering = block.type === "quote-bullet"
-        ? { reference: "bullets", level: Math.min(block.indent, 1) }
-        : block.type === "quote-numbered"
-          ? { reference: "numbers", level: Math.min(block.indent, 1) }
-          : undefined;
       children.push(new Paragraph({
         numbering,
         children: makeRuns(block.text),
@@ -463,6 +513,7 @@ for (const block of blocks) {
         indent: { left: numbering ? 1080 : 360 },
         border: { left: quoteBorder },
         spacing: { before: 60, after: 60 },
+        alignment: bodyAlignment,
       }));
       break;
     }
@@ -517,7 +568,7 @@ for (const block of blocks) {
     }
 
     case "image": {
-      const img = tryLoadImage(block.src);
+      const img = tryLoadImage(block.src, Boolean(block.alt));
       if (img) {
         children.push(new Paragraph({
           children: [new ImageRun({
@@ -526,7 +577,7 @@ for (const block of blocks) {
             transformation: { width: img.width, height: img.height },
             altText: { title: block.alt || "Image", description: block.alt || "", name: block.alt || "image" },
           })],
-          spacing: { before: 120, after: 120 },
+          spacing: IMAGE_SPACING,
           alignment: AlignmentType.CENTER,
         }));
         // Caption if alt text exists
@@ -534,7 +585,7 @@ for (const block of blocks) {
           children.push(new Paragraph({
             children: [new TextRun({ text: block.alt, font: "Arial", size: 18, italics: true, color: "666666" })],
             alignment: AlignmentType.CENTER,
-            spacing: { before: 40, after: 120 },
+            spacing: { ...CAPTION_SPACING, line: CAPTION_LINE_HEIGHT },
           }));
         }
       } else {
@@ -587,19 +638,19 @@ const doc = new Document({
           { level: 1, format: LevelFormat.BULLET, text: "-", alignment: AlignmentType.LEFT,
             style: { paragraph: { indent: { left: 1440, hanging: 360 } } } },
         ] },
-      { reference: "numbers",
+      ...numberLists.map(list => ({ reference: list.reference,
         levels: [
-          { level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT,
+          { level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT, start: list.start,
             style: { paragraph: { indent: { left: 720, hanging: 360 } } } },
-          { level: 1, format: LevelFormat.DECIMAL, text: "%2.", alignment: AlignmentType.LEFT,
+          { level: 1, format: LevelFormat.DECIMAL, text: "%2.", alignment: AlignmentType.LEFT, start: list.start,
             style: { paragraph: { indent: { left: 1440, hanging: 360 } } } },
-        ] },
+        ] })),
     ],
   },
   sections: [{
     properties: {
       page: {
-        size: { width: PAGE_WIDTH, height: 15840 },
+        size: { width: PAGE_WIDTH, height: PAGE_HEIGHT },
         margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN },
       },
     },

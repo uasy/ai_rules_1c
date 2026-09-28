@@ -130,6 +130,14 @@ The PowerShell script `tools/1c-epf-validate/scripts/epf-validate.ps1` was refre
 
 ## form-manage.md
 
+### Local fix `2026-09-25` — vendor-shaped defaults, closed enum values, Form.xml against Module.bsl
+
+Rules taken from the static checks of [AzeevAN/mcp-1c](https://github.com/AzeevAN/mcp-1c) (Apache-2.0; rules re-implemented, no code copied) and calibrated on the ERP (8.3.27) and ZUP Designer dumps so that vendor forms raise no errors.
+
+- **`form-compile` v1.176** (both runtimes): the from-object document choice form sets `ChoiceMode` on its list table like the catalog one; the `document.item` preset (hard-coded default and `presets/erp-standard.json`) writes `AutoTime=CurrentOrLast`, `UsePostingMode=Auto`, `RepostOnWrite=true` in Configurator order; `Description` is bound only when `DescriptionLength > 0`. `windowOpeningMode` / `autoTime` / `usePostingMode` accept only the platform enum values — `form-dsl-spec.md` listed `Modeless`, `Current`, `Postings`, `Movements`, which do not exist. A missing `Configuration.xml` is a `[WARN]` naming the assumed 2.17 instead of a silent guess.
+- **`form-add` v1.12** (both runtimes): `-FormName` must be a 1C identifier (exit 2 before any path or XPath is built from it); the object form of an information register names its `RecordManager` main attribute `Запись`, as the Configurator does.
+- **`form-validate` v1.10**: version equal to `Configuration.xml` (check 1); `cfg:Catalogs.X` is an error (12); owner type of the main attribute in default object / record forms and no zero-length `Description` / `Code` binding (12b); handlers against `Module.bsl` (13 — duplicate declaration is an error, the rest are warnings because ERP ships them); `РеквизитФормыВЗначение` / `ЗначениеВРеквизитФормы` only in `&НаСервере` (14).
+
 ### Python `form-edit` / `form-validate` caught up with v1.6 / v1.9 (`2026-09-25`)
 
 `form-edit.py` now carries the `DynamicList` rule of `form-edit.ps1` v1.6: an attribute of that type needs `settings.mainTable` or `settings.query`, is refused without one, and gets `<Settings xsi:type="DynamicList">` instead of `<Columns>`. `form-validate.py` reports a `DynamicList` with neither `MainTable` nor `QueryText`, as `form-validate.ps1` v1.9 does. Along the way `form-edit.py` was aligned with the PowerShell writer in two more places: a new `<ChildItems>`, `<Attributes>` or `<Commands>` section is inserted at its place in the form on its own line (the port appended `<Attributes>` and `<Commands>` at the end, sharing a line with `</Form>`), and the declaration keeps Configurator's `encoding="UTF-8"`. Pinned by `tools/tests/python-ports-regression.py`.
@@ -217,6 +225,10 @@ The PowerShell scripts under `tools/1c-interface-manage/scripts/` were refreshed
 - **`interface-validate`** — universal validator improvements (one-liner output by default, `-Detailed`, folder path auto-resolution) — see `role-manage.md` → "Recent Additions".
 
 ## meta-manage.md
+
+### Local fix `2026-09-25` — versions, generated types, default forms, name clashes
+
+`meta-validate` v1.13, both runtimes with identical messages: object, form descriptor and `Form.xml` versions equal `Configuration.xml` (1e, 6e); every GeneratedType category is required and named exactly (2); `Default*Form` / `Auxiliary*Form` resolve to a declared form of the right role (6f); no `Description` / `Code` binding when the length is 0 (6g) and a warning when the default object form hides a mandatory `Description` nobody assigns (6h); case-insensitive name uniqueness shared by attributes, tabular sections, dimensions and resources (8); `Periodicity` and `DefaultRecordSetForm` forbidden in an information register (12); `cfg:Catalogs.X` is an error (16a). Over all 10 965 ERP objects none of the new error checks fires; 6h warns on 6 attached-file / exchange catalogs.
 
 ### Python `meta-compile` matches the PowerShell output for common objects (`2026-09-16`)
 
@@ -392,9 +404,9 @@ Scripts refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikola
 
 ## web-manage.md
 
-### Python port of `web-publish` (`2026-09-17`)
+### Python web tools, extension HTTP services (`2026-09-28`)
 
-`web-publish.py` joins the PowerShell script, so a Linux / macOS test infobase can be published without a PowerShell host. It follows `web-publish.ps1` v1.4 — parameters, platform path chain, `default.vrd`, the marked `httpd.conf` blocks, port check, restart of its own server — with the deviations listed in its header: the module is `wsap24.so` and Apache is not downloaded outside Windows; `bin/httpd` may be a prefix build or a link to the distribution `apache2`, which is started with `-d <ApachePath> -f conf/httpd.conf` and recognised by that command line, so another Apache on the machine is never taken for its own; processes and the port holder are found through psutil when installed, otherwise through OS tools. `default.vrd` also sets `publishExtensionsByDefault="true"`: without it the HTTP services of configuration extensions answer 404. `web-publish.ps1` has the same gap — a support candidate. `web-info`, `web-stop` and `web-unpublish` stay PowerShell-only.
+The local port of `web-publish.py` gives way to the upstream Python set — `web-publish.py`, `web-info.py`, `web-stop.py`, `web-unpublish.py` over `web_common.py`: a preinstalled standalone Apache, loopback listener, only its own Apache process is managed, `-DryRun`, rollback of a failed update. Local delta kept from the port: `default.vrd` sets `publishExtensionsByDefault="true"`, so the HTTP services of the infobase's extensions are published too (`# Local:` in `vrd_content()`, pinned by `tools/tests/web-python-regression.py`).
 
 ### Upstream sync `2026-07-30`
 

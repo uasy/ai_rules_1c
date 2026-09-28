@@ -584,6 +584,69 @@ Register-Case 'form-compile: a standalone handlers map produces the event, confl
     }
 }
 
+Register-Case 'form-validate: version, owner type, folder type, handlers and conversion context' {
+    param($Work)
+    # form-validate v1.10 checks 1, 12, 12b, 13 and 14 on a form-add scaffold. BSL
+    # is written in English keywords so this file stays pure ASCII.
+    $FormValidate = Join-Path $ToolsDir '1c-form-validate\scripts\form-validate.ps1'
+    Copy-Fixture 'config-dump' $Work "`n"
+    $target = Join-Path $Work 'Catalogs\TestCatalog.xml'
+    $bom = New-Object System.Text.UTF8Encoding($true)
+    $formsDir = Join-Path $Work 'Catalogs\TestCatalog\Forms'
+    foreach ($name in @('Main', 'Other')) {
+        $run = Invoke-Tool $FormAdd @('-ObjectPath', $target, '-FormName', $name, '-Purpose', 'Object') $Work
+        Assert-Equal 0 $run.ExitCode "form-add $name (stderr: $($run.StdErr))"
+    }
+    $formXml = Join-Path $formsDir 'Main\Ext\Form.xml'
+    $modulePath = Join-Path $formsDir 'Main\Ext\Form\Module.bsl'
+    $pristineForm = (Get-FileFacts $formXml).Text
+    $validate = {
+        param([string]$FormText, [string]$ModuleText)
+        [System.IO.File]::WriteAllText($formXml, $FormText, $bom)
+        [System.IO.File]::WriteAllText($modulePath, $ModuleText, $bom)
+        $run = Invoke-Tool $FormValidate @('-FormPath', $formXml) $Work
+        return [pscustomobject]@{ ExitCode = $run.ExitCode; Text = "$($run.StdOut)$($run.StdErr)" }
+    }
+    $withEvent = $pristineForm -replace '<ChildItems/>', "<Events>`n`t`t<Event name=`"OnOpen`">OnOpenHandler</Event>`n`t</Events>`n`t<ChildItems/>"
+    $clientHandler = "&AtClient`nProcedure OnOpenHandler(Cancel)`nEndProcedure`n"
+
+    $ok = & $validate $withEvent $clientHandler
+    Assert-Equal 0 $ok.ExitCode "a matching handler was rejected: $($ok.Text)"
+    Assert-True ($ok.Text -notmatch '\[WARN\]') "a matching handler was warned about: $($ok.Text)"
+
+    $missing = & $validate $withEvent "&AtClient`nProcedure Unrelated()`nEndProcedure`n"
+    Assert-Equal 0 $missing.ExitCode "a missing handler must stay a warning: $($missing.Text)"
+    Assert-True ($missing.Text -match '\[WARN\]\s+13\..*not found') "no warning for a missing handler: $($missing.Text)"
+
+    $duplicate = & $validate $withEvent ($clientHandler + "`n" + $clientHandler)
+    Assert-True ($duplicate.ExitCode -ne 0) "a duplicate handler was accepted: $($duplicate.Text)"
+    Assert-True ($duplicate.Text -match '\[ERROR\] 13\..*declared 2 times') "no error for a duplicate handler: $($duplicate.Text)"
+
+    $conversion = & $validate $withEvent ($clientHandler + "`n&AtClient`nProcedure Convert()`n`tValue = FormAttributeToValue(`"Object`");`nEndProcedure`n")
+    Assert-True ($conversion.ExitCode -ne 0) "a client-side FormAttributeToValue was accepted: $($conversion.Text)"
+    Assert-True ($conversion.Text -match '\[ERROR\] 14\.') "no error for a client-side conversion: $($conversion.Text)"
+    $serverConversion = & $validate $withEvent ($clientHandler + "`n&AtServer`nProcedure Convert()`n`tValue = FormAttributeToValue(`"Object`");`nEndProcedure`n")
+    Assert-Equal 0 $serverConversion.ExitCode "a server-side FormAttributeToValue was rejected: $($serverConversion.Text)"
+
+    $version = & $validate ($pristineForm -replace 'version="2\.17"', 'version="2.20"') ''
+    Assert-True ($version.ExitCode -ne 0) "a Form.xml version different from Configuration.xml was accepted: $($version.Text)"
+    Assert-True ($version.Text -match 'differs from Configuration\.xml') "no version diagnostic: $($version.Text)"
+
+    $owner = & $validate ($pristineForm -replace 'cfg:CatalogObject\.TestCatalog', 'cfg:CatalogObject.OtherCatalog') ''
+    Assert-True ($owner.ExitCode -ne 0) "the default object form with a foreign main attribute was accepted: $($owner.Text)"
+    Assert-True ($owner.Text -match '\[ERROR\] 12b\.') "no 12b diagnostic: $($owner.Text)"
+
+    $folder = & $validate ($pristineForm -replace '</Attributes>', "`t<Attribute name=`"Extra`" id=`"2`">`n`t`t`t<Type>`n`t`t`t`t<v8:Type>cfg:Catalogs.TestCatalog</v8:Type>`n`t`t`t</Type>`n`t`t</Attribute>`n`t</Attributes>") ''
+    Assert-True ($folder.ExitCode -ne 0) "cfg:Catalogs.TestCatalog was accepted: $($folder.Text)"
+    Assert-True ($folder.Text -match 'export folder name') "no export-folder diagnostic: $($folder.Text)"
+
+    # The second form is not a default form: a foreign main attribute is legitimate there.
+    $otherXml = Join-Path $formsDir 'Other\Ext\Form.xml'
+    [System.IO.File]::WriteAllText($otherXml, ((Get-FileFacts $otherXml).Text -replace 'cfg:CatalogObject\.TestCatalog', 'cfg:CatalogObject.OtherCatalog'), $bom)
+    $nonDefault = Invoke-Tool $FormValidate @('-FormPath', $otherXml) $Work
+    Assert-Equal 0 $nonDefault.ExitCode "a non-default form with another main attribute was rejected: $($nonDefault.StdOut)"
+}
+
 # ---------------------------------------------------------------- B. meta-compile
 
 Register-Case 'meta-compile: default position appends after the last object of the type' {
@@ -1084,6 +1147,41 @@ Register-Case 'Invoke-1CEdit: a tool with its own -DryRun is previewed by that f
     Assert-DumpIdentical $before (Get-DumpFacts $src) 'the native dry-run wrote to the tree'
 }
 
+function Test-InsideGitRepo([string]$Dir) {
+    # git's own answer, so the case below knows it really runs outside a repo.
+    $ErrorActionPreference = 'Continue'
+    & git -C $Dir rev-parse --is-inside-work-tree 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+Register-Case 'Invoke-1CEdit: a clean preview outside git exits 0, a tool failure keeps its own code' {
+    # Ticket 09c04c3d: outside a repository Test-GitTracked leaves git's 128 in
+    # $LASTEXITCODE; role-info succeeds without an explicit exit, so the wrapper
+    # used to return that stale 128 for a run that printed its result.
+    param($work)
+    $ext = Join-Path $work 'Roles\ProbeRole\Ext'
+    New-Item -ItemType Directory -Path $ext -Force | Out-Null
+    Assert-True (-not (Test-InsideGitRepo $ext)) "precondition: $ext must not be inside a git repository"
+    $rights = Join-Path $ext 'Rights.xml'
+    [IO.File]::WriteAllText($rights, (
+        '<?xml version="1.0" encoding="UTF-8"?>' + "`n" +
+        '<Rights xmlns="http://v8.1c.ru/8.2/roles" version="2.17">' + "`n" +
+        "`t<object><name>Catalog.TestCatalog</name><right><name>Read</name><value>true</value></right></object>`n" +
+        '</Rights>' + "`n"), (New-Object Text.UTF8Encoding($true)))
+
+    $run = Invoke-Tool $InvokeEdit @('-Tool', 'role-info', '-Preview', '-NoDiff',
+        '-Scope', $rights, '-Path', $rights) $work
+    Assert-True ($run.StdOut -match 'copy backend') 'the preview did not take the copy backend'
+    Assert-True ($run.StdOut -match 'TestCatalog: Read') "the role rights were not printed (stderr: $($run.StdErr))"
+    Assert-Equal 0 $run.ExitCode 'a successful preview outside git'
+
+    $missing = Join-Path $ext 'Missing.xml'
+    $run = Invoke-Tool $InvokeEdit @('-Tool', 'role-info', '-Preview', '-NoDiff',
+        '-Scope', $missing, '-Path', $missing) $work
+    Assert-True ($run.StdOut -match 'File not found') "the failure probe did not reach the tool (stdout: $($run.StdOut))"
+    Assert-Equal 1 $run.ExitCode 'the tool own failure through the preview wrapper'
+}
+
 Register-Case 'support: meta-edit refuses add-template before any mutation' {
     param($work)
     Copy-Fixture 'config-dump' $work
@@ -1272,6 +1370,147 @@ Register-Case 'support xml: skd-edit keeps compact tags without changing literal
     foreach ($literal in @('<![CDATA[literal <Text />]]>', '<!-- literal <Comment /> -->', '<?probe literal <PI /> ?>')) {
         Assert-True $after.Contains($literal) "XML literal changed: $literal"
     }
+}
+
+# ---------------------------------------------------------------- Complete dump integrity (read-only)
+
+function Write-DumpTestXml([string]$Path, [string]$Body) {
+    New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
+    [IO.File]::WriteAllText($Path, $Body, (New-Object Text.UTF8Encoding($true)))
+}
+
+function New-DumpTestFixture([string]$Work, [switch]$Extension) {
+    $dir = Join-Path $Work 'dump'
+    $extensionProperty = if ($Extension) { '<ObjectBelonging>Adopted</ObjectBelonging>' } else { '' }
+    $header = '<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" version="2.17">'
+    Write-DumpTestXml (Join-Path $dir 'Configuration.xml') ($header + '<Configuration><Properties><Name>Probe</Name>' + $extensionProperty + '<DefaultLanguage>Language.Test</DefaultLanguage><Comment>Catalog.NotAReference</Comment></Properties><ChildObjects><Language>Test</Language><Subsystem>Main</Subsystem><Catalog>TestCatalog</Catalog></ChildObjects></Configuration></MetaDataObject>')
+    Write-DumpTestXml (Join-Path $dir 'Languages/Test.xml') ($header + '<Language><Properties><Name>Test</Name></Properties></Language></MetaDataObject>')
+    Write-DumpTestXml (Join-Path $dir 'Subsystems/Main.xml') ($header + '<Subsystem><Properties><Name>Main</Name><Content><Item>Catalog.TestCatalog</Item><Item>Subsystem.Main.Subsystem.Child</Item></Content></Properties><ChildObjects><Subsystem>Child</Subsystem></ChildObjects></Subsystem></MetaDataObject>')
+    Write-DumpTestXml (Join-Path $dir 'Subsystems/Main/Subsystems/Child.xml') ($header + '<Subsystem><Properties><Name>Child</Name><Content/></Properties><ChildObjects/></Subsystem></MetaDataObject>')
+    $catalog = Join-Path $dir 'Catalogs/TestCatalog.xml'
+    New-Item -ItemType Directory -Path (Split-Path $catalog -Parent) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $FixturesDir 'config-dump/Catalogs/TestCatalog.xml') -Destination $catalog
+    Write-DumpTestXml (Join-Path $dir 'ConfigDumpInfo.xml') '<ConfigDumpInfo xmlns="http://v8.1c.ru/8.3/xcf/dumpinfo" version="2.17" format="Hierarchical"><ConfigVersions><Metadata name="Configuration.Probe.ManagedApplicationModule"/><Metadata name="Catalog.TestCatalog"><Metadata name="Catalog.TestCatalog.Attribute.Baza"/></Metadata><Metadata name="Subsystem.Main.Subsystem.Child"/></ConfigVersions></ConfigDumpInfo>'
+    # These are intentionally not root metadata descriptors and must not be traversed.
+    Write-DumpTestXml (Join-Path $dir 'Catalogs/TestCatalog/Forms/Form/Ext/Form.xml') '<ignored/>'
+    Write-DumpTestXml (Join-Path $dir 'Ext/ParentConfigurations/Supplier/Configuration.xml') '<ignored/>'
+    return $dir
+}
+
+function Invoke-DumpTest([string]$Dir, [string]$Work, [string[]]$Extra = @()) {
+    $tool = Join-Path $ToolsDir '1c-cf-manage/scripts/dump-validate.ps1'
+    $run = Invoke-Tool $tool (@('-ConfigPath', $Dir, '-Format', 'Json') + $Extra) $Work
+    Assert-True ([string]::IsNullOrWhiteSpace($run.StdErr)) "dump validator stderr: $($run.StdErr)"
+    $json = $run.StdOut | ConvertFrom-Json
+    Assert-Equal 1 $json.schema_version 'dump result schema'
+    return [pscustomobject]@{ Run=$run; Json=$json }
+}
+
+function Assert-DumpFinding($Result, [string]$Kind, [string]$Object = '') {
+    Assert-Equal 1 $Result.Run.ExitCode 'invalid dump exit code'
+    $hits = @($Result.Json.findings | Where-Object { $_.kind -eq $Kind -and (-not $Object -or $_.object -eq $Object) })
+    Assert-True ($hits.Count -gt 0) "missing finding $Kind ($Object): $($Result.Run.StdOut)"
+}
+
+Register-Case 'dump-validate: healthy CF and CFE, nested subsystems and internal dump-info records' {
+    param($Work)
+    foreach ($extension in @($false, $true)) {
+        $base = Join-Path $Work "$extension"
+        $dir = New-DumpTestFixture $base -Extension:$extension
+        $before = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Sort-Object FullName | Get-FileHash | Select-Object -ExpandProperty Hash)
+        $result = Invoke-DumpTest $dir $Work
+        Assert-Equal 0 $result.Run.ExitCode $result.Run.StdOut
+        Assert-Equal 'valid' $result.Json.status 'healthy dump verdict'
+        Assert-Equal 5 $result.Json.objects_checked 'root and nested object count'
+        Assert-Equal 0 @($result.Json.findings).Count 'healthy findings'
+        $after = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Sort-Object FullName | Get-FileHash | Select-Object -ExpandProperty Hash)
+        Assert-Equal ($before -join ',') ($after -join ',') 'validation mutated a file'
+    }
+}
+
+Register-Case 'dump-validate: missing root and nested objects, orphan and unknown types' {
+    param($Work)
+    $dir = New-DumpTestFixture $Work
+    Remove-Item -LiteralPath (Join-Path $dir 'Catalogs/TestCatalog.xml'), (Join-Path $dir 'Subsystems/Main/Subsystems/Child.xml')
+    $configuration = Join-Path $dir 'Configuration.xml'
+    $text = [IO.File]::ReadAllText($configuration).Replace('<Catalog>TestCatalog</Catalog>', '<Catalog>TestCatalog</Catalog><Catalog>TestCatalog</Catalog><Unknown>Bad</Unknown>')
+    Write-DumpTestXml $configuration $text
+    $orphan = [IO.File]::ReadAllText((Join-Path $dir 'Languages/Test.xml')).Replace('<Name>Test</Name>', '<Name>Orphan</Name>')
+    Write-DumpTestXml (Join-Path $dir 'Languages/Orphan.xml') $orphan
+    $result = Invoke-DumpTest $dir $Work
+    Assert-DumpFinding $result 'missing-file' 'Catalog.TestCatalog'
+    Assert-DumpFinding $result 'missing-file' 'Subsystem.Main.Subsystem.Child'
+    Assert-DumpFinding $result 'orphan-file' 'Language.Orphan'
+    Assert-DumpFinding $result 'duplicate-entry' 'Catalog.TestCatalog'
+    Assert-DumpFinding $result 'unknown-type' 'Unknown.Bad'
+    Assert-DumpFinding $result 'dangling-reference' 'Catalog.TestCatalog'
+    Assert-DumpFinding $result 'dump-info-extra' 'Catalog.TestCatalog'
+}
+
+Register-Case 'dump-validate: object versions, malformed XML and mismatched descriptor names' {
+    param($Work)
+    $dir = New-DumpTestFixture $Work
+    $language = Join-Path $dir 'Languages/Test.xml'
+    Write-DumpTestXml $language ([IO.File]::ReadAllText($language).Replace('2.17', '2.20').Replace('<Name>Test</Name>', '<Name>Wrong</Name>'))
+    Write-DumpTestXml (Join-Path $dir 'Catalogs/TestCatalog.xml') '<broken'
+    $child = Join-Path $dir 'Subsystems/Main/Subsystems/Child.xml'
+    Write-DumpTestXml $child ([IO.File]::ReadAllText($child).Replace(' version="2.17"', ''))
+    $result = Invoke-DumpTest $dir $Work
+    Assert-DumpFinding $result 'version-mismatch' 'Language.Test'
+    Assert-DumpFinding $result 'name-mismatch' 'Language.Test'
+    Assert-DumpFinding $result 'xml-unreadable' 'Catalog.TestCatalog'
+    Assert-DumpFinding $result 'version-unreadable' 'Subsystem.Main.Subsystem.Child'
+    Assert-Equal 0 @($result.Json.findings | Where-Object kind -eq 'dangling-reference').Count 'unreadable existing file is not missing'
+}
+
+Register-Case 'dump-validate: ConfigDumpInfo version and missing objects without duplicate child reports' {
+    param($Work)
+    $dir = New-DumpTestFixture $Work
+    $info = Join-Path $dir 'ConfigDumpInfo.xml'
+    Write-DumpTestXml $info ([IO.File]::ReadAllText($info).Replace('2.17', '2.20').Replace('Catalog.TestCatalog', 'Catalog.Deleted'))
+    $result = Invoke-DumpTest $dir $Work
+    Assert-DumpFinding $result 'dump-info-version'
+    Assert-DumpFinding $result 'dump-info-extra' 'Catalog.Deleted'
+    Assert-Equal 1 @($result.Json.findings | Where-Object kind -eq 'dump-info-extra').Count 'duplicate missing-owner reports'
+}
+
+Register-Case 'dump-validate: optional dump-info and root file input, text and JSON output' {
+    param($Work)
+    $dir = New-DumpTestFixture $Work
+    Remove-Item -LiteralPath (Join-Path $dir 'ConfigDumpInfo.xml')
+    $out = Join-Path $Work 'result.json'
+    $result = Invoke-DumpTest (Join-Path $dir 'Configuration.xml') $Work @('-OutFile', $out)
+    Assert-Equal 0 $result.Run.ExitCode $result.Run.StdOut
+    Assert-Equal 'valid' ((Get-Content -LiteralPath $out -Raw -Encoding UTF8 | ConvertFrom-Json).status) 'saved JSON'
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-cf-manage/scripts/dump-validate.ps1') @('-ConfigPath', $dir) $Work
+    Assert-Equal 0 $run.ExitCode $run.StdErr
+    Assert-True ($run.StdOut -match 'valid') 'text verdict missing'
+}
+
+Register-Case 'dump-validate: refuses source overwrite and reports missing configuration' {
+    param($Work)
+    $dir = New-DumpTestFixture $Work
+    $configuration = Join-Path $dir 'Configuration.xml'
+    $before = (Get-FileHash -LiteralPath $configuration).Hash
+    $result = Invoke-DumpTest $dir $Work @('-OutFile', $configuration)
+    Assert-DumpFinding $result 'scan-error'
+    Assert-Equal $before (Get-FileHash -LiteralPath $configuration).Hash 'source overwritten by report'
+    Remove-Item -LiteralPath $configuration
+    Assert-DumpFinding (Invoke-DumpTest $dir $Work) 'configuration-missing'
+}
+
+Register-Case 'dump-validate: missing composition, invalid metadata root and unsupported dump layout' {
+    param($Work)
+    $dir = New-DumpTestFixture $Work
+    $configuration = Join-Path $dir 'Configuration.xml'
+    Write-DumpTestXml $configuration ([regex]::Replace([IO.File]::ReadAllText($configuration), '<ChildObjects>.*?</ChildObjects>', ''))
+    Write-DumpTestXml (Join-Path $dir 'Languages/Test.xml') '<not-metadata/>'
+    $info = Join-Path $dir 'ConfigDumpInfo.xml'
+    Write-DumpTestXml $info ([IO.File]::ReadAllText($info).Replace('Hierarchical', 'Plain'))
+    $result = Invoke-DumpTest $dir $Work
+    Assert-DumpFinding $result 'composition-missing'
+    Assert-DumpFinding $result 'metadata-root-invalid' 'Language.Test'
+    Assert-DumpFinding $result 'dump-format-unsupported'
 }
 
 # ---------------------------------------------------------------- run

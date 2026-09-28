@@ -10,6 +10,68 @@ web-info → web-publish → (use the base) → web-unpublish   (or web-stop to 
 
 Interactive web-client / UI testing of the published base is **not** part of this skill — it is delegated to the `1c-tester` subagent and the `/deploy-and-test` flow (see section 5).
 
+## Python runtime
+
+The four commands also ship as `web-publish.py`, `web-info.py`, `web-stop.py`
+and `web-unpublish.py` beside the PowerShell files. Run them with Python 3.9+
+(`python3` on Linux); they use the standard library and `web_common.py`, not
+PowerShell. The sections below describe the existing PowerShell workflow; the
+following differences apply to Python:
+
+- Provide a dedicated, already installed compatible Apache tree with
+  `conf/httpd.conf` and a supported executable under `bin/` or `sbin/`.
+  `-ApachePath` defaults to `tools/apache24` relative to the working directory;
+  use an absolute path when running outside the project root. No download,
+  service installation or elevation is performed. `-Manual` is accepted by
+  publish for compatibility but does not turn it into a preview; use `-DryRun`.
+- Supply the installed 1C web extension through `-WebExtension <file>` when
+  discovery via `-V8Path` / `.dev.env` `PLATFORM_PATH` is insufficient. The
+  module must match Apache, the platform and OS. Availability of Python alone
+  does not establish Linux/macOS deployment support.
+- Unset target and credential parameters come from `.dev.env`
+  (`INFOBASE_KIND`, `INFOBASE_PATH`, `IB_USER`, `IB_PASSWORD`). Any explicit
+  file/server target replaces the target defaults as a whole; explicit empty
+  credentials remain empty. Relative paths from `.dev.env` resolve against
+  that file's directory. Pass settings from a multi-base registry explicitly.
+- Use a dedicated Apache configuration without external `Include` directives.
+  Python binds it to `127.0.0.1`, restricts the publication to local requests
+  and retains unrelated configuration outside its managed blocks. It is a
+  local development publication workflow, not a general web-server manager.
+- `default.vrd` also publishes the HTTP services of the infobase's extensions
+  (`publishExtensionsByDefault="true"`); a PowerShell publication serves only
+  the configuration's own HTTP services, and an extension's service answers 404.
+- Only an Apache process started by these Python tools, with matching saved
+  PID, executable and creation identity, can be stopped or restarted. An
+  occupied port, foreign PID or process started by PowerShell/service tooling
+  is not adopted. Stop that instance through its own authorized workflow first.
+- `-DryRun` is available for publish, stop and unpublish and does not write or
+  start/stop a server. Actual unpublish requires `-Force` and only removes
+  selected managed publication directories; the infobase is untouched.
+  Publish updates an existing managed publication and restarts its managed
+  process. Failed updates restore previous configuration/publication files;
+  failure to restart the previous server is reported separately.
+- `web-info.py` reports managed process/publication state and the error-log
+  path; it does not print connection strings or dump logs. Supplied credentials
+  are still stored in the generated VRD, as in PowerShell; keep it outside
+  version control and treat it as a local credential-bearing artifact.
+- Exit codes: `0` successful operation/status, `1` dependency/execution/IO
+  failure, `2` rejected parameters or safety boundary. A status command can
+  successfully report that Apache is not installed or not running.
+
+Example from the project root (substitute the verified paths for this project):
+
+```sh
+python3 skills/1c-metadata-manage/tools/1c-web-ops/scripts/web-publish.py -ApachePath /srv/dev-apache -WebExtension /opt/1c/web-module -InfoBasePath /srv/test-base -AppName demo -DryRun
+python3 skills/1c-metadata-manage/tools/1c-web-ops/scripts/web-info.py -ApachePath /srv/dev-apache
+python3 skills/1c-metadata-manage/tools/1c-web-ops/scripts/web-unpublish.py -ApachePath /srv/dev-apache -AppName demo -DryRun
+```
+
+Use the skill's installed path prefix in place of `skills/` (see its path
+convention). Offline regression tests exercise files, refusal paths and mocked
+process operations; a real Apache/1C deployment still needs verification in the
+target environment. Optional reusable UI suites live in
+`content/skills/1c-ui-regression/SKILL.md`, not in these publication scripts.
+
 ---
 
 ## Connection parameters
@@ -71,7 +133,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-web-ops/scrip
 | `-AppName` | no | Publication name; defaults to the base directory name. |
 | `-ApachePath` | no | Apache root, default `tools/apache24`. |
 | `-Port` | no | HTTP port, default `8081`. |
-| `-Manual` | no | Verify configuration only, do not download/start anything. |
+| `-Manual` | no | Do not download a missing Apache; an already installed instance still follows normal publication/start behavior. |
 
 `*` — provide either `-InfoBasePath` **or** the pair `-InfoBaseServer` + `-InfoBaseRef`.
 
@@ -96,7 +158,7 @@ After success, report:
 
 ## 3. Web stop — halt without removing the publication
 
-Stops Apache but keeps the publication entries in `httpd.conf` and the generated `default.vrd` files. The next `web-publish` call brings it back up unchanged.
+Stops Apache but keeps the publication entries in `httpd.conf` and the generated `default.vrd` files. Re-run `web-publish` with the same publication parameters to start it again.
 
 ```powershell
 powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-web-ops/scripts/web-stop.ps1 [-ApachePath <path>]
@@ -136,8 +198,6 @@ Typical hand-off after a successful `web-publish`:
 
 1. Report the web-client URL (`http://localhost:<Port>/<AppName>`) and the OData / HTTP-service endpoints.
 2. Delegate the actual UI verification to the `1c-tester` subagent (or run `/deploy-and-test`), passing that URL.
-
-Test frameworks (TDD harnesses, Vanessa) are intentionally not part of this toolkit.
 
 ---
 

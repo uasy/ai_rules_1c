@@ -15,6 +15,8 @@
 
 API-ключ: переменная окружения GEMINI_API_KEY или файл .env
 (рядом со SKILL.md, в каталоге skill поддерживаемого клиента, затем в cwd).
+
+Модель: переменная окружения GEMINI_MODEL (по умолчанию DEFAULT_MODEL).
 """
 
 import argparse
@@ -47,6 +49,10 @@ for _env_path in [
 load_dotenv()  # cwd/.env как fallback
 
 from google import genai
+
+# Переопределение позволяет сменить модель без правки скрипта при ее отключении.
+DEFAULT_MODEL = "gemini-3.6-flash"
+MODEL = os.environ.get("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".avi", ".mov"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma"}
@@ -352,7 +358,7 @@ def is_audio(path):
 def generate(client, media_file, prompt):
     """Вызов Gemini с медиафайлом и промптом."""
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=MODEL,
         contents=[media_file, prompt],
     )
     if not response.text:

@@ -14,7 +14,7 @@ and travels with every copy of this skill, including installed ones
 Vendored under `tools/`, with local modifications documented in each file's
 header and in `docs/`:
 
-**Hardened Python entry points — six, all vendored from the pinned commit above.**
+**Six hardened metadata Python entry points, all vendored from the pinned commit above.**
 Each was taken from that immutable commit, not from a moving `HEAD`, and each
 carries its downstream deltas in its own file header:
 
@@ -39,12 +39,18 @@ carries its downstream deltas in its own file header:
   spellings (`events`, `on` + `handlers`, standalone `handlers`), an explicit
   non-zero refusal when two spellings are given at once or an event name is
   unknown, and the corrected `OnEditEnd` → `ПриОкончанииРедактирования` suffix
-  (upstream spells the key `OnEndEdit`, so the auto-name fell through).
+  (upstream spells the key `OnEndEdit`, so the auto-name fell through);
+  from-object document choice forms get `ChoiceMode`, the document item preset
+  writes `AutoTime` / `UsePostingMode` / `RepostOnWrite`, `Description` is bound
+  only when `DescriptionLength > 0`, form-property enum values are a closed set,
+  and a missing `Configuration.xml` is reported instead of assuming 2.17.
 - `tools/1c-form-scaffold/scripts/form-add.py` — Python runtime of `form-add`,
   the managed-form scaffolder. Downstream deltas: `.dev.env` support guard via
   `tools/_common/dev_env.py`, and XML escaping of the user-supplied `-FormName` /
   `-Synonym` in the generated descriptor (upstream interpolates them verbatim, so
-  an ordinary `A & B` produced a descriptor no parser accepts).
+  an ordinary `A & B` produced a descriptor no parser accepts); `-FormName` must be
+  a 1C identifier, and an information register's object form names its
+  `RecordManager` main attribute `Запись`.
 - `tools/1c-meta-edit/scripts/meta-edit.py` — Python runtime of `meta-edit`.
   Downstream deltas: `add-form` is refused before any mutation and redirected to
   `form-add`, in every key spelling the dispatcher itself accepts and across the
@@ -56,7 +62,11 @@ carries its downstream deltas in its own file header:
   `meta-validate`. Downstream deltas: checks 6a–6d — a `ChildObjects/Form`
   registration must be a scalar reference (6a), it must resolve to
   `Forms/<Name>.xml` on disk (6b), that descriptor must parse as XML (6c), and the
-  name it declares must be the name that was registered (6d).
+  name it declares must be the name that was registered (6d); versions equal to
+  `Configuration.xml` (1e, 6e), required and exactly named GeneratedTypes (2),
+  default-form references and roles (6f), `Description` / `Code` bindings (6g, 6h),
+  case-insensitive cross-kind name uniqueness (8), information-register forbidden
+  properties (12) and export-folder type names (16a).
 - `tools/_common/dev_env.py` — not upstream code: the Python peer of the local
   `DevEnv.ps1`, so both runtimes read project parameters from `.dev.env`.
 - `tools/_common/MetadataAddress.py` and `tools/_common/Invoke-1CEdit.py` —
@@ -87,16 +97,30 @@ This notice also covers `scripts/overlay-grid.py` of the `img-grid-analysis`
 skill, which is derived from the same project.
 
 All of them are pinned by `tools/tests/python-ports-regression.py` (an LF and a
-CRLF run per tool). The pin above is not to be advanced without re-running
+CRLF run per tool).
+
+**Four local web ports**, derived from the existing vendored PowerShell
+publication layout rather than copied from upstream Python:
+
+- `tools/1c-web-ops/scripts/web-publish.py` — publication creation/update.
+- `tools/1c-web-ops/scripts/web-info.py` — publication and process status.
+- `tools/1c-web-ops/scripts/web-stop.py` — scoped managed-process shutdown.
+- `tools/1c-web-ops/scripts/web-unpublish.py` — preview and guarded removal.
+- `tools/1c-web-ops/scripts/web_common.py` — shared local implementation:
+  standalone Apache, loopback binding, no downloads, path/ownership checks and
+  rollback on failed publication updates. Runtime differences are documented
+  in `docs/web-manage.md`; offline checks are in
+  `tools/tests/web-python-regression.py` in the ruleset source.
+  Local delta, marked `# Local:` in `vrd_content()`: `default.vrd` also sets
+  `publishExtensionsByDefault="true"` on `<httpServices>`, so the HTTP services
+  of the infobase's extensions are published too; without it they answer 404.
+  `web-publish.ps1` has the same gap. Pinned by `tools/tests/web-python-regression.py`.
+
+The pin above is not to be advanced without re-running
 `tools/tests/python-ports-regression.py` and re-recording the deltas here.
 
 - the PowerShell tool scripts under `tools/` synced from the same upstream
   (per-tool versions and local changes: `docs/*.md`, section "Upstream sync").
-
-`tools/1c-web-ops/scripts/web-publish.py` is a local Python port of the vendored
-`web-publish.ps1` v1.4 and is not pinned by `tools/tests/python-ports-regression.py`.
-Its deviations — Linux / macOS Apache layouts and `publishExtensionsByDefault="true"`
-in `default.vrd` — are listed in its header.
 
 `tools/1c-db-ops/scripts/db-create.py` (upstream v1.10), `db-load-dt.py` (upstream v1.12),
 `db-load-xml.py` (upstream v1.19) and `db-update.py` (upstream v1.13) carry a local delta,

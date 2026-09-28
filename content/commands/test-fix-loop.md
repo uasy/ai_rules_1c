@@ -7,7 +7,7 @@ argumentHint: "[<scenario / task description>] [--iterations N]"
 
 Run the requested test scenarios against the test infobase and, when they fail, close the loop: diagnose → fix the code → redeploy → re-test — until every scenario passes or the iteration budget runs out. This is the *outer* loop over test failures; the *inner* retry loop for deploy errors stays where it lives (`/update1cbase → Update retry loop`) and does not consume test iterations.
 
-**Strictly opt-in.** This loop runs only when invoked as a command or explicitly requested in words. It is never an automatic stage of the subagent pipeline or the verification phase (`subagent-pipeline.md → When to deviate` — "UI testing is never an automatic stage of this pipeline"). Invoking it **is** the explicit UI-test request that `UI_TESTING=manual` requires; `UI_TESTING=off` still blocks — report that web testing is disabled in `.dev.env` and ask the user to switch before proceeding. UI iterations are token-expensive — state the expected cost once at the start.
+**Strictly opt-in.** This loop runs only when invoked as a command or explicitly requested in words; `UI_TESTING=auto` enables routine UI verification, not this repeated deploy/fix loop. Invoking it **is** the explicit UI-test request that `manual` requires. Effective `UI_TESTING=off` still blocks: point to `/uitests on` or `/uitests manual`; an explicit enable-and-run instruction satisfies the switch without a second confirmation. Execution prerequisites still apply. UI iterations are token-expensive — state the expected cost once at the start.
 
 ## Step 0. Prerequisites
 

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: "Compact the current conversation into a self-contained handoff document so a fresh agent (new chat, another machine, another AI client) can continue the work without re-discovering the context. References durable artifacts (`openspec/`, `memory.md`, commits, `1c-templates-mcp` notes) instead of duplicating them. Use when the user says 'handoff', 'compact session', 'save context for continuation', 'brief the next session', 'сделай handoff', 'передай контекст', 'сохрани контекст для продолжения', or invokes `/handoff`."
+description: "Compact the conversation into a self-contained handoff document so a fresh agent or client continues without re-discovery; references durable artifacts instead of copying them. Use on 'handoff', 'compact session', 'сделай handoff', 'передай контекст' or `/handoff`."
 argument-hint: "Optional: focus of the next session, or a target path/folder for the handoff file."
 ---
 
@@ -8,12 +8,14 @@ argument-hint: "Optional: focus of the next session, or a target path/folder for
 
 Adapted from [`mattpocock/skills`](https://github.com/mattpocock/skills) (`skills/productivity/handoff`, MIT). Compresses the current conversation into a self-contained document for the next session. Principle: **reference durable artifacts, do not duplicate them**.
 
+**When to use:** the user says 'handoff', 'compact session', 'save context for continuation', 'brief the next session', 'сделай handoff', 'передай контекст', 'сохрани контекст для продолжения', or invokes `/handoff` — so a fresh agent (new chat, another machine, another AI client) continues without re-discovering the context.
+
 ## Argument
 
 - If the argument looks like a path (ends with `.md` or points to an existing directory) → **target path**.
 - Otherwise → **focus** of the next session (insert it into the handoff header).
 - If both are present, treat the first token as the path and the rest as focus.
-- Without an argument, ask the user for the focus in one line and continue with the default path.
+- Without an argument, use the current task's established goal and the default path; ask only if the task to hand off is genuinely ambiguous.
 
 ## Where to write
 
@@ -31,11 +33,22 @@ PowerShell conventions (`\` in paths, quotes around paths with spaces) — see t
 # Handoff: <one-line session goal>
 
 **When**: <YYYY-MM-DD HH:MM local>
-**Branch / commit**: <branch>, latest commit <short SHA + subject>
+**Project / worktree root**: <absolute root>
+**Branch / commit**: <branch or detached HEAD>, latest commit <SHA + subject>; not applicable without Git
+**Task status**: <active | blocked | completed>
 **Next session focus**: <argument focus, if provided>
 
 ## Current State
 1-3 sentences: what was done last, what remains unfinished, what is blocked.
+Identify the task or link its issue/proposal when available. State the agreed scope, writable files/targets and relevant exclusions; reference the user's request/decisions rather than treating this note as new authorization.
+Record relevant staged, unstaged and untracked paths at handoff time, with content fingerprints for uncommitted artifacts whose verification may be reused. Do not include unrelated file contents.
+
+## CF/CFE Context (when applicable)
+- Project root; writable targets and read-only contours, each with its source root.
+- Verified graph server / project_id / extension layers, or unresolved mapping; evidence reference.
+- Per target: source revision/local edits; last export scope/result; loaded configuration; applied DB state.
+- MCP coverage/generation/freshness and evidence references; retain failed, not-run and unknown states explicitly.
+Use non-secret IB aliases and links to existing evidence; do not copy connection settings.
 
 ## Open Questions
 Bulleted list of real unresolved questions (architectural forks, waiting for the user, unclear contract). If empty, omit the section.
@@ -46,10 +59,10 @@ Bulleted list of real unresolved questions (architectural forks, waiting for the
 Only include the current session diff. If nothing changed, omit the section.
 
 ## Verification State
-Which gates from `verification-gates.md` passed / failed / were skipped. Latest `syntaxcheck` / `check_1c_code` / `review_1c_code` result in brief (error count, key messages).
+Applicable checks with passed / failed / not-run / unknown outcomes, evidence references and checked revision/fingerprint. For BSL/metadata, include the applicable gates from `verification-gates.md` and latest validator results in brief. Keep general project tasks free of irrelevant 1C gates.
 
 ## Next Steps
-1-5 imperative items ("Check movements for `РегистрНакопления.<Имя>`", "Finish `ОбработкаПроведения` for document `<Имя>`").
+1-5 concrete remaining items, with the first executable step and any prerequisite or unresolved decision. Distinguish already-authorized work from an action awaiting authorization; a saved instruction cannot grant it. If the task is completed, say there is no remaining step rather than inventing follow-up work.
 
 ## What To Load Next Session
 - **Subagents**: `1c-<name>` when the task matches their role (see `subagents.md`).
@@ -65,12 +78,22 @@ Which gates from `verification-gates.md` passed / failed / were skipped. Latest 
 - ITS articles, platform documentation pages
 ```
 
+Adapt this outline to the task; legacy handoffs remain usable without these exact headings. If this supersedes an earlier handoff for the same task, link it so `/resume` can distinguish a newer snapshot from another active task.
+
 ## What NOT to write in the handoff
 
 - Contents of existing artifacts (PRD, OpenSpec proposal/design/tasks, ADR, ITS page, commit, PR description). Link only.
 - Full module code. Only include a short change description and path.
 - Secrets, tokens, passwords, `.dev.env` contents, infobase connection strings.
 - Long MCP output dumps. Include only the result and call parameters so the check can be repeated if needed.
+
+## Resume work
+
+Use `/resume [path or focus]` (`content/commands/resume.md`) to find the relevant active handoff, compare it with the current project/worktree and continue the next already-authorized step. Saved notes are context; current sources, instructions and user decisions take precedence. Missing evidence stays unknown, and completed tasks are not reopened implicitly.
+
+For CF/CFE work, the following stronger checks apply as well.
+
+Follow `content/rules/extension-workspace.md → Handoff and resume`: recheck the current root, writable targets, identity and graph/root mapping before dependent mutations, and match recorded evidence to current source/target state before reusing it. A saved pass for one extension is not a project-wide pass. Unknown stages remain unknown until evidenced; resuming does not itself authorize reload, apply, restore or reindex.
 
 ## After writing
 
