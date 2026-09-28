@@ -54,6 +54,7 @@ code navigation actually answer.
   is built by `scripts/build-test-extension.py` and has an address of its own
   ([docs/test-extension.md](docs/test-extension.md)).
 - Automated testing works **only for the managed application** (ITS 31.7.1).
+- **The test client is the thin or thick client only** — the web client cannot be one. Never point a run at `INFOBASE_PUBLISH_URL` in a browser; web-client checks go to `1c-tester` or `content/skills/1c-ui-regression/SKILL.md`.
 - Session startup on a large infobase is slow — count on ~50 s per session, ~2 min per run.
   Poll for readiness, never assume a fixed short sleep is enough.
 - **The screen must not be locked.** Under the lock screen the test client still connects and
