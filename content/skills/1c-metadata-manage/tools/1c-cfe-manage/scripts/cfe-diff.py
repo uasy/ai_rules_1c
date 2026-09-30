@@ -1,6 +1,22 @@
 #!/usr/bin/env python3
 # cfe-diff v1.0 — Analyze and compare 1C configuration extension (CFE)
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
+#
+# Local: Mode A reports everything an adopted object carries, not only its own
+# attributes / tabular sections / forms; cfe-diff.ps1 is unchanged upstream code.
+#   - every ChildObjects kind is counted (templates, commands, enum values,
+#     dimensions, resources, operations, channels ...); a child serialized as a
+#     bare name (Form, Template, Subsystem) takes its ownership from its own file;
+#   - properties the platform marks as extended (<xr:PropertyState>) are listed,
+#     with detail for Type (added types), Content (added items), Rights (objects
+#     granted), Predefined (own items) and CommandInterface;
+#   - object types missing from CHILD_TYPE_DIR_MAP are resolved by scanning the
+#     top-level folders instead of being dropped; Language is not skipped;
+#   - modules are found under Ext/ recursively (a common form keeps its module at
+#     Ext/Form/Module.bsl), under Commands/, and in the root Ext/ of the extension;
+#     a common form's own Ext/Form.xml is read for callType handlers;
+#   - a final section lists every file of the extension that no row above
+#     interpreted, so an unsupported construct is reported instead of silent.
 
 import argparse
 import os
@@ -18,6 +34,9 @@ MD_NSMAP = {
 FORM_NSMAP = {
     "f": "http://v8.1c.ru/8.3/xcf/logform",
 }
+
+# Local: TypeDescription namespace, for the types a defined type gains.
+V8_NS = "http://v8.1c.ru/8.1/data/core"
 
 # --- Type -> directory mapping ---
 
@@ -60,15 +79,66 @@ CHILD_TYPE_DIR_MAP = {
     "Sequence": "Sequences",
     "IntegrationService": "IntegrationServices",
     "CommonAttribute": "CommonAttributes",
+    # Local: types the upstream map lacks; anything still missing is resolved by
+    # resolve_type_dir() rather than reported as an unknown type.
+    "WebService": "WebServices",
+    "HTTPService": "HTTPServices",
+    "XDTOPackage": "XDTOPackages",
+    "WSReference": "WSReferences",
+    "Language": "Languages",
 }
+
+# Local: ChildObjects entries serialized as a bare name — their Properties (and
+# ObjectBelonging) live in <object dir>/<folder>/<name>.xml.
+BARE_CHILD_DIRS = {
+    "Form": "Forms",
+    "Template": "Templates",
+    "Subsystem": "Subsystems",
+}
+
+# Local: plural labels for the ChildObjects summary line; other kinds print as-is.
+CHILD_KIND_LABELS = {
+    "Attribute": "attrs",
+    "TabularSection": "TS",
+    "Form": "forms",
+    "Template": "templates",
+    "Command": "commands",
+    "EnumValue": "enum values",
+    "Dimension": "dimensions",
+    "Resource": "resources",
+    "Operation": "operations",
+    "IntegrationServiceChannel": "channels",
+    "Column": "columns",
+    "Subsystem": "subsystems",
+}
+
+
+def resolve_type_dir(obj_type, obj_name, extension_path):
+    """Local: folder of a top-level object. The map first; otherwise the first
+    top-level folder holding <name>.xml whose root element is <obj_type>."""
+    if obj_type in CHILD_TYPE_DIR_MAP:
+        return CHILD_TYPE_DIR_MAP[obj_type]
+    for entry in sorted(os.listdir(extension_path)):
+        candidate = os.path.join(extension_path, entry, f"{obj_name}.xml")
+        if not os.path.isfile(candidate):
+            continue
+        try:
+            root = etree.parse(candidate).getroot()
+        except Exception:
+            continue
+        first = next((c for c in root if isinstance(c.tag, str)), None)
+        if first is not None and etree.QName(first.tag).localname == obj_type:
+            CHILD_TYPE_DIR_MAP[obj_type] = entry
+            return entry
+    return None
 
 
 # --- Helper: check if object is borrowed ---
 
 def get_object_info(obj_type, obj_name, extension_path):
-    if obj_type not in CHILD_TYPE_DIR_MAP:
+    dir_name = resolve_type_dir(obj_type, obj_name, extension_path)
+    if dir_name is None:
         return None
-    dir_name = CHILD_TYPE_DIR_MAP[obj_type]
     obj_file = os.path.join(extension_path, dir_name, f"{obj_name}.xml")
 
     if not os.path.isfile(obj_file):
@@ -109,30 +179,207 @@ def get_object_info(obj_type, obj_name, extension_path):
 # --- Helper: find .bsl files for object ---
 
 def get_bsl_files(obj_type, obj_name, extension_path):
-    if obj_type not in CHILD_TYPE_DIR_MAP:
+    dir_name = resolve_type_dir(obj_type, obj_name, extension_path)
+    if dir_name is None:
         return []
-    dir_name = CHILD_TYPE_DIR_MAP[obj_type]
     obj_dir = os.path.join(extension_path, dir_name, obj_name)
 
     if not os.path.isdir(obj_dir):
         return []
 
+    # Local: Ext/ is walked recursively (a common form's module is
+    # Ext/Form/Module.bsl) and Commands/<Name>/Ext/CommandModule.bsl is included.
     bsl_files = []
-    ext_dir = os.path.join(obj_dir, "Ext")
-    if os.path.isdir(ext_dir):
-        for item in os.listdir(ext_dir):
-            if item.lower().endswith(".bsl"):
-                bsl_files.append(os.path.join(ext_dir, item))
-
-    # Forms
-    forms_dir = os.path.join(obj_dir, "Forms")
-    if os.path.isdir(forms_dir):
-        for dirpath, dirnames, filenames in os.walk(forms_dir):
-            for fn in filenames:
-                if fn == "Module.bsl":
+    for sub, only_module in (("Ext", False), ("Forms", True), ("Commands", False)):
+        root = os.path.join(obj_dir, sub)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames.sort()
+            for fn in sorted(filenames):
+                if (fn == "Module.bsl") if only_module else fn.lower().endswith(".bsl"):
                     bsl_files.append(os.path.join(dirpath, fn))
 
     return bsl_files
+
+
+# --- Local: helpers for everything an object carries besides attrs/TS/forms ---
+
+def first_element(root):
+    return next((c for c in root if isinstance(c.tag, str)), None)
+
+
+def parse_object_element(xml_path):
+    """Root metadata element (<Catalog>, <Template>, <Form> ...) of a descriptor."""
+    if not os.path.isfile(xml_path):
+        return None
+    try:
+        return first_element(etree.parse(xml_path).getroot())
+    except Exception:
+        return None
+
+
+def is_adopted(obj_el):
+    if obj_el is None:
+        return False
+    ob = obj_el.find("md:Properties/md:ObjectBelonging", MD_NSMAP)
+    return ob is not None and ob.text == "Adopted"
+
+
+def get_child_objects(obj_el, obj_dir):
+    """Every ChildObjects entry as {Kind, Name, Own, File}. Own is None when a
+    bare-name child has no descriptor file to read ownership from."""
+    result = []
+    child_obj = obj_el.find("md:ChildObjects", MD_NSMAP)
+    if child_obj is None:
+        return result
+    for c in child_obj:
+        if not isinstance(c.tag, str):
+            continue
+        kind = etree.QName(c.tag).localname
+        props = c.find("md:Properties", MD_NSMAP)
+        if props is not None:
+            name_el = props.find("md:Name", MD_NSMAP)
+            ob = props.find("md:ObjectBelonging", MD_NSMAP)
+            result.append({
+                "Kind": kind,
+                "Name": name_el.text if name_el is not None else "?",
+                "Own": not (ob is not None and ob.text == "Adopted"),
+                "File": None,
+            })
+            continue
+        name = (c.text or "").strip()
+        child_file = None
+        own = None
+        if kind in BARE_CHILD_DIRS:
+            child_file = os.path.join(obj_dir, BARE_CHILD_DIRS[kind], f"{name}.xml")
+            child_el = parse_object_element(child_file)
+            if child_el is not None:
+                own = not is_adopted(child_el)
+        result.append({"Kind": kind, "Name": name, "Own": own, "File": child_file})
+    return result
+
+
+def get_extended_properties(obj_el):
+    """Properties the platform marks in <xr:PropertyState> on an adopted object:
+    each is a property whose value the extension changes or adds to."""
+    names = []
+    info = obj_el.find("md:InternalInfo", MD_NSMAP)
+    if info is None:
+        return names
+    for ps in info.findall("xr:PropertyState", MD_NSMAP):
+        prop = ps.find("xr:Property", MD_NSMAP)
+        state = ps.find("xr:State", MD_NSMAP)
+        if prop is not None and prop.text:
+            names.append((prop.text, state.text if state is not None else ""))
+    return names
+
+
+def describe_extensions(obj_el, obj_dir):
+    """Human-readable lines for what an adopted object adds outside ChildObjects,
+    plus the Ext/ files those lines account for."""
+    lines = []
+    accounted = set()
+    ext_dir = os.path.join(obj_dir, "Ext")
+    props = obj_el.find("md:Properties", MD_NSMAP)
+    ext_props = get_extended_properties(obj_el)
+
+    for prop, state in ext_props:
+        detail = ""
+        stem = os.path.join(ext_dir, prop)
+        for path in (stem + ".xml", stem + ".bin", stem + ".bsl"):
+            if os.path.isfile(path):
+                accounted.add(os.path.normpath(path))
+        if os.path.isdir(stem):
+            for dirpath, _d, filenames in os.walk(stem):
+                for fn in filenames:
+                    accounted.add(os.path.normpath(os.path.join(dirpath, fn)))
+
+        if prop == "Type" and props is not None:
+            types = [t.text for t in props.findall(
+                "md:Type/xr:ExtendValue/v8:Type", {**MD_NSMAP, "v8": V8_NS}) if t.text]
+            if types:
+                detail = f" +{len(types)} type(s): {', '.join(types)}"
+        elif prop == "Rights":
+            names = rights_objects(os.path.join(ext_dir, "Rights.xml"))
+            detail = f" {len(names)} object(s) granted"
+        elif prop == "Predefined":
+            own = own_predefined_items(os.path.join(ext_dir, "Predefined.xml"))
+            if own:
+                detail = f" own item(s): {', '.join(own)}"
+            else:
+                detail = " no own items (adopted items only)"
+        elif prop == "CommandInterface":
+            n = count_command_interface(os.path.join(ext_dir, "CommandInterface.xml"))
+            if n:
+                detail = f" {n} command setting(s)"
+        elif prop == "Content":
+            detail = " see 1c-exchangeplan-content" if os.path.isfile(
+                os.path.join(ext_dir, "Content.xml")) else ""
+        elif prop.endswith("Module"):
+            continue  # its interceptors are already listed per file
+        lines.append(f"Extended: {prop} [{state}]{detail}")
+
+    # Content of an adopted subsystem lists only what the extension adds, and the
+    # platform does not mark it in PropertyState.
+    if props is not None and etree.QName(obj_el.tag).localname == "Subsystem":
+        items = [i.text for i in props.findall("md:Content/xr:Item", MD_NSMAP) if i.text]
+        if items:
+            lines.append(f"Content: +{len(items)} item(s): {', '.join(items)}")
+
+    return lines, accounted
+
+
+
+def rights_objects(rights_path):
+    if not os.path.isfile(rights_path):
+        return []
+    try:
+        root = etree.parse(rights_path).getroot()
+    except Exception:
+        return []
+    ns = {"r": "http://v8.1c.ru/8.2/roles"}
+    return [n.text for n in root.findall("r:object/r:name", ns) if n.text]
+
+
+def own_predefined_items(predefined_path):
+    """Predefined items without <ExtensionState> — the adopted ones carry it."""
+    if not os.path.isfile(predefined_path):
+        return []
+    try:
+        root = etree.parse(predefined_path).getroot()
+    except Exception:
+        return []
+    own = []
+    for item in root.iter():
+        if not isinstance(item.tag, str) or etree.QName(item.tag).localname != "Item":
+            continue
+        tags = {etree.QName(c.tag).localname: c for c in item if isinstance(c.tag, str)}
+        if "ExtensionState" not in tags:
+            own.append(tags["Name"].text if "Name" in tags else "?")
+    return own
+
+
+def count_command_interface(ci_path):
+    if not os.path.isfile(ci_path):
+        return 0
+    try:
+        root = etree.parse(ci_path).getroot()
+    except Exception:
+        return 0
+    return sum(1 for el in root.iter()
+               if isinstance(el.tag, str) and etree.QName(el.tag).localname == "Command")
+
+
+def files_under(path):
+    out = set()
+    if os.path.isfile(path):
+        out.add(os.path.normpath(path))
+    elif os.path.isdir(path):
+        for dirpath, _d, filenames in os.walk(path):
+            for fn in filenames:
+                out.add(os.path.normpath(os.path.join(dirpath, fn)))
+    return out
 
 
 # --- Helper: parse interceptors from .bsl ---
@@ -259,10 +506,66 @@ def get_form_interceptors(form_xml_path):
                     action_text = action.text or ""
                     interceptors.append(f"Command:{cmd_name} [{ct}] -> {action_text}")
 
+    # Local: what the extension did to a borrowed form's layout — the difference
+    # between the form and the <BaseForm> snapshot stored beside it. Own
+    # attributes / commands / elements by name; for an element present in both,
+    # a change of its own properties (a removed or edited property is invisible
+    # to a name comparison).
+    if base_form is not None:
+        for section, label in (("Attributes", "Attribute"), ("Commands", "Command")):
+            base_names = set(child_names(base_form, section))
+            for n in child_names(f_root, section):
+                if n not in base_names:
+                    interceptors.append(f"Own {label}: {n}")
+        cur_items = form_items(f_root)
+        base_items = form_items(base_form)
+        for n, el in cur_items.items():
+            if n not in base_items:
+                interceptors.append(f"Own element: {n} ({etree.QName(el.tag).localname})")
+            elif item_properties(el) != item_properties(base_items[n]):
+                interceptors.append(f"Changed element: {n}")
+
     return {
         "IsBorrowed": is_borrowed,
         "Interceptors": interceptors,
     }
+
+
+def child_names(form_el, section):
+    node = form_el.find(f"f:{section}", FORM_NSMAP)
+    if node is None:
+        return []
+    return [c.get("name") for c in node if isinstance(c.tag, str) and c.get("name")]
+
+
+def form_items(form_el):
+    """Named layout elements under ChildItems (any depth), by name."""
+    out = {}
+    child_items = form_el.find("f:ChildItems", FORM_NSMAP)
+    if child_items is None:
+        return out
+    for el in child_items.iter():
+        if isinstance(el.tag, str) and el.get("name") and \
+                etree.QName(el.getparent().tag).localname == "ChildItems":
+            out[el.get("name")] = el
+    return out
+
+
+def item_properties(el):
+    """An element's own properties, without nested elements, as a normalized tree:
+    indentation and namespace declarations differ between the form and its deeper
+    <BaseForm> copy, so serialized text would flag every element as changed."""
+    return [normalized(c) for c in el
+            if isinstance(c.tag, str) and etree.QName(c.tag).localname != "ChildItems"]
+
+
+def normalized(el):
+    """Nested ChildItems are left out at any depth (a command bar inside an
+    element holds named elements that are compared on their own)."""
+    attrs = tuple(sorted((k, v) for k, v in el.attrib.items() if k != "id"))
+    return (el.tag, attrs, (el.text or "").strip(),
+            tuple(normalized(c) for c in el
+                  if isinstance(c.tag, str) and etree.QName(c.tag).localname != "ChildItems"))
 
 
 # --- Mode A: Extension overview ---
@@ -270,6 +573,22 @@ def get_form_interceptors(form_xml_path):
 def mode_a(objects, extension_path):
     borrowed_list = []
     own_list = []
+    # Local: every file some row below interprets; the rest is listed at the end.
+    accounted = {os.path.normpath(os.path.join(extension_path, "Configuration.xml"))}
+
+    # Local: interceptors of the configuration's own modules (Ext/*.bsl at the root).
+    root_ext = os.path.join(extension_path, "Ext")
+    if os.path.isdir(root_ext):
+        root_bsl = []
+        for dirpath, dirnames, filenames in os.walk(root_ext):
+            dirnames.sort()
+            root_bsl.extend(os.path.join(dirpath, fn) for fn in sorted(filenames)
+                            if fn.lower().endswith(".bsl"))
+        if root_bsl:
+            print("  [CONFIGURATION] root modules")
+            for bsl in root_bsl:
+                accounted.add(os.path.normpath(bsl))
+                print_interceptors(bsl, extension_path)
 
     for obj in objects:
         info = get_object_info(obj["Type"], obj["Name"], extension_path)
@@ -280,6 +599,9 @@ def mode_a(objects, extension_path):
             print(f"  [?] {obj['Type']}.{obj['Name']} \u2014 file not found")
             continue
 
+        obj_dir = os.path.join(extension_path, info["DirName"], info["Name"])
+        accounted.add(os.path.normpath(info["File"]))
+
         if info["Borrowed"]:
             borrowed_list.append(obj)
 
@@ -288,105 +610,144 @@ def mode_a(objects, extension_path):
             # Find .bsl files and interceptors
             bsl_files = get_bsl_files(obj["Type"], obj["Name"], extension_path)
             for bsl in bsl_files:
-                rel_path = bsl.replace(extension_path, "").lstrip("\\/")
-                interceptor_list = get_interceptors(bsl)
-                if len(interceptor_list) > 0:
-                    for ic in interceptor_list:
-                        print(f'             &{ic["Type"]}("{ic["Method"]}") \u2014 line {ic["Line"]} in {rel_path}')
-                else:
-                    print(f"             {rel_path} (no interceptors)")
+                accounted.add(os.path.normpath(bsl))
+                print_interceptors(bsl, extension_path)
 
-            # Check for own attributes/forms in ChildObjects
             obj_el = info.get("ObjElement")
-            if obj_el is not None:
-                child_obj = obj_el.find("md:ChildObjects", MD_NSMAP)
-                if child_obj is not None:
-                    own_attrs = 0
-                    own_forms = 0
-                    own_ts = 0
-                    borrowed_items = 0
-                    form_names = []
-                    for c in child_obj:
-                        if not isinstance(c.tag, str):
-                            continue
-                        ln = etree.QName(c.tag).localname
-                        c_props = c.find("md:Properties", MD_NSMAP)
-                        if c_props is not None:
-                            c_ob = c_props.find("md:ObjectBelonging", MD_NSMAP)
-                            if c_ob is not None and c_ob.text == "Adopted":
-                                borrowed_items += 1
-                                continue
-                        if ln == "Attribute":
-                            own_attrs += 1
-                        elif ln == "TabularSection":
-                            own_ts += 1
-                        elif ln == "Form":
-                            form_names.append(c.text or "")
-                            own_forms += 1
+            if obj_el is None:
+                continue
 
-                    parts = []
-                    if own_attrs > 0:
-                        parts.append(f"{own_attrs} own attrs")
-                    if own_ts > 0:
-                        parts.append(f"{own_ts} own TS")
-                    if own_forms > 0:
-                        parts.append(f"{own_forms} own forms")
-                    if borrowed_items > 0:
-                        parts.append(f"{borrowed_items} borrowed items")
-                    if len(parts) > 0:
-                        print(f"             ChildObjects: {', '.join(parts)}")
+            # Local: a common form is itself the form; read its own Form.xml.
+            if obj["Type"] == "CommonForm":
+                form_xml_path = os.path.join(obj_dir, "Ext", "Form.xml")
+                accounted.add(os.path.normpath(form_xml_path))
+                print_form(obj["Name"], form_xml_path)
 
-                    # Analyze forms
-                    for fn in form_names:
-                        form_xml_path = os.path.join(
-                            extension_path, info["DirName"], info["Name"],
-                            "Forms", fn, "Ext", "Form.xml"
-                        )
-                        fi = get_form_interceptors(form_xml_path)
-                        if fi is None:
-                            print(f"             Form.{fn} (?)")
-                            continue
-                        form_tag = "borrowed" if fi["IsBorrowed"] else "own"
-                        if len(fi["Interceptors"]) > 0:
-                            print(f"             Form.{fn} ({form_tag}):")
-                            for ic in fi["Interceptors"]:
-                                print(f"               {ic}")
-                        else:
-                            print(f"             Form.{fn} ({form_tag})")
+            # Local: every ChildObjects kind, ownership per child.
+            children = get_child_objects(obj_el, obj_dir)
+            own_by_kind = {}
+            borrowed_items = 0
+            unknown = []
+            for ch in children:
+                if ch["Own"] is None:
+                    unknown.append(f"{ch['Kind']}.{ch['Name']}")
+                elif ch["Own"]:
+                    own_by_kind.setdefault(ch["Kind"], []).append(ch["Name"])
+                else:
+                    borrowed_items += 1
+            parts = [f"{len(v)} own {CHILD_KIND_LABELS.get(k, k)}" for k, v in own_by_kind.items()]
+            if borrowed_items > 0:
+                parts.append(f"{borrowed_items} borrowed items")
+            if len(parts) > 0:
+                print(f"             ChildObjects: {', '.join(parts)}")
+            for kind, names in own_by_kind.items():
+                if kind not in ("Attribute", "TabularSection", "Form"):
+                    print(f"             Own {kind}: {', '.join(names)}")
+            for u in unknown:
+                print(f"             [?] {u} \u2014 ownership unknown (no descriptor file)")
+
+            for ch in children:
+                if ch["Kind"] == "Form":
+                    accounted |= files_under(ch["File"]) | files_under(ch["File"][:-4])
+                    form_xml_path = os.path.join(obj_dir, "Forms", ch["Name"], "Ext", "Form.xml")
+                    print_form(ch["Name"], form_xml_path, parse_object_element(ch["File"]))
+                elif ch["Kind"] == "Template":
+                    accounted.add(os.path.normpath(ch["File"]))
+                    tpl_el = parse_object_element(ch["File"])
+                    if ch["Own"]:
+                        accounted |= files_under(ch["File"][:-4])
+                    elif any(p == "Template" for p, _s in get_extended_properties(tpl_el)):
+                        accounted |= files_under(ch["File"][:-4])
+                        print(f"             Template.{ch['Name']} (borrowed, content replaced)")
+                elif ch["Kind"] == "Subsystem" and ch["File"]:
+                    accounted |= describe_nested_subsystem(ch, extension_path)
+                elif ch["Kind"] == "Command":
+                    accounted |= files_under(os.path.join(obj_dir, "Commands", ch["Name"]))
+
+            # Local: extended properties (Type, Content, Rights, Predefined ...).
+            ext_lines, ext_files = describe_extensions(obj_el, obj_dir)
+            accounted |= ext_files
+            for line in ext_lines:
+                print(f"             {line}")
         else:
             own_list.append(obj)
             print(f"  [OWN]      {obj['Type']}.{obj['Name']}")
+            # Local: a wholly-own object accounts for everything under its folder.
+            accounted |= files_under(obj_dir)
 
             # Brief info for own objects
             obj_el = info.get("ObjElement")
             if obj_el is not None:
                 child_obj = obj_el.find("md:ChildObjects", MD_NSMAP)
                 if child_obj is not None:
-                    attrs = 0
-                    forms = 0
-                    ts = 0
+                    counts = {}
                     for c in child_obj:
                         if not isinstance(c.tag, str):
                             continue
                         ln = etree.QName(c.tag).localname
-                        if ln == "Attribute":
-                            attrs += 1
-                        elif ln == "TabularSection":
-                            ts += 1
-                        elif ln == "Form":
-                            forms += 1
-                    parts = []
-                    if attrs > 0:
-                        parts.append(f"{attrs} attrs")
-                    if ts > 0:
-                        parts.append(f"{ts} TS")
-                    if forms > 0:
-                        parts.append(f"{forms} forms")
+                        counts[ln] = counts.get(ln, 0) + 1
+                    parts = [f"{v} {CHILD_KIND_LABELS.get(k, k)}" for k, v in counts.items()]
                     if len(parts) > 0:
                         print(f"             {', '.join(parts)}")
 
     print("")
     print(f"=== Summary: {len(borrowed_list)} borrowed, {len(own_list)} own objects ===")
+
+    # Local: completeness check — files no row above interpreted.
+    unclassified = sorted(p for p in files_under(extension_path) if p not in accounted)
+    print(f"=== Unclassified files: {len(unclassified)} ===")
+    for p in unclassified:
+        print(f"  [UNCLASSIFIED] {os.path.relpath(p, extension_path)}")
+
+
+def print_interceptors(bsl, extension_path):
+    rel_path = os.path.relpath(bsl, extension_path)
+    interceptor_list = get_interceptors(bsl)
+    if len(interceptor_list) > 0:
+        for ic in interceptor_list:
+            print(f'             &{ic["Type"]}("{ic["Method"]}") \u2014 line {ic["Line"]} in {rel_path}')
+    else:
+        print(f"             {rel_path} (no interceptors)")
+
+
+def print_form(name, form_xml_path, descriptor_el=None):
+    """Form line with its callType handlers. For a form of an adopted object the
+    descriptor tells own vs. borrowed and whether the platform marks it Extended."""
+    fi = get_form_interceptors(form_xml_path)
+    if fi is None:
+        print(f"             Form.{name} (?)")
+        return
+    form_tag = "borrowed" if fi["IsBorrowed"] else "own"
+    if descriptor_el is not None and fi["IsBorrowed"]:
+        if any(p == "Form" for p, _s in get_extended_properties(descriptor_el)):
+            form_tag = "borrowed, modified"
+    if len(fi["Interceptors"]) > 0:
+        print(f"             Form.{name} ({form_tag}):")
+        for ic in fi["Interceptors"]:
+            print(f"               {ic}")
+    else:
+        print(f"             Form.{name} ({form_tag})")
+
+
+def describe_nested_subsystem(ch, extension_path):
+    """A nested subsystem is its own descriptor under <parent>/Subsystems/."""
+    accounted = {os.path.normpath(ch["File"])}
+    el = parse_object_element(ch["File"])
+    tag = "?" if el is None else ("borrowed" if is_adopted(el) else "own")
+    print(f"             Subsystem.{ch['Name']} ({tag})")
+    if el is None:
+        return accounted
+    sub_dir = ch["File"][:-4]
+    if not is_adopted(el):
+        return accounted | files_under(sub_dir)
+    lines, files = describe_extensions(el, sub_dir)
+    for line in lines:
+        print(f"               {line}")
+    accounted |= files
+    for grand in get_child_objects(el, sub_dir):
+        if grand["Kind"] == "Subsystem" and grand["File"]:
+            accounted |= describe_nested_subsystem(grand, extension_path)
+    return accounted
 
 
 # --- Mode B: Transfer check ---
@@ -521,11 +882,10 @@ def main():
         if not isinstance(child.tag, str):
             continue
         ln = etree.QName(child.tag).localname
-        if ln == "Language":
-            continue
+        # Local: Language is listed too (it is an adopted object with a file).
         objects.append({"Type": ln, "Name": child.text or ""})
 
-    if len(objects) == 0:
+    if all(o["Type"] == "Language" for o in objects):
         print("No objects (besides Language) in extension.")
         sys.exit(0)
 

@@ -27,6 +27,7 @@ import argparse
 import os
 import re
 import sys
+from xml.etree import ElementTree
 
 # --- Object type -> (directory, Ref-type prefix or None, query singular, manager plural) ---
 # Ref-type prefix is the literal token used inside <v8:Type>...Ref.Name</v8:Type> in
@@ -113,6 +114,65 @@ OBJECT_TYPES = {
 }
 
 
+# Types referenced by syntax of their own, not by a Ref type or a manager
+# collection. "xml" tokens are literal (metadata / layout references), "bsl"
+# tokens are literal code forms, "bsl_re" are regular expressions with {name}
+# (a role inside РолиДоступны("А, Б") is not a literal token of its own).
+# DefinedType / Subsystem / Role are containers: the extension usually adopts
+# them to add something to them, which own_declared_content() reports.
+SPECIAL_TYPES = {
+    "CommonForm": {
+        "dir": "CommonForms",
+        "xml": ["CommonForm.{name}"],
+        "bsl": ['"ОбщаяФорма.{name}', "Метаданные.ОбщиеФормы.{name}"],
+    },
+    "CommonTemplate": {
+        "dir": "CommonTemplates",
+        "xml": ["CommonTemplate.{name}"],
+        "bsl": ['ПолучитьОбщийМакет("{name}")', '"ОбщийМакет.{name}',
+                "Метаданные.ОбщиеМакеты.{name}"],
+    },
+    "CommonPicture": {
+        "dir": "CommonPictures",
+        "xml": ["CommonPicture.{name}"],
+        "bsl": ["БиблиотекаКартинок.{name}", "Метаданные.ОбщиеКартинки.{name}"],
+    },
+    "StyleItem": {
+        "dir": "StyleItems",
+        "xml": ["style:{name}", "StyleItem.{name}"],
+        "bsl": ["ЦветаСтиля.{name}", "ШрифтыСтиля.{name}", "Метаданные.ЭлементыСтиля.{name}"],
+    },
+    "DefinedType": {
+        "dir": "DefinedTypes",
+        "xml": ["cfg:DefinedType.{name}"],
+        "bsl": ['"ОпределяемыйТип.{name}', "Метаданные.ОпределяемыеТипы.{name}"],
+    },
+    "Subsystem": {
+        "dir": "Subsystems",
+        "xml": ["Subsystem.{name}"],
+        "bsl": ["Метаданные.Подсистемы.{name}"],
+    },
+    "Role": {
+        "dir": "Roles",
+        "xml": ["Role.{name}"],
+        "bsl": ["Метаданные.Роли.{name}"],
+        "bsl_re": [r'(?:РольДоступна|РолиДоступны)\("[^"]*(?<![\w]){name}(?![\w])'],
+    },
+    "WebService": {
+        "dir": "WebServices",
+        "xml": ["WebService.{name}"],
+        "bsl": ["Метаданные.WebСервисы.{name}"],
+    },
+    "IntegrationService": {
+        "dir": "IntegrationServices",
+        "xml": ["IntegrationService.{name}"],
+        "bsl": ["СервисыИнтеграции.{name}", "Метаданные.СервисыИнтеграции.{name}"],
+    },
+}
+
+MD_NS = "http://v8.1c.ru/8.3/MDClasses"
+XR_NS = "http://v8.1c.ru/8.3/xcf/readable"
+
 def find_files(root, extensions):
     for dirpath, _dirnames, filenames in os.walk(root):
         for fn in filenames:
@@ -170,11 +230,106 @@ def search_token(root, extensions, token, exclude_files):
     return hits
 
 
+def search_regex(root, extensions, pattern, exclude_files):
+    """search_token for a ready regular expression."""
+    rx = re.compile(pattern, re.UNICODE)
+    hits = []
+    for path in find_files(root, extensions):
+        if os.path.normpath(path) in exclude_files:
+            continue
+        try:
+            with open(path, "r", encoding="utf-8-sig", errors="replace") as fh:
+                for i, line in enumerate(fh, start=1):
+                    if rx.search(line):
+                        hits.append((os.path.relpath(path, root), i, line.strip()))
+        except OSError:
+            continue
+    return hits
+
+
+def own_declared_content(extension_path, type_dir, name):
+    """What an adopted object declares in its own descriptor rather than in Ext/:
+    properties the platform marks in <xr:PropertyState> (Type of a defined type,
+    Rights of a role, CommandInterface ...) and a subsystem's added Content.
+    Returns human-readable parts; empty when there is nothing."""
+    obj_xml = os.path.join(extension_path, type_dir, f"{name}.xml")
+    try:
+        root = ElementTree.parse(obj_xml).getroot()
+    except (OSError, ElementTree.ParseError):
+        return []
+    obj_el = next(iter(root), None)
+    if obj_el is None:
+        return []
+    ns = {"md": MD_NS, "xr": XR_NS}
+    parts = [p.text for p in obj_el.findall("md:InternalInfo/xr:PropertyState/xr:Property", ns)
+             if p.text and not p.text.endswith("Module")]
+    items = [i.text for i in obj_el.findall("md:Properties/md:Content/xr:Item", ns) if i.text]
+    if items:
+        parts.append(f"Content +{len(items)} item(s)")
+    return parts
+
+
+def analyze_special(extension_path, obj_type, name):
+    spec = SPECIAL_TYPES[obj_type]
+    exclude = own_files_of(extension_path, spec["dir"], name)
+    own_content = has_own_ext_content(extension_path, spec["dir"], name)
+    declared = own_declared_content(extension_path, spec["dir"], name)
+
+    print(f"=== {obj_type}.{name} ===")
+    if own_content or declared:
+        what = ", ".join(declared) if declared else "Ext/ presence"
+        print(f"  [OWN CONTENT] the extension adds to this object itself ({what}) — "
+              "adoption is self-explanatory; see cfe-diff -Mode A for the detail.")
+
+    xml_hits = []
+    for tpl in spec["xml"]:
+        token = tpl.format(name=name)
+        hits = search_token(extension_path, (".xml",), token, exclude)
+        xml_hits.extend(hits)
+        if hits:
+            print(f"  [METADATA REFERENCE] {token} in {len(hits)} place(s):")
+            for rel, line_no, _text in hits:
+                print(f"      {rel}:{line_no}")
+    code_hits = []
+    for tpl in spec["bsl"]:
+        token = tpl.format(name=name)
+        hits = search_token(extension_path, (".bsl",), token, exclude)
+        code_hits.extend(hits)
+        if hits:
+            print(f"  [CODE REFERENCE] {token} in {len(hits)} place(s):")
+            for rel, line_no, text in hits:
+                print(f"      {rel}:{line_no}: {text}")
+    for tpl in spec.get("bsl_re", []):
+        hits = search_regex(extension_path, (".bsl",), tpl.format(name=re.escape(name)), exclude)
+        code_hits.extend(hits)
+        if hits:
+            print(f"  [CODE REFERENCE] role check naming {name} in {len(hits)} place(s):")
+            for rel, line_no, text in hits:
+                print(f"      {rel}:{line_no}: {text}")
+    if not xml_hits and not code_hits:
+        print("  [REFERENCE] none found in the extension's metadata or code")
+
+    if own_content or declared:
+        print("  VERDICT: explained — own content (see [OWN CONTENT] above).")
+    elif xml_hits:
+        print("  VERDICT: explained — referenced from the extension's metadata / layouts.")
+    elif code_hits:
+        print("  VERDICT: explained — code reference only (the author's choice, not a platform "
+              "requirement; safe to reconsider if the referencing code is itself removed).")
+    else:
+        print("  VERDICT: NO REFERENCE FOUND and no own content — candidate for exclusion "
+              "from the extension (verify before removing).")
+    print()
+
+
 def analyze_object(extension_path, obj_type, name):
+    if obj_type in SPECIAL_TYPES:
+        analyze_special(extension_path, obj_type, name)
+        return
     spec = OBJECT_TYPES.get(obj_type)
     if spec is None:
         print(f"[?] Unknown or unsupported object type: {obj_type}")
-        print(f"    Supported types: {', '.join(sorted(OBJECT_TYPES))}")
+        print(f"    Supported types: {', '.join(sorted(list(OBJECT_TYPES) + list(SPECIAL_TYPES)))}")
         return
 
     exclude = own_files_of(extension_path, spec["dir"], name)
@@ -199,6 +354,16 @@ def analyze_object(extension_path, obj_type, name):
             print(f"  [TYPE REFERENCE] none found for {ref_token}")
     else:
         print("  [TYPE REFERENCE] not applicable (registers have no Ref type)")
+
+    # Metadata reference by the Latin type name — a subsystem's content, a role's
+    # rights, a command interface ("Catalog.X", "Document.X.Command.Y"). Removing
+    # the adoption would break that composition, so it explains the adoption too.
+    meta_token = f"{obj_type}.{name}"
+    meta_hits = search_token(extension_path, (".xml",), meta_token, exclude)
+    if meta_hits:
+        print(f"  [METADATA REFERENCE] {meta_token} in {len(meta_hits)} place(s):")
+        for rel, line_no, _text in meta_hits:
+            print(f"      {rel}:{line_no}")
 
     # Manager-style code ("Справочники.X.СоздатьЭлемент()") only ever appears in .bsl
     # modules. Query-style table names ("ИЗ Справочник.X") appear both in .bsl query
@@ -238,6 +403,9 @@ def analyze_object(extension_path, obj_type, name):
 
     if type_hits:
         print("  VERDICT: explained — composite-type reference (adoption is structurally required).")
+    elif meta_hits:
+        print("  VERDICT: explained — referenced from the extension's metadata (subsystem content, "
+              "role rights, command interface ...).")
     elif code_hits:
         print("  VERDICT: explained — code/query reference only (adoption reflects the author's "
               "choice, not a hard platform requirement; safe to reconsider if the referencing "
@@ -248,7 +416,7 @@ def analyze_object(extension_path, obj_type, name):
     else:
         print("  VERDICT: NO REFERENCE FOUND and no own Ext content — candidate for exclusion "
               "from the extension (unless a reference lives in a source this tool does not scan, "
-              "e.g. a compiled form layout or a role/subsystem composition list — verify before removing).")
+              "e.g. a data path in a compiled form layout — verify before removing).")
     print()
 
 

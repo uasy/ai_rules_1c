@@ -134,6 +134,16 @@ configuration. The shared part is `ibcmd_connection()` in `tools/_common/platfor
 `db-check.py` is not upstream code and has no `.ps1` peer: the Designer check ladder of
 `content/rules/designer-batch-checks.md`.
 
+`tools/1c-cfe-manage/scripts/cfe-diff.py` (upstream v1.0) carries a local delta in Mode A, listed
+under `# Local:` in its header; `cfe-diff.ps1` is unchanged. Mode A counts own children of every kind
+(a bare-name form / template / subsystem takes its ownership from its own descriptor), prints the
+properties marked in `<xr:PropertyState>` with their detail and an adopted subsystem's added
+`Content`, diffs each borrowed form against its `<BaseForm>`, resolves types missing from the
+type map by scanning the top-level folders, lists `Language`, finds modules under `Ext/`
+recursively, under `Commands/` and in the root `Ext/`, and ends with the files no line
+interpreted (`[UNCLASSIFIED]`). Mode B is unchanged apart from the module search. Pinned by
+`skills/1c-extension-analysis/tests/extension-tools-regression.py`.
+
 `tools/1c-db-ops/scripts/db-run.py` (upstream v1.7) adds three flags its `.ps1` peer does not have,
 listed under `Deviation` in its header: `-Out` (startup errors of a batch run are written only there),
 `-Wait` (wait for the client and return its exit code) and `-ClientKind thin` (the thin client —

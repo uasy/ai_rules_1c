@@ -73,6 +73,8 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/sc
 
 **Mode A** — overview: For each object shows `[BORROWED]` (interceptors, own attributes/TS/forms) or `[OWN]` (counts).
 
+**Mode A of the Python port (`cfe-diff.py`) reports more than the PowerShell script.** For a borrowed object it counts own children of every kind — templates, commands, enum values, dimensions, resources, operations, not only attributes, tabular sections and forms — reading the ownership of a form, template or nested subsystem from its own descriptor, since `<ChildObjects>` holds only its name. It prints the properties the platform marks in `<xr:PropertyState>` with their detail (types added to a defined type, objects granted by a role, own predefined items, command interface), an adopted subsystem's added `Content`, and for each borrowed form the own attributes, commands and layout elements and the changed elements against its `<BaseForm>` snapshot. Modules are found under `Ext/` recursively (a common form's `Ext/Form/Module.bsl`), under `Commands/`, and in the root `Ext/`. The output ends with `=== Unclassified files: N ===` and one `[UNCLASSIFIED]` line per file no line above interpreted; 0 means every file of the extension is accounted for.
+
 **Mode B** — transfer check: For each `&ИзменениеИКонтроль`, extracts `#Вставка`/`#КонецВставки` blocks and searches for them in the configuration module. Statuses: `[TRANSFERRED]`, `[NOT_TRANSFERRED]`, `[NEEDS_REVIEW]`.
 
 ---

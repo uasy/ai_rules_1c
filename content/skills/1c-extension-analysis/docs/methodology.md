@@ -32,3 +32,109 @@ This distinction matters more here than in most work, because the deliverable *i
 - Every object mentioned as "new" or "changed" must have been verified via per-child `ObjectBelonging` (rule 1) — not asserted from the object's name or from a ChildObjects tag alone.
 - Keep section 4 (unconfirmed) and section 5 (open questions) honest: an item closed by evidence found later in the same run must be moved into a blockquote and removed from the numbered list, with the numbering of the remaining items corrected. Do not leave a stale open question that the analysis itself already answered.
 - Do not pad the report with restated customer input, generic 1C platform explanations, or file-by-file dumps — every paragraph must earn its place by adding something not already stated elsewhere in the document.
+
+## Scenarios are the spine of the report, the mechanics are its evidence
+
+A changed object is a trace. What the reader decides with — before a configuration update, or when scoping the extension down — is **which usage scenario differs from stock, and what happens to it if the change goes away**. So section 2 is a list of scenarios, and interceptors, attributes and form elements appear underneath as what proves each one.
+
+**A scenario is an inference, not a code fact, and it must be graded as one.** Put scenarios at the centre without grading and the report becomes convincing fiction — worse than a dry inventory, because a story does not get re-checked. The worked example is real: an extension's `ФормаУзла` shows `[visible:false]` on both write buttons, which reads as "the extension took the write buttons out of the node scenario". The base form already carries both flags; the extension's copy holds nothing of its own. The scenario there is *none*, and the object is a removal candidate. Never state a scenario from one side of a diff.
+
+### Scenario kinds — all first-class
+
+- **Пользовательский** — a person does something in the interface.
+- **Регламентный / системный** — exchange (RIB registration and its conditions), integration services, scheduled jobs, posting. A changed condition for registering an object to an exchange changes that scenario exactly as much as a new button changes a user's one; these are never a footnote to the user-facing sections.
+- **Оформление документов** — what a printed or exported document looks like and which template a given organisation gets.
+- **Not a scenario** — defects, dead and disabled code, traces of superseded generations. They belong in their own section, never dressed as intent.
+
+### Evidence → scenario, with its strength
+
+| Evidence | What it says about the scenario | Strength |
+|---|---|---|
+| `&Вместо` | the stock scenario is replaced outright | direct; the largest update-time risk |
+| `#Вставка` inside `&ИзменениеИКонтроль` | the scenario is extended at one point | direct |
+| own attribute + form element + handler | new data a person enters or sees | direct |
+| own command / button | a new action available to a person | direct |
+| own register + scheduled job | a background scenario (notifications, exchange) | direct |
+| a branch added to a registration dispatcher, or entries added to an exchange plan's content | the exchange scenario's conditions changed | direct |
+| a **typical** element hidden or made read-only | a step was taken out of the stock scenario | indirect |
+| an **own** element hidden or read-only | a reference panel was added — **not** the same finding | indirect |
+| adopted, no own content at all | **no scenario** → removal candidate | direct |
+| adopted, XML identical to base, but it carries a module | the scenario is in code, the interface is untouched | direct |
+
+The ownership column of the two "hidden element" rows is what keeps them apart, and it is easy to lose: on a real extension the hidden-element signal fired on one adopted form out of six, and there it meant two *own* read-only tables, not a removed stock step.
+
+### Two rules that keep the scenario list from rotting
+
+- **An implementation detail attaches to the scenario it serves and never becomes one.** Seventeen copies of the same registry-id helper are the mechanics of one scenario, not seventeen scenarios. Otherwise the scenario report bloats exactly as the mechanical one did.
+- **Absence of change is a finding.** An adopted form whose XML matches the base tells the reader what they will see: nothing. State it; do not bury it as a technical detail.
+
+### The report feeds specification work — write it so the lift is mechanical
+
+There is usually no other source of requirements for an extension like this, so the report is the seed for `openspec/specs/`. That workspace lives next to the sources (`<version>/openspec/`, not the repository root) and fixes the shape: one folder per capability holding one `spec.md`, `### Requirement: <name>` carrying a normative MUST/SHALL statement, and `#### Scenario: <name>` written as `GIVEN` / `WHEN` / `THEN` / `AND` bullets. Load `content/rules/sdd-integrations.md` before writing anything there; specs are updated through a change proposal, not by editing `specs/` by hand.
+
+Map the report onto that shape directly:
+
+| Report | Spec |
+|---|---|
+| functional block (section 2.x) | capability folder, one `spec.md` |
+| the scenario's normative statement | `### Requirement:` — MUST/SHALL, concrete metadata names |
+| the scenario itself | `#### Scenario:` — GIVEN precondition, WHEN action, THEN observable result |
+| evidence lines (file:line) | the artifact's closing `## Context sources` block, compact |
+| open question for the customer | stays a question — a requirement is never authored from a guess |
+
+Because OpenSpec refuses vague requirements (no `<TBD>`, no "по необходимости", no invented metadata names), a scenario that cannot be written with concrete object and attribute names is not ready to be a requirement — that is a signal the analysis is unfinished, not a licence to hedge in the spec.
+
+So each scenario in the report carries: a stable id, a short name, the stock behaviour, what the extension makes it, the kind, a GIVEN/WHEN/THEN draft in the customer's language, the evidence (file:line, each marked direct or indirect), **two separate gradings** (below), and what breaks for the user or the system if the change is removed.
+
+### Grade behaviour and purpose on two scales, never on one
+
+Code proves *what the system does*. It never proves *why anyone wanted it*. Collapsing both into one "confidence" column produces a report that reads more certain than it is — and a run with no customer input at all then reports zero scenarios needing customer confirmation, which is false by construction.
+
+- **Поведение** — `подтверждено кодом` / `вероятно` (the mechanism is only partly read) / `не проверено`.
+- **Назначение** — `подтверждено заказчиком` (traceable to a numbered item of the customer's input) / `выведено из кода` (the analyst's inference, however plausible) / `противоречит словам заказчика` / `заказчик не упоминал`.
+
+Rules that follow:
+
+- A requirement may be lifted into a spec when **поведение = подтверждено кодом**. That is what a spec records: current behaviour.
+- A purpose sentence — "сделано, чтобы …" — may be stated as fact only when **назначение = подтверждено заказчиком**. Otherwise write it as the analyst's reading and mark it.
+- **`заказчик не упоминал` is a finding, not a blank.** Either the extension carries a need nobody wrote down, or it carries leftovers. Both belong in the report, and neither is decided by the analyst alone.
+- **`противоречит словам заказчика` stops the write-up for that scenario** and goes to the customer questions with both sides quoted: the customer's sentence and the code line. Never silently prefer either.
+
+When the customer supplied input, section 0 holds it verbatim and numbered, and every scenario's `назначение` cites the item it rests on. When there is no input, every `назначение` is `выведено из кода` — say so once, plainly, instead of leaving the column reassuringly empty.
+
+## Writing a finding into project memory
+
+The knowledge store is a cache in front of the repository, never the record itself
+(the report, the sources and `openspec/specs/` are the record). Two measured
+properties of the store govern how a finding is written; both were established on
+2026-09-29 and are documented with the evidence in
+`docker/openviking-prompts/README.md`.
+
+**An acknowledged write is not a write.** Three notes out of eight were accepted
+with "Stored … committed for memory extraction" and never became retrievable
+memory — one produced a diff and no file, one produced nothing at all, neither left
+an error. So a finding counts as remembered only after it has been **read back**:
+write, wait for the asynchronous extraction, search for it by its own wording, and
+rewrite it if it is absent. Never report a fact as remembered on the strength of
+the acknowledgement.
+
+**The same fact is kept or dropped depending on its phrasing.** The identical
+correction was dropped as free-form prose and stored correctly when written in the
+vocabulary of the memory type. Write a finding as: the statement, then the evidence
+with a re-runnable anchor (`file:line`, or the tool and its exact arguments), then
+the date and the state verified against. A refuted claim additionally names where
+the false belief came from — a stakeholder's words, an earlier report, or our own
+earlier conclusion — because that is what stops the same mistake returning through
+the same door.
+
+**Refuted knowledge is stored as a refutation, not as a remark.** A claim shown to
+be false goes to its own branch, with the verdict on the first line, so that a
+truncated retrieval can never return the claim while losing its negation. Folding a
+refutation into an entity or event card is what made the node-form case unreadable:
+the claim and its negation lived in one sentence of a skill card.
+
+**Audit what accumulated.** `docker/openviking-audit/audit-memory.py` walks the
+store and reports notes that produced nothing, refutation cards that lost their
+mandatory shape, and cards whose evidence anchor no longer resolves against the
+sources — the last one being how a fact that was true of an older configuration is
+caught after an update.
