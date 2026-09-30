@@ -38,10 +38,7 @@ All deployment goes through the slash command `/deploy-and-test` (`content/comma
 - Before the first call — `content/skills/1c-qa-testing/SKILL.md` (session, observe → act → assert loop, platform behaviour, unknown outcomes, journal and verdicts) and `content/rules/qa-testclient.md` (test client start / stop, visible or hidden window, screenshots, Windows-MCP, data confirmation through `1c-data-mcp`).
 - Workflow: start a fresh test client for the deployed infobase → `qa_status` / `qa_start` → per scenario: read the window, one action, read the change, assert on read values → confirm data effects the form does not show through `1c-data-mcp` → screenshots of key states → `qa_stop` and stop the client you started.
 - Evidence is the journal plus tool answers and screenshots per step; a command accepted is not an effect observed.
-
-## TestClient scenarios
-
-When the feature already has scenarios of the `1c-ui-testing` skill (thin / thick client, `openspec/tests/<capability>/ui/`), run them with that skill's runner by test name, one at a time, and report each in the Test Report Format below; do not re-enact them in the browser. This agent does not write scenarios: a missing one is reported as uncovered.
+- Saved `1c-ui-testing` scenarios — `content/rules/ui-testing-tools.md` (TestClient).
 
 ## Web UI Testing (fallback)
 
