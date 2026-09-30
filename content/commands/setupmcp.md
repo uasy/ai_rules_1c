@@ -9,6 +9,8 @@ Use when MCP servers are already installed locally or remotely and a new reposit
 
 This command configures connections only. It does not download distributions, install packages, start or recreate servers, change Docker mounts, register/reindex server-side projects, or migrate memory. Fresh installation belongs to `content/commands/installmcp.md`, `content/commands/install-cognee.md` and `content/commands/install-openviking.md`; updates belong to `content/commands/updatemcp.md`.
 
+Load `content/rules/mcp-deployment.md` for target/address handling. A shared Debian/Ubuntu Docker host is an optional existing deployment; the client needs no local Docker/Desktop/WSL. Reuse its recorded endpoints and allocated ports. This connection-only command never scans for replacement ports or reallocates them; automatic allocation belongs to fresh installation on the deployment host.
+
 ## 1. Inspect the current repository
 
 Resolve the repository root and active AI client from the session and `.ai-rules.json` when present. A global command file still operates on the current repository, not on its own directory or on a previously configured project. If several clients are installed, use the current one unless the user selected more; ask only if the active client cannot be determined.
@@ -25,7 +27,7 @@ Show the discovered connections with their purpose, scope (global/project), and 
 
 Ask only for missing or ambiguous choices, in one compact question in the user's language. For a new project without confirmed connections, use this shape:
 
-> Укажите полные MCP-адреса уже установленных серверов для этого репозитория: справка 1С, БСП, шаблоны, проверка синтаксиса, проверка кода, поиск по коду/метаданным и граф. Можно написать «оставить найденные» или «пропустить» для отдельных серверов. Есть ли уже установленная память Cognee или OpenViking? Если да, укажите MCP-адрес и существующий dataset/область проекта, если она задана; если нет — напишите «нет».
+> Укажите полные MCP-адреса уже установленных серверов для этого репозитория: справка 1С, БСП, шаблоны, проверка синтаксиса, проверка кода, поиск по коду/метаданным и граф. Это могут быть локальные адреса или DNS/IP общего сервера Debian/Ubuntu с Docker вместо 127.0.0.1. Можно написать «оставить найденные» или «пропустить» для отдельных серверов. Есть ли уже установленная память Cognee или OpenViking? Если да, укажите MCP-адрес и существующий dataset/область проекта, если она задана; если нет — напишите «нет».
 
 Keep confirmed entries out of the question. Accept full URLs with their actual scheme, host, port and path, including remote hosts, reverse-proxy prefixes, `/mcp`, `/mcp/` or an existing SSE endpoint. Ask for clarification on a bare host or missing transport/path; do not derive all addresses from one hostname, assume default ports, or replace SSE with HTTP without evidence. Reuse an existing stdio connection only when its command, arguments and durable paths are known; prefer an existing shared HTTP memory endpoint over spawning another process against the same store.
 

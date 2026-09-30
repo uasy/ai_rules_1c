@@ -20,7 +20,7 @@ Read `content/rules/getconfigfiles.md → Configuration file synchronization con
 
 Partial loads target the main configuration or **one named extension per pass**. Do not combine partial selection with `all` / platform `-AllExtensions`. Keep repository locks, support rules, validation and retry handling at the same strength as a full load.
 
-This command does not run tests and does not publish the infobase. Use `/deploy-and-test` to run tests after loading.
+This command does not run tests and does not publish the infobase. Use `/deploy-and-test` to run tests after loading. When the update serves a development task, the task's behavioural confirmation follows on the updated base as the effective `UI_TESTING` allows (`essential` by default); a test client started before the update is stale (`content/rules/qa-testclient.md`).
 
 ## Step 0. Check `.dev.env` parameters
 

@@ -7,17 +7,17 @@ argumentHint: "[<scenario / task description>] [--iterations N]"
 
 Run the requested test scenarios against the test infobase and, when they fail, close the loop: diagnose → fix the code → redeploy → re-test — until every scenario passes or the iteration budget runs out. This is the *outer* loop over test failures; the *inner* retry loop for deploy errors stays where it lives (`/update1cbase → Update retry loop`) and does not consume test iterations.
 
-**Strictly opt-in.** This loop runs only when invoked as a command or explicitly requested in words; `UI_TESTING=auto` enables routine UI verification, not this repeated deploy/fix loop. Invoking it **is** the explicit UI-test request that `manual` requires. Effective `UI_TESTING=off` still blocks: point to `/uitests on` or `/uitests manual`; an explicit enable-and-run instruction satisfies the switch without a second confirmation. Execution prerequisites still apply. UI iterations are token-expensive — state the expected cost once at the start.
+**Strictly opt-in.** This loop runs only when invoked as a command or explicitly requested in words; `UI_TESTING=essential` / `auto` enable routine UI verification, not this repeated deploy/fix loop. Invoking it **is** the explicit UI-test request that `manual` requires. Effective `UI_TESTING=off` still blocks: point to `/uitests essential`, `/uitests on` or `/uitests manual`; an explicit enable-and-run instruction satisfies the switch without a second confirmation. Execution prerequisites still apply. Web-client iterations are token-expensive — on that route state the expected cost once at the start.
 
 ## Step 0. Prerequisites
 
-Parameters, classes and defaults — `content/rules/dev-standards-env.md §1`; Defaulted keys are never asked for. Blocking for this command: `PLATFORM_PATH`, `INFOBASE_PATH`, **and `INFOBASE_PUBLISH_URL`** (the loop tests through the web client; without the URL there is nothing to loop over — stop and ask). The dev/test-target confirmation of `/deploy-and-test` applies unchanged.
+Parameters, classes and defaults — `content/rules/dev-standards-env.md §1`; Defaulted keys are never asked for. Blocking for this command: `PLATFORM_PATH`, `INFOBASE_PATH`, **and a UI route** — QA MCP with a test client of the infobase, or `INFOBASE_PUBLISH_URL` for the web client (without either there is nothing to loop over — stop and ask). The dev/test-target confirmation of `/deploy-and-test` applies unchanged.
 
 Scenario set: taken from the argument / user request. Do not invent scenarios beyond what was asked; one scenario per user-visible behavior, in the template of `content/agents/tester.md → Test Scenarios`.
 
 **EDT projects** (`.dev.env` `USE_EDT=true`): the deploy step keeps a single owner per `content/rules/edt-workflow.md`.
 
-Iteration budget: `--iterations N` or a number stated in the request; default **3** (mirrors the update-retry budget). Browser-tool preflight and driving rules — via `/deploy-and-test` Step 4a (`ui-testing-tools.md`, `web-client-driving.md`), including the two-attempts anti-loop limit inside the browser.
+Iteration budget: `--iterations N` or a number stated in the request; default **3** (mirrors the update-retry budget). Route and driving rules — via `/deploy-and-test` Step 4: QA MCP (`1c-qa-testing` skill, `qa-testclient.md`; a fresh test client after every redeploy), else the web client (`ui-testing-tools.md`, `web-client-driving.md`, including the two-attempts anti-loop limit inside the browser).
 
 ## The loop (per iteration)
 

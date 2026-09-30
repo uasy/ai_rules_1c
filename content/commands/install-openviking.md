@@ -18,6 +18,8 @@ Official references (recheck the selected release before installation):
 
 ## 1. Detect and choose deployment
 
+Load `content/rules/mcp-deployment.md`. Local deployment remains the ordinary path; when Docker is selected, also offer an optional shared Debian/Ubuntu Docker Engine host and DNS/IP instead of loopback. Reuse an existing target choice. For a new service the agent selects a free host port on that host automatically; for an existing endpoint preserve its address and port. Docker Desktop is not required on clients of a remote service.
+
 Inspect the active client's MCP entries, exposed OpenViking tools, any existing installation manifest, package/process or Docker container, and the configured health endpoint. The defaults are `http://127.0.0.1:1933/health` and `http://127.0.0.1:1933/mcp`. Remote installations do not need a local Python package.
 
 Reuse an existing healthy endpoint. Preserve existing config, credentials, workspace and unrelated MCP entries. A stopped server is not evidence that its data can be replaced; inspect it before repair or update. Do not start another process against an existing workspace or occupied port.
@@ -62,7 +64,7 @@ Do not claim readiness after installation alone. Resolve missing configuration, 
 
 ## 3. Start and check the server
 
-Bind a local package installation explicitly to loopback. For a background helper on Windows, keep its window hidden and capture logs:
+Bind a local package installation explicitly to loopback. Allocate an available port before launch per the deployment rule; `1933` is only the preferred candidate. Substitute the selected bind address, port and actual health URL in the example. For a background helper on Windows, keep its window hidden and capture logs:
 
 ```powershell
 $ovProcess = Start-Process -FilePath $ovServer `
@@ -75,13 +77,13 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:1933/health' -TimeoutSec 10
 
 The child inherits `OPENVIKING_CONFIG_FILE`. Adapt the port consistently if the selected port is occupied; never terminate an unrelated listener. Poll health for at most two minutes during startup, checking the process and redacted logs on failure. `/health` confirms that the process runs; `doctor` and the memory smoke check below cover configuration and operations.
 
-Record the installed version, Python/executable paths, config/workspace paths, endpoint, launch method and time in `install.manifest.json`, without credentials. Record how to start and stop this exact installation. A background process does not configure startup after reboot: report this honestly and set up an OS service only when requested.
+Record the target host/context, bind address, selected port mappings, installed version, Python/executable paths, config/workspace paths, full client endpoint, launch method and time in `install.manifest.json`, without credentials. Record how to start and stop this exact installation. Preserve these settings on reruns/updates. A background process does not configure startup after reboot: report this honestly and set up an OS service only when requested.
 
 ## 4. Register and verify MCP
 
 Merge an entry named `openviking` into the active client's native MCP configuration, following `/installmcp` and `/install-agent-browser` path/merge rules. Preserve every unrelated entry, including Cognee and templates memory.
 
-Canonical fragment for clients accepting `mcpServers`:
+Example fragment for clients accepting `mcpServers`; replace the local URL with the recorded full client endpoint:
 
 ```json
 {
@@ -107,7 +109,7 @@ Use the supplied HTTPS MCP URL and its supported authentication. Check `/health`
 
 Use the official `ghcr.io/volcengine/openviking` image, confirming its release and recording the resolved digest. Prepare a dedicated mounted config directory with `ov.conf`; its `storage.workspace` must use a persistent container path such as `/app/.openviking/data`. Mount that host directory to `/app/.openviking`, the image's documented default config location. Do not reuse a host-only workspace path inside the container or silently migrate existing data.
 
-Verify Docker first, then pull the selected image and run one detached container with a stable name, `--restart unless-stopped`, loopback host publication `-p 127.0.0.1:1933:1933`, and the confirmed absolute bind mount. The service must listen on the container interface for port publication; follow the selected image's documented configuration. Preserve any existing container and mounts until a deliberate repair/update is agreed. Run `openviking-server doctor` in the container, inspect redacted logs and `/health`, then register and smoke-test the native `/mcp` endpoint as above. Never treat container startup alone as success.
+Verify Docker on the selected target first, then pull the selected image and run one detached container with a stable name, `--restart unless-stopped`, publication `-p <bind-ip>:<allocated-host-port>:1933`, and the confirmed absolute daemon-host bind mount. The agent checks and chooses the host port; the default bind address is loopback for local-only use, or the selected LAN/VPN interface for shared use. The service must listen on the container interface for port publication; follow the selected image's documented configuration. Preserve any existing container and mounts until a deliberate repair/update is agreed. Run `openviking-server doctor` in the container, inspect redacted logs and the actual client health URL, then register and smoke-test the native `/mcp` endpoint as above. Never treat container startup alone as success.
 
 ## Update, disable and removal
 

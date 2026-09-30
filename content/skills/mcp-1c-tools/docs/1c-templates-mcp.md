@@ -2,7 +2,7 @@
 
 Code template library (`templatesearch`) and project vector memory (`remember` / `recall`), both governed by `TOOL_TEMPLATES`. Memory search scope and write fallback follow `content/rules/project-memory.md`; do not expand quick-fix to all providers or bypass a required provider failure. Tool mappings: `content/skills/mcp-1c-tools/docs/memory-providers.md`.
 
-> Load this file only if `1c-templates-mcp` is actually available in the current session. The expanded catalogue below is published in beta; stable tags expose an older surface. `tools/list` is authoritative.
+> Load this file only if `1c-templates-mcp` is actually available in the current session. The expanded catalogue below is published in the current images (since 27.09.2026); older images expose an older surface. `tools/list` is authoritative.
 
 | Tool | Parameters | Purpose | When to use |
 |---|---|---|---|

@@ -40,7 +40,7 @@ Functional requirements; non-functional requirements (performance, security, sca
 
 ### 3. Design 1C Architecture
 
-Based on discovered patterns, design the complete modification architecture: make decisive choices — one approach, followed through; integrate seamlessly with existing code; design for performance and maintainability; account for 1C platform specifics.
+Based on discovered patterns, design the complete modification architecture: make decisive choices — one approach, followed through; integrate seamlessly with existing code; design for performance and maintainability; account for 1C platform specifics. Preserve domain-context boundaries: similar names or fields alone do not justify merging entities; compare their meaning, lifecycle and business rules.
 
 ### 4. Trade-off Analysis
 

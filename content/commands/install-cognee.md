@@ -17,19 +17,19 @@ Official sources:
 
 ## Default deployment
 
-Use one local Docker HTTP server by default. It avoids file-lock contention from several editor windows spawning separate stdio processes, keeps one shared memory store, and fits the Docker-based 1C MCP bundle. Bind it to loopback only on host port `8010`, because the 1C Code MCP commonly occupies port `8000`.
+Use one local Docker HTTP server by default. It avoids file-lock contention from several editor windows spawning separate stdio processes, keeps one shared memory store, and fits the Docker-based 1C MCP bundle. Load `content/rules/mcp-deployment.md`: a shared Debian/Ubuntu Docker Engine host is an optional alternative, without requiring Docker Desktop on clients. Local-only access uses loopback; `8010` is a preferred host port, subject to the agent's automatic availability check on the deployment host.
 
 Ask one deployment question:
 
-> Install Cognee as the recommended local Docker service, connect an existing remote Cognee endpoint, or use a source checkout with stdio?
+> Где разместить память Cognee: локальный Docker (обычный вариант), общий сервер Debian/Ubuntu с Docker, подключение готового MCP-адреса или исходники со stdio? Для общего сервера укажите DNS/IP вместо 127.0.0.1 и доступ для установки; свободный порт я подберу сам.
 
 If the user has no preference, choose local Docker. Never send an LLM, embedding, Cognee Cloud, or backend API key to chat logs, command output, source control, or `memory.md`.
 
-## Local Docker steps (recommended)
+## Docker steps (local by default; shared host optional)
 
 ### 1. Detect and collect settings
 
-1. Confirm Docker is available and running:
+1. Confirm Docker is available and running on the selected target; apply the selected context or authorized SSH to all Docker commands. Automatically allocate a free host port and record the bind address/client URL per the deployment rule:
 
    ```powershell
    docker version
@@ -66,11 +66,11 @@ TELEMETRY_DISABLED=true
 
 Restrict `.env` permissions to the current user where the OS supports it. Add the absolute `.env` path and installation root to the local project's ignore rules only when they fall inside a repository.
 
-Write `install.manifest.json` without secrets. Record the image reference, resolved image digest from `docker image inspect`, host port, container name, endpoint, installation time, and data directories.
+Write `install.manifest.json` without secrets. Record the target/context, host OS, bind address, host/container ports, full client endpoint, container name, image reference, resolved image digest from `docker image inspect`, installation time, and host data directories. Refresh planned values after successful launch; reuse them on reruns.
 
 ### 3. Pull and start
 
-Use the official image. Preserve data through the bind mount and preserve the service across reboots:
+Use the official image. Preserve data through the bind mount and preserve the service across reboots. The following is a local Windows example: before execution substitute the selected target, daemon-host paths and `-p <bind-ip>:<allocated-host-port>:8000` mapping. Recheck the chosen port immediately before launch:
 
 ```powershell
 $root = 'C:\Work\CogneeMemory' # replace with the confirmed absolute path
@@ -89,13 +89,13 @@ docker run -d --name cognee-mcp --restart unless-stopped `
 if ($LASTEXITCODE -ne 0) { throw 'Failed to start cognee-mcp' }
 ```
 
-On Linux/macOS, use the equivalent shell syntax with the confirmed absolute paths. Do not publish the port on `0.0.0.0` by default.
+On Linux/macOS, use the equivalent shell syntax with the confirmed daemon-host paths. Shared access uses the chosen LAN/VPN interface or existing proxy per the deployment rule; never publish on `0.0.0.0` by default.
 
 If the container name already exists, do not remove it blindly. Inspect it and ask before replacing the container; replacing the container is safe only after confirming the bind-mounted data path.
 
 ### 4. Verify
 
-Cognee may need time for migrations on first start. Check logs without exposing environment variables, then poll for at most two minutes:
+Cognee may need time for migrations on first start. Check logs on the selected host without exposing environment variables, then poll the actual client-reachable health URL for at most two minutes. Substitute the recorded endpoint in this local example:
 
 ```powershell
 docker logs --tail 100 cognee-mcp
@@ -106,7 +106,7 @@ Failure to become healthy is an install failure. Report the last relevant log li
 
 ### 5. Register the active client
 
-Merge, never replace, an HTTP MCP entry named `cognee-memory` pointing to `http://127.0.0.1:8010/mcp`. Detect the client and use its native schema, following the same path/merge rules as `/installmcp` and `/install-agent-browser`.
+Merge, never replace, an HTTP MCP entry named `cognee-memory` pointing to the recorded full client MCP URL. `http://127.0.0.1:8010/mcp` below is a local example only. Detect the client and use its native schema, following the same path/merge rules as `/installmcp` and `/install-agent-browser`.
 
 Canonical `mcpServers` fragment:
 
@@ -137,6 +137,6 @@ Pin `SYSTEM_ROOT_DIRECTORY` and `DATA_ROOT_DIRECTORY` to stable absolute paths. 
 
 ## Update and removal
 
-- Update: pull a newer image, record its digest, recreate only the container with the same `.env` and data bind mount, then verify health. Never delete the data directory as part of update.
+- Update: on the recorded host pull a newer image, record its digest, recreate only the container with the same `.env`, bind address, port mapping and data mount, then verify its recorded endpoint. Never delete the data directory or reallocate a shared port as part of update.
 - Disable: stop the container and disable/remove only the `cognee-memory` MCP entry.
 - Delete memory: destructive and separate from uninstall. Require explicit confirmation naming the exact data directory before removing it.

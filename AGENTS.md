@@ -29,7 +29,7 @@ Transactions/posting, public contracts, wired metadata, adopted extension object
 
 ### 1. Think Before Coding — Clarify Scope First
 
-Before editing, plan files, changes, success checks, risks and rollback; name a simpler approach if one exists; resolve low-risk ambiguity with a stated assumption.
+Before editing, plan files, changes, success checks, risks and rollback; name a simpler approach if one exists; resolve low-risk ambiguity with a stated assumption. For optimization, link the technical metric to the user's business goal.
 
 **Material fork → stop dependent work and ask using CONFUSION.** Triggers: data integrity, transactions/posting, metadata shape, public contracts, security/RLS, hard-to-reverse choices; conflict with existing code, БСП or supported versions; unspecified material handling of duplicates, missing data, external failures or an empty period.
 
@@ -132,7 +132,7 @@ Load `content/rules/<name>.md` on its trigger only; routers pull companions and 
 - code, review, debug, refactor, performance, metadata work → `tooling-playbooks`
 - `USE_EDT=true` → `edt-workflow`; several source contours → `multi-contour-search`
 - applying a configuration/extension, missing MCP validators → `designer-batch-checks`
-- UI tests → `ui-testing-tools` → `web-client-driving`
+- UI tests → `ui-testing-tools` → QA MCP: skill `1c-qa-testing` + `qa-testclient`; web: `web-client-driving`
 - extract from ИБ → `getconfigfiles`; integrations → `integrations-add`
 - metadata hand-edit within a skill exception → `metadata-xml-workarounds`
 

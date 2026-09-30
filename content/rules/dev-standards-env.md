@@ -68,8 +68,9 @@ Used by `/loadfrom1cbase`, `/update1cbase`, `/getconfigfiles`, `/deploy-and-test
 | `{RELEASE_PATH}` | Output directory for `/build-release` artifacts (`.cf` / `.cfe` / `.cfu`) | Defaulted | Empty = the `release` directory at the repository root |
 | `{LOG_PATH}` | Designer log file (must be writable) | Defaulted | Empty = `$env:TEMP\1cv8.log` (Windows) / `$TMPDIR/1cv8.log` (POSIX). The directory always exists; any writable path works equally well — **never ask up front**. Re-ask only if the resolved path turns out to be non-writable at runtime. |
 | `{RESULT_PATH}` | `/DumpResult` file of every Designer batch launch — the numeric verdict (`0` = success) read next to the exit code and the `/Out` log (`designer-batch-checks.md → The verdict is three signals`) | Defaulted | Empty = `$env:TEMP\1cv8.result` (Windows) / `$TMPDIR/1cv8.result` (POSIX). Deleted before each launch; a missing file after a launch is a failed launch — **never ask** |
-| `{INFOBASE_PUBLISH_URL}` | Web-publish URL of the test infobase for `1c-tester` UI tests | **Highly desirable** for UI testing | Empty = UI tests are silently skipped, the rest of `/deploy-and-test` still runs; only ask if the user explicitly requested UI tests |
-| `{UI_TESTING}` | Web UI-testing mode for `1c-tester` / `/deploy-and-test` Step 4: `manual` \| `auto` \| `off` | Defaulted | Empty = `manual` (see the classification below) |
+| `{INFOBASE_PUBLISH_URL}` | Web-publish URL of the test infobase for web-client UI tests | **Highly desirable** for web UI testing | Empty = the web route is skipped; ask only for a requested UI test that has no other route |
+| `{UI_TESTING}` | UI-testing mode: `essential` \| `auto` \| `manual` \| `off` | Defaulted | Empty = `essential`; invalid = `manual` (see below) |
+| `{MCP_QA_CLIENT_VISIBLE}` | Window of a 1C test client the agent starts for QA MCP checks | Defaulted | Empty / missing / invalid = visible; `false`, `0`, `no`, `off` = hidden desktop |
 | `{IBCMD_CONFIG}` | Path to standalone-server `config.yml` for `ibcmd`-based ops | Defaulted | Empty = fallback to Designer (per `.dev.env.example`) |
 | `{PLATFORM_ARGS}` / `{IBCMD_ARGS}` | Extra launch arguments (comma-separated) appended to every `1cv8.exe` / `ibcmd` run by the `1c-metadata-manage` `db-*` / `epf-*` tools | Defaulted | Empty = no extra arguments. **Never ask.** Arguments the tool owns itself (`/F`, `/S`, `/N`, `/P`, `/UpdateDBCfg`, `--db-path`, …) are rejected by the scripts — pass those as regular parameters |
 | `{SUPPORT_GUARD}` | Reaction of the vendor-support guard in the `1c-metadata-manage` mutating tools when the target is an object of a typical configuration "на замке": `deny` \| `warn` \| `off` | Defaulted | Empty = `deny` — the edit is refused with a diagnostic. **Never ask**; see the note below |
@@ -125,21 +126,22 @@ The parameter only chooses a place for a **new** entry; it never reorders object
 
 > **`.dev.env` is the single source of truth for the skill's scripts too.** The `1c-metadata-manage` tools are vendored from upstream `cc-1c-skills`, which natively reads its own `.v8-project.json`. They are patched locally to read `.dev.env` **first** — `PLATFORM_PATH`, `PLATFORM_ARGS`, `IBCMD_ARGS`, `SUPPORT_GUARD`, `NEW_OBJECT_POSITION` — so a project never maintains a second config file. `.v8-project.json` remains supported only as a fallback for projects that deliberately keep the upstream multi-base registry. The second local patch is the batch verdict: every Designer launch of the skill (`db-dump-*`, `db-load-*`, `db-update`, `epf-build`, `epf-dump`) passes `/DumpResult` beside `/Out` and fails the run when the result is non-zero or the file was never written, so a batch command that fails while `1cv8` exits 0 is not reported as success (`designer-batch-checks.md → The verdict is three signals`).
 
-#### `UI_TESTING` — web UI-testing mode
+#### `UI_TESTING` — UI-testing mode
 
-Browser UI testing (via the `1c-tester` subagent and Step 4 of `/deploy-and-test`) burns a lot of tokens and is not always effective, so it is **not** an automatic step by default. `UI_TESTING` makes it a configurable, opt-in stage. It is **Defaulted** — empty resolves to `manual`, and the agent **must not** ask for the value.
+UI checks confirm behaviour in the 1C interface: through QA MCP (`1c-qa`) in the thin client when it is connected, or through the web client as the more token-expensive fallback. `UI_TESTING` decides **whether** and **how much** is checked. It is **Defaulted** — empty resolves to `essential`, an invalid value to `manual`; the agent **must not** ask for the value.
 
-Explicit editor: `/uitests on|manual|off|status` (`content/commands/uitests.md`); `on` / `auto` writes `auto`. Resolve a session-only override before the project value. All QA profiles and orchestration modes preserve UI policy. Changing policy alone does not run tests or authorize deployment; dev/test target and tool-policy gates still apply.
+Explicit editor: `/uitests essential|on|manual|off|status` (`content/commands/uitests.md`); `on` / `auto` writes `auto`. Resolve a session-only override before the project value. All QA profiles and orchestration modes preserve UI policy. Changing policy alone does not run tests or authorize deployment; dev/test target and tool-policy gates still apply.
 
 | Value | Meaning |
 |---|---|
-| `manual` (default / empty) | UI tests run **only on an explicit user request**. The subagent pipeline and the verification phase never trigger them automatically. Deployment (`/deploy-and-test` Steps 1–3) still runs; Step 4 (UI tests) is skipped unless the user asked for it. |
-| `auto` | UI tests run automatically in the verification phase / after a successful deploy, **provided `INFOBASE_PUBLISH_URL` is set**. This is the only mode where UI testing is a routine step. |
-| `off` | Web testing is disabled even with a publication URL. A run request alone does not enable it; point to `/uitests on` or `/uitests manual`. An explicit enable-and-run instruction satisfies the policy switch without a second confirmation; execution gates still apply. |
+| `essential` (default / empty) | Once the change is on the dev/test infobase (load + DB update), check automatically **only the important new or changed user-visible behaviour**: the main scenario of each new or changed form, command, document, report or workflow, plus the case the task is about. No regression sweep, no cosmetic or refactoring-only checks; non-visual results go to Gate 3a / `1c-data-mcp`; the rest on request. |
+| `auto` | Every applicable UI scenario runs automatically in the verification phase / after each successful deploy. |
+| `manual` | UI tests run **only on an explicit user request**; the pipeline and the verification phase never trigger them. `/deploy-and-test` Steps 1–3 still run; Step 4 is skipped unless requested. |
+| `off` | UI testing is disabled on every route. A run request alone does not enable it; point to `/uitests essential`, `/uitests on` or `/uitests manual`. An explicit enable-and-run instruction satisfies the switch without a second confirmation; execution gates still apply. |
 
-`UI_TESTING` gates **whether** UI testing runs; `INFOBASE_PUBLISH_URL` supplies **where** it runs. With an empty URL, an automatic run is skipped and affected criteria remain unverified; for an explicitly requested run, ask for this blocking prerequisite and continue independent work. Resolve `off` first: it blocks UI regardless of URL and does not start a setup questionnaire. Any invalid value is treated as `manual`.
+Resolve `off` first: it blocks UI regardless of routes and starts no setup questionnaire. Loading the change for a check follows `INFOBASE_ROLE` and `/update1cbase` / `/deploy-and-test`. The route supplies **where**: QA MCP — the test client of `INFOBASE_PATH`; web — `INFOBASE_PUBLISH_URL`. An automatic run with no available route is skipped and affected criteria stay unverified with that reason; for an explicitly requested run, ask for the missing prerequisite and continue independent work.
 
-**Which tool drives the browser** is separate from this gate — canon: `ui-testing-tools.md`. Default for the web client: `agent-browser` (`/install-agent-browser`). Desktop CV / `Windows-MCP` (`/install-windows-mcp`) is last resort only.
+**Route and tool** — `ui-testing-tools.md`: QA MCP → web client → `Windows-MCP` for windows outside the client. `MCP_QA_CLIENT_VISIBLE` (`/uitests visible|hidden`) sets the test-client window, never `UI_TESTING` — `qa-testclient.md → Visible or hidden window`.
 
 #### `USE_EDT` — project uses 1C:EDT
 
@@ -172,6 +174,7 @@ Missing, empty or invalid values are `unknown`, not proof that EDT is absent. On
 | `TOOL_AGENT_BROWSER` | agent-browser, MCP and CLI |
 | `TOOL_BROWSER` | Active client's built-in browser tools and saved UI test runners |
 | `TOOL_WINDOWS_MCP` | Windows-MCP desktop automation |
+| `TOOL_QA` | `1c-qa` (QA MCP): UI checks in the 1C thin client |
 | `TOOL_UI_TEST` | Optional `MCP_Test` / `1C Visual UI Test` |
 | `TOOL_CONVERSION` | Optional `MCP_ConversionData20` |
 

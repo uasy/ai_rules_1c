@@ -35,7 +35,7 @@ Trim whitespace and compare case-insensitively:
 
 ## Status
 
-Report the effective profile using its name and slug, its source (project setting, session-only override, or default), and what it checks. Report `UI_TESTING` as automatic, on request, or disabled. Use an active session-only override before the file/default; an empty command never changes the profile. Do not invent a task path when no development task is being assessed.
+Report the effective profile using its name and slug, its source (project setting, session-only override, or default), and what it checks. Report `UI_TESTING` as essential (default), automatic, on request, or disabled. Use an active session-only override before the file/default; an empty command never changes the profile. Do not invent a task path when no development task is being assessed.
 
 ## Mandatory floor
 

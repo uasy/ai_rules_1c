@@ -1,5 +1,5 @@
 ---
-description: Read-only check for available updates of the 1C MCP server images (stable and -beta channels) and of the 1c-rules ruleset, without pulling or installing anything
+description: Read-only check for available updates of the 1C MCP server images and of the 1c-rules ruleset, without pulling or installing anything
 argumentHint: "[mcp|rules]"
 ---
 
@@ -8,6 +8,8 @@ argumentHint: "[mcp|rules]"
 The command only **looks**: it compares what is installed with what is published and prints a verdict. It does not `docker pull`, does not recreate containers, does not touch rule files (except the `lastUpdatesCheckAt` field in `.ai-rules.json` — see *Report*). Updating is `/updatemcp` (MCP servers) and `/updaterules` (the ruleset); this command only recommends running them.
 
 The argument narrows the check: `mcp` — images only, `rules` — rules only, empty — both parts.
+
+For MCP images load `content/rules/mcp-deployment.md` and inspect the recorded deployment host/context, including an optional shared Debian/Ubuntu Engine. Apply that target to the Docker examples below; use host-native paths and shell syntax. Without host access, report image versions/digests as unverified and continue the independent rules check. Never infer remote versions from local containers or require Docker Desktop on a client.
 
 Proactive run — **about once every 30 days** (plus one-off triggers). The contract and how to count the period — `content/rules/support-feedback.md §4 → "Проактивный /checkupdates"`.
 
@@ -45,7 +47,7 @@ $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits?si
    - `version` = `local` or does not look like a sha → nothing to compare with; say so plainly and suggest `/updaterules` as the safe way to align;
    - GitHub is unreachable or answered `403` (anonymous request limit) → say exactly that; it is not "no updates".
 
-## Part B. MCP images — with the `-beta` channel taken into account
+## Part B. MCP images
 
 **If MCP is not connected** — no running `comol/*` containers **and** no 1C MCP tools in the current session (`syntaxcheck` / `templatesearch` / `metadatasearch` / `search_metadata` / `check_1c_code` / `ssl_search` / `docsearch`) — Part B has nothing to compare. Do not present that as "images are up to date". Write in the report that MCP is not connected, and if at the same time `SUPPORT_KEY` in `.dev.env` is empty and there is no `integrations.mcp.mode = "external"` — add the reminder:
 
@@ -54,9 +56,9 @@ $commits = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits?si
 
 If the key or an external install is present but there are no tools in the session — briefly: MCP is not connected, `/installmcp` or a client restart; do not repeat the purchase link. Do not go further in Part B.
 
-Every server is published in two channels, and **beta images differ by the `-beta` suffix**: `latest` / `light` / `arm64` versus `latest-beta` / `light-beta` / `arm64-beta` (some servers historically use the joined form `latestbeta`). Compare **tag with tag inside its own channel**. The answer "there is a newer image in `latest` than your `light-beta`" is meaningless: these are different publication branches.
+Since 27.09.2026 every server is published in one channel under the variant tags `latest` / `light` / `arm64` (canon — `/installmcp` → `## Image variant`). Compare **the container's tag with the same tag on Docker Hub**; a newer `latest` says nothing about a `light` container. A container on a `*-beta` tag (also the joined form `latestbeta`) is **outdated**: those tags are no longer published, so there is nothing to compare — report it with the fix `/updatemcp`.
 
-1. Collect what actually runs — the tag is taken from the container, not from `config.env` (the user may have switched the channel by hand):
+1. Collect what actually runs — the tag is taken from the container, not from `config.env` (the user may have changed it by hand):
 
 ```powershell
 $containers = docker ps --format '{{.Names}}' | ForEach-Object {
@@ -67,7 +69,7 @@ $containers = docker ps --format '{{.Names}}' | ForEach-Object {
         Container = $_
         Repo      = $repo
         Tag       = $tag
-        Channel   = if ($tag -match 'beta') { 'beta' } else { 'stable' }
+        Outdated  = $tag -match 'beta'
         Digest    = (docker image inspect "$repo`:$tag" --format '{{index .RepoDigests 0}}' 2>$null)
     }
 } | Where-Object { $_ -and $_.Repo -like 'comol/*' }
@@ -89,7 +91,7 @@ foreach ($c in $containers) {
     [pscustomobject]@{
         Server    = $c.Container
         Tag       = $c.Tag
-        Channel   = $c.Channel
+        Outdated  = $c.Outdated
         Published = $remote.last_updated
         Update    = if ($local -and $local -eq $remote.digest) { 'no' } else { 'YES' }
     }
@@ -100,18 +102,18 @@ foreach ($c in $containers) {
    - the local image digest matches the published one → **up to date**;
    - they differ → **update available**; show `last_updated` of the published tag;
    - there is no local digest (the image was built locally, not pulled from the registry) → nothing to compare; note it separately, do not present it as "update available";
-   - the tag was not found (404) → say that this channel has no such tag; for beta that is normal for servers with a truncated tag matrix (SyntaxCheck is published only as `latest` / `latest-beta`).
+   - the tag was not found (404) → say that this tag is not published; a `*-beta` tag is outdated (fix: `/updatemcp`), and SyntaxCheck has no `light` (it is published as `latest` / `arm64`).
 
-4. Additionally compare the declared channel with the actual one: `IMAGE_TAG` in the distribution's `config.env` (default `C:\Work\MCP_Distr\config.env`; the channel contract — `/installmcp` → `## Release channel — stable or beta (IMAGE_TAG)`) against the `Channel` column. A mismatch is not an error, but it must be mentioned: containers and keys may have drifted across channels, and the licence keys for stable and beta are **different**.
+4. Additionally compare the declared variant with the actual one: `IMAGE_VARIANT` / `IMAGE_TAG` in the distribution's `config.env` (default `C:\Work\MCP_Distr\config.env`; contract — `/installmcp` → `## Image variant`) against the `Tag` column. A mismatch is not an error, but it must be mentioned. An image created before 27.09.2026 needs the new per-server `LICENSE_KEY_<SERVER>` keys; `/updatemcp` brings both.
 
 ## Report
 
 One table for the rules, one for the servers (when MCP is connected; otherwise, instead of the servers table — the verdict «MCP не подключены» and the reminder from Part B), then a short conclusion:
 
 - everything is up to date → one line «обновлений нет», without suggesting to run anything;
-- there are updates → list exactly what is outdated and suggest exactly what is needed: `/updatemcp` (in the current channel), `/updatemcp beta` / `/updatemcp stable` (only when the user wants to switch the channel), `/updaterules`;
+- there are updates → list exactly what is outdated and suggest exactly what is needed: `/updatemcp` (keeps the variant, migrates `*-beta` tags), `/updaterules`;
 - some checks did not complete (no network, no Docker, GitHub answered `403`) → list exactly what was not checked. Unchecked is not presented as checked.
 
-The command installs nothing itself and does not switch the channel. Even when an update is clearly available, running `/updatemcp` or `/updaterules` is a separate decision of the user.
+The command installs nothing itself and does not change image tags. Even when an update is clearly available, running `/updatemcp` or `/updaterules` is a separate decision of the user.
 
 After any completed check (including a partial run and the verdict «MCP не подключены») write the field `lastUpdatesCheckAt` into `.ai-rules.json` with the current UTC in the same format as `updatedAt` (`yyyy-MM-ddTHH:mm:ssZ`). Do not touch the other fields of the manifest. If the network failed before any verdict — do not update the field, so that the next session retries.

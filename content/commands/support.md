@@ -45,9 +45,9 @@ The type is not guessed from a single word — ask with one question.
 
 Without the environment a ticket is nearly useless, so collect it yourself instead of asking the user.
 
-### For `kind = mcp` — the channel and the tag are mandatory
+### For `kind = mcp` — the tag is mandatory
 
-There are two channels, and **beta images differ by the `-beta` suffix** (`latest-beta`, `light-beta`, `arm64-beta`; some servers historically use the joined form `latestbeta`). A bug that reproduces only on beta and the same bug on stable are different tickets, so the tag is taken from the **actually running container**, not from `config.env`:
+Since 27.09.2026 images are published in one channel under the variant tags `latest` / `light` / `arm64`. A bug on `light` and the same bug on `latest` may differ, so the tag is taken from the **actually running container**, not from `config.env`:
 
 ```powershell
 docker ps --format '{{.Names}}' | ForEach-Object {
@@ -58,11 +58,13 @@ docker ps --format '{{.Names}}' | ForEach-Object {
 } | Format-Table -AutoSize
 ```
 
-From an `Image` like `comol/1c_help_mcp:light-beta` derive:
+From an `Image` like `comol/1c_help_mcp:light` derive:
 
 - `component` — the server id per the `/checkmcp` catalog (`1c-help-mcp`, `1c-code-metadata-mcp`, …);
-- `image_tag` — `light-beta`;
-- `channel` — `beta` when the tag contains `beta` in any spelling, otherwise `stable`.
+- `image_tag` — `light`;
+- `channel` — always `stable`.
+
+A container on a `*-beta` tag (any spelling, also `latestbeta`) or on an image created before 27.09.2026 is outdated. Suggest `/updatemcp` and a re-check on the current image first; if the person still files the ticket, `image_tag` carries the actual tag and the text says the image is outdated.
 
 Add a digital fingerprint to `context`: the local image digest (`docker image inspect <image> --format '{{index .RepoDigests 0}}'`), the exact error text from the logs (`docker logs --tail 50 <container>`), and the name of the MCP tool on which the problem reproduced.
 
@@ -109,8 +111,8 @@ The body is built as a **separate UTF-8 JSON file**, and the script itself stays
   "email": "dev@example.com",
   "kind": "mcp",
   "component": "1c-help-mcp",
-  "channel": "beta",
-  "image_tag": "light-beta",
+  "channel": "stable",
+  "image_tag": "light",
   "title": "standards не находит раздел про блокировки",
   "text": "Что делал: ...\nЧто ожидал: ...\nЧто получилось: ...\nВоспроизводимость: всегда",
   "source": "user",
@@ -156,7 +158,7 @@ Errors:
 | `401 invalid_support_key` | the key is wrong or revoked | take a fresh `SUPPORT_KEY` from a new distribution (personal cabinet https://vibecoding1c.ru/) and put it into `.dev.env` |
 | `400 email_required` | `SUPPORT_EMAIL` is empty or does not look like an address | fix `.dev.env` |
 | `400 field_too_long` | a field limit was exceeded | shorten the text / drop the listing |
-| `400 invalid_kind` / `invalid_channel` | invalid value | `kind` — `mcp`/`rules`/`other`, `channel` — `stable`/`beta` |
+| `400 invalid_kind` / `invalid_channel` | invalid value | `kind` — `mcp`/`rules`/`other`, `channel` — `stable` |
 | network unavailable | no internet or the service is down | keep the ready ticket text in the answer to the user so it is not lost, and offer to retry later |
 
 Never print `SUPPORT_KEY` into chat, into a log, or into the ticket text.

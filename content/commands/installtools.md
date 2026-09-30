@@ -15,7 +15,7 @@ Always show tools in this order. The 1C MCP bundle is always first.
 
 | # | Tool | Purpose | Recommend when | Standalone command |
 |---|---|---|---|---|
-| 1 | 1C MCP server bundle | Documentation, metadata and code search, syntax checks, templates/project memory, BSP search, graph analysis and code review | Recommended for every 1C project; this is the primary ruleset tool bundle and requires a purchased distribution | `/installmcp` (`/installmcp beta` for the beta image channel) |
+| 1 | 1C MCP server bundle | Documentation, metadata and code search, syntax checks, templates/project memory, BSP search, graph analysis and code review | Recommended for every 1C project; this is the primary ruleset tool bundle and requires a purchased distribution | `/installmcp` |
 | 2 | Cognee memory MCP | Persistent agent memory; primary write destination whenever connected | Recommended when the user wants general cross-session memory; optional to install | `/install-cognee` |
 | 3 | OpenViking memory MCP | Persistent agent memory and context retrieval; searched alongside Cognee and other connected memory providers | Recommended when the user wants OpenViking context retrieval or a primary memory store without Cognee | `/install-openviking` |
 | 4 | EDT-MCP | Live access to the EDT workspace, errors, native refactoring, metadata/forms, launches and debugging | Recommended only when the user develops in a locally installed 1C:EDT | `/install-edt-mcp` |
@@ -98,7 +98,7 @@ If a slash-command dispatcher cannot invoke another slash command directly, exec
 
 Skip tools already proven installed unless the user explicitly requests repair or reinstall. When installed MCP servers or memory need connecting to this repository, route that selected setup to `content/commands/setupmcp.md`; collect actual endpoints without reinstalling services. For Atlassian MCP, use `content/commands/install-atlassian-mcp.md` to reuse the existing runtime and configure the selected account/services. For an installed 1C MCP bundle, offer `/updatemcp` only when an update is requested; do not replace it with `/installmcp`.
 
-**MCP release channel.** The bundle installs the **stable** image channel by default. Pass the channel through only when the user asks for it — `/installmcp beta` for a fresh beta install, `/updatemcp beta` / `/updatemcp stable` to switch an installed set. Do not raise the beta option on your own, and never select it for the user; the contract is `/installmcp` → `## Release channel — stable or beta (IMAGE_TAG)`.
+**MCP image variant.** Since 27.09.2026 the images have one channel — stable, with the variants `latest` / `light` / `arm64`; `*-beta` tags are no longer published. The contract is `/installmcp` → `## Image variant`.
 
 Stop only the failing installer, report its blocker, and continue with other independently selected tools when safe.
 
