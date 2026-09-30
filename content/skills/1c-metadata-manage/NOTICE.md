@@ -142,7 +142,7 @@ properties marked in `<xr:PropertyState>` with their detail and an adopted subsy
 type map by scanning the top-level folders, lists `Language`, finds modules under `Ext/`
 recursively, under `Commands/` and in the root `Ext/`, and ends with the files no line
 interpreted (`[UNCLASSIFIED]`). Mode B is unchanged apart from the module search. Pinned by
-`skills/1c-extension-analysis/tests/extension-tools-regression.py`.
+`tools/tests/extension-tools-regression.py` in the ruleset source.
 
 `tools/1c-db-ops/scripts/db-run.py` (upstream v1.7) adds three flags its `.ps1` peer does not have,
 listed under `Deviation` in its header: `-Out` (startup errors of a batch run are written only there),

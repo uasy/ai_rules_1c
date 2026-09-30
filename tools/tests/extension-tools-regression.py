@@ -30,7 +30,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SKILLS = os.path.dirname(os.path.dirname(HERE))
+SKILLS = os.path.join(os.path.dirname(os.path.dirname(HERE)), "content", "skills")
 CFE_DIFF = os.path.join(SKILLS, "1c-metadata-manage", "tools", "1c-cfe-manage", "scripts", "cfe-diff.py")
 REGISTRY = os.path.join(SKILLS, "1c-extension-analysis", "tools", "1c-change-registry-builder",
                         "scripts", "registry-builder.py")

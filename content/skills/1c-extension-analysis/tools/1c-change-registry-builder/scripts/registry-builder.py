@@ -421,8 +421,7 @@ def find_own_bsl_files(ext_path, type_dir, name):
     The object's own `Ext/` is walked recursively, not listed: a common form keeps
     its module at `Ext/Form/Module.bsl`, one level deeper than an object module,
     and a flat listing missed that file — and with it every interceptor the
-    extension put on a typical common form (2 of the 101 annotations on a real
-    extension were invisible for exactly this reason)."""
+    extension put on a typical common form."""
     obj_dir = os.path.join(ext_path, type_dir, name)
     if not os.path.isdir(obj_dir):
         return []
@@ -442,8 +441,7 @@ def find_own_bsl_files(ext_path, type_dir, name):
     # An object's own commands keep their modules at
     # `<Object>/Commands/<Name>/Ext/CommandModule.bsl` — outside both `Ext/` and
     # `Forms/`, so neither walk above reaches them and the whole command module
-    # was invisible (3 such files on a real extension, one of them holding a
-    # command that opens a form of an object that does not exist).
+    # was invisible.
     commands_dir = os.path.join(obj_dir, "Commands")
     if os.path.isdir(commands_dir):
         for dirpath, _dirnames, filenames in os.walk(commands_dir):
@@ -559,10 +557,8 @@ def scan_bsl_routines_with_lines(bsl_path):
     unannotated routine in such a module is an addition by construction, and no
     base-configuration copy is needed to tell.
 
-    Verified against `1c-graph-metadata-mcp`'s independent layer diff on a real
-    extension: for `Документ.Отпуск`'s manager module this rule yields exactly the
-    five routines the graph reports as "Добавлены", and the annotated ones exactly
-    match its "Переопределены"."""
+    It agrees with `1c-graph-metadata-mcp`'s independent layer diff: the unannotated
+    routines are its "Добавлены", the annotated ones its "Переопределены"."""
     lines = read_lines(bsl_path)
     out = []
     for idx, line in enumerate(lines):
@@ -613,9 +609,7 @@ def module_rows(ext_path, bsl, obj_label, borrowed):
     # an annotated interceptor. Emitted regardless of whether the module
     # also carries interceptors: a module with an interceptor used to
     # suppress these rows entirely, which silently dropped whole layers of
-    # own code (39 own routines on one real extension, among them 17
-    # copies of the same registry-id helper; and, in a form module, a
-    # 420-line own procedure sitting beside one annotated interceptor).
+    # own code.
     annotated_lines = {ic["RoutineLine"] for ic in interceptors}
     added = [r for r in scan_bsl_routines_with_lines(bsl)
              if r["Line"] not in annotated_lines]
