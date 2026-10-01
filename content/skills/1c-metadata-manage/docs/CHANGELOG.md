@@ -150,6 +150,10 @@ The PowerShell script `tools/1c-epf-validate/scripts/epf-validate.ps1` was refre
 
 ## form-manage.md
 
+### Python `form-edit`, `cfe-borrow`, `form-validate` caught up (`2026-10-01`)
+
+The Python runtimes follow the PowerShell fix of the same day: `form-edit.py` writes button and command children in the platform order and spells picture-and-text `PictureAndText` for a button, `TextPicture` for a command; `cfe-borrow.py` indents the `<BaseForm>` copy only between tags, so a multi-line text keeps its bytes; `form-validate.py` reports a `Representation` outside the property's own enumeration (check 15). Pinned by `tools/tests/python-ports-regression.py`.
+
 ### Local fix `2026-10-01` — button and command order, command `Representation`
 
 `form-edit` wrote a button's `CommandName` before its `Representation`, a command's `Action` before its `Picture` and a command's picture-and-text `Representation` as `PictureAndText`; the platform refused such a borrowed form with «Исключение XDTO произошло при чтении файла» (support ticket bc42b89c, 8.3.27.2170). Button children now follow the platform order (`Type`, `Visible`, `Representation`, `DefaultButton`, `Enabled`, `CommandName`, `Picture`, `Title`, `LocationInCommandBar`) and command children `Title`, `Shortcut`, `Picture`, `Action`, `Representation`, taken from every `Form.xml` of the ZUP dump; a command's `PictureAndText` is written as `TextPicture` (and a button's `TextPicture` as `PictureAndText`). `form-validate` check 15 reports a `Representation` outside the element's own enumeration. `form-compile` still writes a command's `Action` before `Shortcut` / `Picture` and a button's `Representation` after `CommandName` — not changed here.

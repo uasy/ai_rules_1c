@@ -2113,6 +2113,91 @@ def _(work):
     assert_equal(0, run["exit_code"], f"a non-default form with another main attribute was rejected: {run['stdout']}")
 
 
+@case("form-edit: buttons and commands are written in the platform order with their own Representation")
+def _(work):
+    """form-edit.ps1 order: Button — Type, Visible, Representation, DefaultButton, Enabled,
+    CommandName, Picture, Title; Command — Title, Shortcut, Picture, Action, Representation.
+    A button's picture-and-text is PictureAndText, a command's TextPicture; the other order or
+    spelling is refused by the platform with an XDTO exception on load."""
+    form, run = _form_edit(os.path.join(work, "ok"), FORM_BAR + "\t<ChildItems/>\n", {
+        "commands": [{"name": "Обновить", "title": "Обновить", "action": "ОбновитьОбработка",
+                      "picture": "StdPicture.Refresh", "shortcut": "F5", "representation": "PictureAndText"}],
+        "elements": [{"button": "КнопкаОбновить", "command": "Обновить", "type": "usual", "title": "Обн",
+                      "picture": "StdPicture.Refresh", "representation": "TextPicture",
+                      "defaultButton": True, "visible": False, "enabled": False}],
+    }, "button and command order")
+    assert_equal(0, run["exit_code"], f"form-edit failed: {run['stdout'][-400:]}")
+    text = _read_form(form)
+
+    def child_tags(tag, name):
+        m = re.search(rf'<{tag}\b[^>]*\bname="{name}"[^>]*>(.*?)\n\t*</{tag}>', text, re.S)
+        assert_true(m, f"no {tag} {name} in:\n{text}")
+        body = m.group(1)
+        return re.findall(r"\n\t{3,4}<(\w+)[ >/]", body), body
+
+    button, button_body = child_tags("Button", "КнопкаОбновить")
+    assert_equal(["Type", "Visible", "Representation", "DefaultButton", "Enabled", "CommandName", "Picture",
+                  "Title", "ExtendedTooltip"], [x for x in button if x != "Events"], "button child order")
+    assert_true("<Representation>PictureAndText</Representation>" in button_body, "button spelling")
+    command, command_body = child_tags("Command", "Обновить")
+    assert_equal(["Title", "Shortcut", "Picture", "Action", "Representation"], command, "command child order")
+    assert_true("<Representation>TextPicture</Representation>" in command_body, "command spelling")
+    assert_equal(0, run_python_tool(FORM_VALIDATE_PY, ["-FormPath", form], work)["exit_code"],
+                 "form-validate must accept the generated form")
+
+
+@case("form-validate: a button or command Representation outside its own enumeration is an error (15)")
+def _(work):
+    def form_with(button_repr, command_repr):
+        return (FORM_HEAD + FORM_BAR
+                + '\t<ChildItems>\n\t\t<Button name="Кнопка" id="1">\n\t\t\t<Type>UsualButton</Type>\n'
+                + f'\t\t\t<Representation>{button_repr}</Representation>\n'
+                + '\t\t\t<CommandName>Form.Command.Команда</CommandName>\n'
+                + '\t\t\t<ExtendedTooltip name="КнопкаРасширеннаяПодсказка" id="2"/>\n\t\t</Button>\n\t</ChildItems>\n'
+                + '\t<Commands>\n\t\t<Command name="Команда" id="1">\n\t\t\t<Action>КомандаОбработка</Action>\n'
+                + f'\t\t\t<Representation>{command_repr}</Representation>\n\t\t</Command>\n\t</Commands>\n</Form>\n')
+    for label, b, c, expected in (("valid", "PictureAndText", "TextPicture", []),
+                                  ("swapped", "TextPicture", "PictureAndText", ["[Button] 'Кнопка'", "[Command] 'Команда'"]),
+                                  ("case", "pictureandtext", "Auto", [])):
+        path = os.path.join(work, f"{label}.xml")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(form_with(b, c))
+        run = run_python_tool(FORM_VALIDATE_PY, ["-FormPath", path], work)
+        found = re.findall(r"\[ERROR\] 15\. (\[\w+\] '[^']+')", run["stdout"])
+        assert_equal(expected, found, f"{label}: {run['stdout'][-500:]}")
+
+
+@case("cfe-borrow: a multi-line text keeps its bytes in the BaseForm copy")
+def _(work):
+    """Only a line break between two tags is indentation; one inside v8:content is text, and a
+    tab added there made the BaseForm copy differ from the configuration's form."""
+    src = os.path.join(work, "cfg")
+    copy_fixture("config-dump", src)
+    _run_ok(FORM_ADD_PY, ["-ObjectPath", os.path.join(src, "Catalogs", "TestCatalog.xml"), "-FormName", "Главная",
+                          "-Purpose", "Object"], work, "form-add")
+    src_form = os.path.join(src, "Catalogs", "TestCatalog", "Forms", "Главная", "Ext", "Form.xml")
+    text = _read_form(src_form)
+    label = ('<LabelDecoration name="Надпись" id="900">\n\t\t\t<Title formatted="false">\n\t\t\t\t<v8:item>\n'
+             '\t\t\t\t\t<v8:lang>ru</v8:lang>\n\t\t\t\t\t<v8:content>Строка один\nСтрока два</v8:content>\n'
+             '\t\t\t\t</v8:item>\n\t\t\t</Title>\n\t\t\t<ContextMenu name="НадписьКонтекстноеМеню" id="901"/>\n'
+             '\t\t\t<ExtendedTooltip name="НадписьРасширеннаяПодсказка" id="902"/>\n\t\t</LabelDecoration>')
+    if "<ChildItems/>" in text:
+        text = text.replace("<ChildItems/>", "<ChildItems>\n\t\t" + label + "\n\t</ChildItems>", 1)
+    else:
+        text = text.replace("<ChildItems>", "<ChildItems>\n\t\t" + label, 1)
+    assert_true("Строка два" in text, "the fixture form has no ChildItems to extend")
+    with open(src_form, "w", encoding="utf-8-sig", newline="") as handle:
+        handle.write(text)
+    ext = os.path.join(work, "ext")
+    _run_ok(CFE_INIT_PY, ["-Name", "Расш", "-OutputDir", ext, "-ConfigPath", src], work, "cfe-init")
+    _run_ok(CFE_BORROW_PY, ["-ExtensionPath", ext, "-ConfigPath", src,
+                            "-Object", "Catalog.TestCatalog.Form.Главная"], work, "cfe-borrow")
+    out = _read_form(os.path.join(ext, "Catalogs", "TestCatalog", "Forms", "Главная", "Ext", "Form.xml"))
+    base = out[out.index("<BaseForm"):]
+    assert_true(re.search(r"Строка один\r?\nСтрока два", base), f"the BaseForm text changed:\n{base[:1500]}")
+    assert_true(re.search(r">\r?\n\t+<", base), "BaseForm lost its indentation between tags")
+
+
 @case("xml layout: form-edit puts new ChildItems, Attributes and Commands sections in place")
 def _(work):
     """Section order follows form-edit.ps1 (ChildItems after Events / AutoCommandBar, Attributes

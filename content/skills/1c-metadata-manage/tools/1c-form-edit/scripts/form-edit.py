@@ -6,6 +6,9 @@
 # ("не задан ни текст запроса, ни основная таблица").
 # Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
 #        an existing XML file (tools/_shared/xml_eol.py).
+# Button and Command children are written in the platform order, and a command's
+# picture-and-text Representation is TextPicture (form-edit.ps1 does the same) -
+# the earlier order and value were refused with an XDTO exception on load.
 import argparse
 import json
 import os
@@ -713,6 +716,22 @@ def emit_button(el, name, _id, indent):
         btn_map = {"usual": "UsualButton", "hyperlink": "Hyperlink", "commandBar": "CommandBarButton"}
         btn_type = btn_map.get(str(el["type"]), str(el["type"]))
         X(f"{inner}<Type>{btn_type}</Type>")
+    # Child order is the platform's (Type, Visible, Representation, DefaultButton,
+    # Enabled, CommandName, Picture, Title, LocationInCommandBar): the loader reads
+    # Form.xml as a sequence, and CommandName before Representation was refused
+    # with an XDTO exception.
+    if el.get("visible") is False or el.get("hidden") is True:
+        X(f"{inner}<Visible>false</Visible>")
+    if el.get("representation"):
+        # A button spells picture-and-text PictureAndText; TextPicture is the command's spelling.
+        btn_repr = "PictureAndText" if str(el["representation"]) == "TextPicture" else str(el["representation"])
+        X(f"{inner}<Representation>{btn_repr}</Representation>")
+    if el.get("defaultButton") is True:
+        X(f"{inner}<DefaultButton>true</DefaultButton>")
+    if el.get("enabled") is False or el.get("disabled") is True:
+        X(f"{inner}<Enabled>false</Enabled>")
+    if el.get("readOnly") is True:
+        X(f"{inner}<ReadOnly>true</ReadOnly>")
     if el.get("command"):
         X(f"{inner}<CommandName>Form.Command.{el['command']}</CommandName>")
     if el.get("stdCommand"):
@@ -722,17 +741,12 @@ def emit_button(el, name, _id, indent):
             X(f"{inner}<CommandName>Form.Item.{m.group(1)}.StandardCommand.{m.group(2)}</CommandName>")
         else:
             X(f"{inner}<CommandName>Form.StandardCommand.{sc}</CommandName>")
-    emit_title(el, name, inner)
-    emit_common_flags(el, inner)
-    if el.get("defaultButton") is True:
-        X(f"{inner}<DefaultButton>true</DefaultButton>")
     if el.get("picture"):
         X(f"{inner}<Picture>")
         X(f"{inner}\t<xr:Ref>{el['picture']}</xr:Ref>")
         X(f"{inner}\t<xr:LoadTransparent>true</xr:LoadTransparent>")
         X(f"{inner}</Picture>")
-    if el.get("representation"):
-        X(f"{inner}<Representation>{el['representation']}</Representation>")
+    emit_title(el, name, inner)
     if el.get("locationInCommandBar"):
         X(f"{inner}<LocationInCommandBar>{el['locationInCommandBar']}</LocationInCommandBar>")
     emit_companion("ExtendedTooltip", f"{name}\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u0430\u044f\u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0430", inner)
@@ -1260,6 +1274,16 @@ if cmds_list:
         if cmd.get("title"):
             emit_mltext("Title", str(cmd["title"]), inner)
 
+        # Platform order: Title, Shortcut, Picture, Action, Representation. A
+        # Picture after Action was refused with an XDTO exception on load.
+        if cmd.get("shortcut"):
+            X(f"{inner}<Shortcut>{cmd['shortcut']}</Shortcut>")
+        if cmd.get("picture"):
+            X(f"{inner}<Picture>")
+            X(f"{inner}\t<xr:Ref>{cmd['picture']}</xr:Ref>")
+            X(f"{inner}\t<xr:LoadTransparent>true</xr:LoadTransparent>")
+            X(f"{inner}</Picture>")
+
         if cmd.get("actions"):
             for act in cmd["actions"]:
                 act_handler = str(act["handler"])
@@ -1269,15 +1293,11 @@ if cmds_list:
             call_type_attr = f' callType="{cmd["callType"]}"' if cmd.get("callType") else ""
             X(f"{inner}<Action{call_type_attr}>{cmd['action']}</Action>")
 
-        if cmd.get("shortcut"):
-            X(f"{inner}<Shortcut>{cmd['shortcut']}</Shortcut>")
-        if cmd.get("picture"):
-            X(f"{inner}<Picture>")
-            X(f"{inner}\t<xr:Ref>{cmd['picture']}</xr:Ref>")
-            X(f"{inner}\t<xr:LoadTransparent>true</xr:LoadTransparent>")
-            X(f"{inner}</Picture>")
         if cmd.get("representation"):
-            X(f"{inner}<Representation>{cmd['representation']}</Representation>")
+            # A command spells picture-and-text TextPicture; PictureAndText is the button's
+            # spelling and is not a value of the command property.
+            cmd_repr = "TextPicture" if str(cmd["representation"]) == "PictureAndText" else str(cmd["representation"])
+            X(f"{inner}<Representation>{cmd_repr}</Representation>")
 
         X(f"{cmd_child_indent}</Command>")
         action_str = ""

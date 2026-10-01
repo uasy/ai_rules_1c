@@ -3,6 +3,8 @@
 # Licence and attribution: NOTICE.md of the 1c-metadata-manage skill.
 # Local: keeps the target file's line endings and adds no "&#13;" when it rewrites
 #        an existing XML file (tools/_shared/xml_eol.py).
+# BaseForm indents only between tags; a multi-line text keeps its bytes (as
+# cfe-borrow.ps1 does).
 
 import argparse
 import os
@@ -26,6 +28,16 @@ FORM_BINDING_DATA_TAGS = ["DataPath", "TitleDataPath", "FooterDataPath", "Header
 # Picture-path binding tags (value = picture index path, never a data attribute) — always stripped in the skeleton.
 FORM_BINDING_PICTURE_TAGS = ["RowPictureDataPath", "MultipleValuePictureDataPath"]
 
+
+
+def add_base_form_indent(xml):
+    """Shift a serialized block one tab deeper for BaseForm. Only a line break
+    between two tags is indentation; one inside a multi-line value (v8:content)
+    is part of the text, and a tab added there made the BaseForm copy differ from
+    the configuration's form. Line breaks are written as CRLF, as before."""
+    xml = re.sub(r"\r?\n", "\r\n", xml)
+    return re.sub(r"(?<=>)[ \t]*(?:\r\n[ \t]*)+(?=<)",
+                  lambda m: m.group(0).replace("\r\n", "\r\n\t"), xml)
 
 def strip_form_bindings(xml, keep_objekt):
     """Strip data-binding tags whose root attribute isn't borrowed.
@@ -1489,21 +1501,11 @@ def main():
             prop_xml_clean = ns_strip_pattern.sub("", prop_xml)
             parts.append(f"\t\t{prop_xml_clean}\r\n")
         if auto_cmd_xml:
-            ac_lines = auto_cmd_xml.split("\n")
-            for li, line in enumerate(ac_lines):
-                if li == 0:
-                    parts.append(f"\t\t{line}")
-                else:
-                    parts.append(f"\t{line}")
-                parts.append("\r\n")
+            parts.append(f"\t\t{add_base_form_indent(auto_cmd_xml)}")
+            parts.append("\r\n")
         if child_items_xml:
-            ci_lines = child_items_xml.split("\n")
-            for li, line in enumerate(ci_lines):
-                if li == 0:
-                    parts.append(f"\t\t{line}")
-                else:
-                    parts.append(f"\t{line}")
-                parts.append("\r\n")
+            parts.append(f"\t\t{add_base_form_indent(child_items_xml)}")
+            parts.append("\r\n")
 
         # BaseForm Attributes: same as main section
         if borrow_main_attr:

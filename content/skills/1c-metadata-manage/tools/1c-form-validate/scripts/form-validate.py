@@ -8,7 +8,8 @@
 # of a default object / record form belongs to the owner and a zero-length
 # Description / Code is not bound (12b); Module.bsl is checked against the
 # handlers Form.xml references (13) and for form-data conversion outside
-# &НаСервере (14).
+# &НаСервере (14); a button or command Representation outside its own
+# enumeration is an error (15).
 
 import argparse
 import os
@@ -1177,6 +1178,29 @@ def main():
                 conversion_errors += 1
         if conversion_errors == 0:
             report_ok("14. Form data conversion: server context only")
+
+    # --- Check 15: Representation of buttons and commands ---
+    # The two properties have different enumerations: a button shows picture and
+    # text as PictureAndText, a command as TextPicture. The other spelling is not a
+    # value of the property, and the platform refuses the file with an XDTO
+    # exception on load.
+    if not stopped:
+        repr_errors = 0
+        repr_allowed = {"Button": ["Auto", "Text", "Picture", "PictureAndText"],
+                        "Command": ["Auto", "Text", "Picture", "TextPicture"]}
+        repr_nodes = [("Button", el["Name"], el["Node"]) for el in all_elements if el["Tag"] == "Button"]
+        repr_nodes += [("Command", cmd.get("name", ""), cmd) for cmd in cmd_nodes]
+        for kind, rname, node in repr_nodes:
+            repr_node = node.find(f"{{{F_NS}}}Representation")
+            if repr_node is None:
+                continue
+            value = "".join(repr_node.itertext()).strip()
+            if value.lower() not in [v.lower() for v in repr_allowed[kind]]:
+                report_error(f"15. [{kind}] '{rname}': Representation='{value}' is not a value of this property "
+                             f"(expected: {', '.join(repr_allowed[kind])})")
+                repr_errors += 1
+        if repr_errors == 0:
+            report_ok("15. Button/command Representation values")
 
     # --- Finalize ---
     checks = ok_count + errors + warnings
