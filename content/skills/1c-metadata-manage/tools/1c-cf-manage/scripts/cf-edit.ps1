@@ -1020,7 +1020,9 @@ Info "Saved: $resolvedPath"
 
 # --- Auto-validate ---
 if (-not $NoValidate) {
-	$validateScript = Join-Path (Join-Path $PSScriptRoot "..\..\cf-validate") "scripts\cf-validate.ps1"
+	# Local: the validator is a sibling in this scripts directory; the upstream
+	# ..\..\cf-validate\scripts path does not exist in this layout, so the check was skipped.
+	$validateScript = Join-Path $PSScriptRoot "cf-validate.ps1"
 	$validateScript = [System.IO.Path]::GetFullPath($validateScript)
 	if (Test-Path $validateScript) {
 		Write-Host ""

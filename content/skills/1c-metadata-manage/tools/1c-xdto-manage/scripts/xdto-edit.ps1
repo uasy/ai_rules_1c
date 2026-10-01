@@ -143,9 +143,11 @@ $encBom = New-Object System.Text.UTF8Encoding($true)
 # применяется к схеме, пакет собирается обратно. Второго эмиттера не заводим —
 # байт-точность для всего нетронутого достаётся от компилятора.
 
-$decompileScript = Join-Path (Join-Path $PSScriptRoot "..\..\xdto-decompile") "scripts\xdto-decompile.ps1"
-$compileScript   = Join-Path (Join-Path $PSScriptRoot "..\..\xdto-compile") "scripts\xdto-compile.ps1"
-$validateScript  = Join-Path (Join-Path $PSScriptRoot "..\..\xdto-validate") "scripts\xdto-validate.ps1"
+# Local: the three are siblings in this scripts directory; the upstream
+# ..\..\xdto-<name>\scripts paths do not exist in this layout.
+$decompileScript = Join-Path $PSScriptRoot "xdto-decompile.ps1"
+$compileScript   = Join-Path $PSScriptRoot "xdto-compile.ps1"
+$validateScript  = Join-Path $PSScriptRoot "xdto-validate.ps1"
 
 # Исключение из автономности навыков, сделанное осознанно: конвертер XSD ↔ модель
 # нельзя скопировать буквально (xdto-compile — скрипт со сквозным потоком, не библиотека),
@@ -161,7 +163,7 @@ function Assert-SiblingsPresent([string]$operation) {
 	$missing = @()
 	foreach ($k in $needed.Keys) { if (-not (Test-Path $needed[$k])) { $missing += $k } }
 	if ($missing.Count -gt 0) {
-		$skillsRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+		$skillsRoot = $PSScriptRoot
 		throw ("Навык неработоспособен: рядом нет " + ($missing -join ", ") + ".`n" +
 		       "Операция `"$operation`" выполняется через " +
 		       $(if ($missing.Count -gt 1) { "них" } else { "него" }) + ".`n" +

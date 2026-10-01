@@ -102,6 +102,14 @@ jobs:
         shell: powershell
         run: .\tools\tests\installer-paths-regression.ps1
 
+      - name: Preserve OpenCode configs (PowerShell 5.1)
+        shell: powershell
+        run: .\tools\tests\opencode-config-preservation.ps1
+
+      - name: Preserve OpenCode configs (PowerShell 7)
+        shell: pwsh
+        run: .\tools\tests\opencode-config-preservation.ps1
+
       # Full Python suite: the port safety contract plus the two gates that need a
       # PowerShell host — remove-form PS/Python parity and installer packaging.
       # -B keeps CI from writing __pycache__ into the checked-out tree.

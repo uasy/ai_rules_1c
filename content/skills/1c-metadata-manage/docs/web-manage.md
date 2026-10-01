@@ -37,9 +37,6 @@ following differences apply to Python:
   Python binds it to `127.0.0.1`, restricts the publication to local requests
   and retains unrelated configuration outside its managed blocks. It is a
   local development publication workflow, not a general web-server manager.
-- `default.vrd` also publishes the HTTP services of the infobase's extensions
-  (`publishExtensionsByDefault="true"`); a PowerShell publication serves only
-  the configuration's own HTTP services, and an extension's service answers 404.
 - Only an Apache process started by these Python tools, with matching saved
   PID, executable and creation identity, can be stopped or restarted. An
   occupied port, foreign PID or process started by PowerShell/service tooling
@@ -151,7 +148,7 @@ After success, report:
 
 - Web client URL: `http://localhost:<Port>/<AppName>`.
 - OData: `http://localhost:<Port>/<AppName>/odata/standard.odata`.
-- HTTP services: `http://localhost:<Port>/<AppName>/hs/<RootUrl>/...`.
+- HTTP services: `http://localhost:<Port>/<AppName>/hs/<RootUrl>/...` — the configuration's and its extensions' (`publishExtensionsByDefault` in `default.vrd`).
 - Web services: `http://localhost:<Port>/<AppName>/ws/<Name>?wsdl`.
 
 ---

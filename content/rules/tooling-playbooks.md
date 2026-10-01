@@ -36,7 +36,7 @@ Load `content/rules/coding-standards.md` first; forms — `forms.md`; non-trivia
 2. `search_code` → `codesearch` — existing patterns in the configuration; `search_function` — an existing routine to reuse; `get_module_structure` — the module you will edit.
 3. `metadatasearch` / `get_metadata_details` — attribute names and types; `bsl_scope_members` — members of a context.
 4. `docinfo` (exact name) / `docsearch` (by description) — built-in functions; `ssl_search` — reusable БСП functions.
-5. Validator chain; then `validatequery` (`1c-data-mcp`, if exposed) for every new / non-trivial query string, especially after AI generation.
+5. Validator chain; then `vcvalidatequery` (`1c-data-mcp`, if exposed) for every new / non-trivial query string, especially after AI generation.
 
 ## Code Review
 
@@ -62,7 +62,7 @@ Method — `standards(name="systematic-debugging")` (`DEBUG_FAST_PATH` for direc
 3. `syntaxcheck` (by path) → `check_1c_code` — syntax and logic defects.
 4. `search_function`, `search_code` (`detail_level="L0"` for a full routine body) → `codesearch`, `get_module_structure` — locate and understand the failing routine; `trace_call_chain` → `get_method_call_hierarchy` — propagation.
 5. `docinfo` / `docsearch`, `metadatasearch` / `get_metadata_details` — verify names the code relies on.
-6. `validatequery` → `vcexecutequery` (read-only) → `vcexecutecode` (read-only fragment; never a mutation without explicit consent — `docs/1c-data-mcp.md → Safety`) — confirm a data-state or platform-behaviour hypothesis in the live IB.
+6. `vcvalidatequery` → `vcexecutequery` (read-only) → `vcexecutecode` (read-only fragment; never a mutation without explicit consent — `docs/1c-data-mcp.md → Safety`) — confirm a data-state or platform-behaviour hypothesis in the live IB.
 7. `modify_1c_code` — targeted AI fix (a draft: re-validate).
 
 ## Performance Optimization
@@ -72,7 +72,7 @@ Method — `standards(name="systematic-debugging")` (`DEBUG_FAST_PATH` for direc
 2. `metadatasearch` / `get_metadata_details` — indexes and structure; establish the baseline result and measured bottleneck. If diagnosis needs `check_1c_code`, first obtain syntax evidence for that same state.
 3. Reuse the common preamble's `templatesearch` result as the base when it fits; search again only for a newly identified gap. `its_help` → `fetch_its` — applicable ITS performance standards **before** choosing the rewrite. Confirm the candidate preserves row multiplicity, values and other required behaviour.
 4. Adapt the matching template, or use `rewrite_1c_code` (`goal: optimize`) when no fitting template exists — a draft. Run the validator chain after the edit.
-5. `validatequery` → bounded read-only `vcexecutequery` (`1c-data-mcp`, test or copy IB) — compare results with the baseline, including duplicates and overlapping conditions, then compare performance. Parsing alone proves neither metadata resolution nor result equivalence (`verification-gates.md → Gate 3a`).
+5. `vcvalidatequery` → bounded read-only `vcexecutequery` (`1c-data-mcp`, test or copy IB) — compare results with the baseline, including duplicates and overlapping conditions, then compare performance. Parsing alone proves neither metadata resolution nor result equivalence (`verification-gates.md → Gate 3a`).
 
 ## Refactoring
 

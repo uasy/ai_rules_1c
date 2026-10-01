@@ -77,19 +77,19 @@ Skipping a gate without recording it under Risks is a defect — the same rule a
 
 ### Gate 3a — Live-IB smoke check (conditional, `1c-data-mcp`)
 
-Gate 3a supplies narrowly scoped evidence from a dev/test infobase. When eligible `1c-data-mcp` tools are available, the agent selects focused behavioural checks needed to resolve a concrete correctness question; UI policy, verification depth and orchestration do not disable them. Distinguish **query parsing**, **metadata resolution**, and **result correctness**: these are separate checks. A clean `validatequery` result proves parsing only; it does not close the metadata or result questions left by static validation.
+Gate 3a supplies narrowly scoped evidence from a dev/test infobase. When eligible `1c-data-mcp` tools are available, the agent selects focused behavioural checks needed to resolve a concrete correctness question; UI policy, verification depth and orchestration do not disable them. Distinguish **query parsing**, **metadata resolution**, and **result correctness**: these are separate checks. A clean `vcvalidatequery` result proves parsing only; it does not close the metadata or result questions left by static validation.
 
 **Triggers — run when all of the following hold:**
 
 1. The change authored or modified 1C **query text** (module code, DCS scheme, dynamic list), a self-contained side-effect-free BSL function whose result the static validators cannot confirm, **or** the agent identifies a concrete behavioural result / boundary case requiring a read-only check. State the expected outcome before execution; do not add unrelated test runs.
-2. The required `1c-data-mcp` capability is exposed in this session and allowed by tool policy (`validatequery`, `vcexecutequery` or `vcexecutecode`, as applicable).
+2. The required `1c-data-mcp` capability is exposed in this session and allowed by tool policy (`vcvalidatequery`, `vcexecutequery` or `vcexecutecode`, as applicable).
 3. The connected infobase is a development / test base (`INFOBASE_ROLE`). **On a production infobase this gate is not run** — record the skip and move on.
 
 **Without `1c-data-mcp`.** When `TOOL_DATA` is `auto` and no `1c-data-mcp` capability is exposed (not installed or not running), run the same read-only checks through `Dbg_Executor` of the `1c-test-debug` skill on the dev/test infobase; every rule of this gate applies, report `Gate 3a (Dbg_Executor)`. `TOOL_DATA=off` or `required` is not replaced this way.
 
 **Execution:**
 
-- **Query parsing → `validatequery`.** Pass criterion: `"нет ошибок"`. This parses the query and discovers parameter names; it does **not** execute it, verify that tables / fields exist, check parameter values or evaluate RLS (`content/skills/mcp-1c-tools/docs/1c-data-mcp.md`).
+- **Query parsing → `vcvalidatequery`.** Pass criterion: `"нет ошибок"`. This parses the query and discovers parameter names; it does **not** execute it, verify that tables / fields exist, check parameter values or evaluate RLS (`content/skills/mcp-1c-tools/docs/1c-data-mcp.md`).
 - **Metadata references / runtime resolution.** Reuse current metadata lookups to confirm referenced tables, fields and types; those lookups alone do not prove the whole query resolves at runtime. If runtime resolution is the open question, use a bounded read-only `vcexecutequery` against a dev/test IB with the relevant current metadata / extensions and representative safe parameter values; record that state and the technical user's rights. A successful run proves resolution only for that tested query and context.
 - **Result correctness → expected-value comparison.** For a query, compare returned rows / values against the stated scenario; for a pure function use a **read-only** `vcexecutecode` fragment returning the value via `Результат`. `"ошибок нет"` without an expected-value comparison proves absence of a runtime exception only. A run under the technical user does not prove RLS behaviour for other users.
 - **Mutations are out of scope for this gate.** No `Записать()` / `Удалить()` / `НачатьТранзакцию` / register movements — the read-only discipline and the consent rules of `content/skills/mcp-1c-tools/docs/1c-data-mcp.md → Safety and discipline` apply unchanged. If confirming the change requires a mutation, that is a task for `1c-tester` against a test base, not for this gate.

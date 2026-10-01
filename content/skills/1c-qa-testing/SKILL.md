@@ -65,6 +65,46 @@ The first form may still be loading right after the client starts: repeat read-o
 - `ui_close_form` closes the named form (`form=`, `title=`, `name=`, `form_name=`) or the active non-main window. It never closes the main window and closes nothing when the named form is not found.
 - The MCPQAClient extension enables `ui_form_schema`, `qa_data_candidates` and `ui_open` through `ОткрытьФорму`; without it `ui_open` opens forms by navigation link. Installing it is a change of the test infobase (`qa-testclient.md → MCPQAClient extension`).
 
+## Recipes
+
+Call sequences for the frequent actions, run live on server 0.7.9 and platform 8.3.27.2130 (01.10.2026). They hold what the tool descriptions do not say: which calls, in which order, and what in the answer shows the step is done. Names of elements, tables and buttons are examples — take the real ones from the form (`ui_window_tree(detail="lite")`; buttons: `ui_form(action="command_bar")`).
+
+Load a tool schema only for a tool or argument that is not shown here. Where the host loads schemas on demand, ask for the base set in one request: `qa_status`, `qa_start`, `qa_stop`, `ui_open`, `ui_active_window`, `ui_window_tree`, `ui_list`, `ui_table`, `ui_get_text`, `ui_input`, `ui_select`, `ui_click`, `ui_form`, `ui_dialog`, `ui_wait`, `ui_close_form`, `ui_close_all`, `ui_messages`, `ui_errors`.
+
+| Goal | Calls, in order | Done when |
+|---|---|---|
+| Clean start | `ui_close_all()` | `windows`: the main window and the home page only |
+| Open a list | `ui_open(kind="catalog", metadata_name="Организации")` (`kind` in English or Russian, or `metadata_name="Справочник.Организации"` alone) | `opened: true`, `form_name` |
+| First item of the list | `ui_table(action="first", name="Список")` → `ui_table(action="select", name="Список")` | `window_after`: `title`, `form_name` of the item form; `url` from `ui_active_window()` when needed |
+| Item of a known row | `ui_table(action="select", name="Список", row={"Наименование": "Крон-Ц"})` — the choice is made on the column of `row=` (or `column=`) | same; a missing row is the error «Строка таблицы не найдена», nothing opened |
+| Item in a long list | `ui_list(action="search", text="Крон")` → `select` with `row=` as above; `ui_list(action="clear_search")` before the list is used again | the search `rows` hold the row |
+| The same object again | `ui_open(link="<url from ui_active_window>", target_form_name="<its form_name>")` | `opened: true` |
+| New object | on its list: `ui_table(action="add", name="Список")` | `window_after.title` ends with «(создание)» |
+| Read a field | `ui_get_text(name="Наименование")` | `edit_text` |
+| Plain field | `ui_input(text="12,5", name="Цена")` → `ui_activate(name="<next field>")` | `value_after`, `verified: true`; `ui_messages()` when the change has checks |
+| Reference field | `ui_select(value="Молоко", name="Номенклатура")`; a composite type also needs `data_type=` | `actual` equals the value |
+| Row of a tabular section | `ui_table(action="add", name="Товары")` → `ui_select(value="Молоко", name="ТоварыНоменклатура", table="Товары")` → `ui_table(action="input_cell", name="Товары", column="ТоварыКоличество", value="5")` | `value_after`, `verified: true`; `ui_table(action="current", name="Товары")` shows the row |
+| Write and stay | `ui_click(name="ФормаЗаписать")` → `ui_active_window()` → `ui_messages()`, `ui_errors()` | title without «(создание)» and « *», `modified: false`, `has_error: false` |
+| Write or post and close | `ui_click(name="ФормаЗаписатьИЗакрыть")` (`ФормаПровестиИЗакрыть`) → `ui_wait(form_name="<form_name>", closed=True)` → `ui_messages()` | `closed: true`; a form that stayed open has the reason in the messages or in a question |
+| Answer a question | `ui_active_window()` (`form_name: MessageBox`), its text in `ui_window_tree(detail="lite")` → `ui_dialog(title="Нет")` | `clicked: true`, then the window behind it |
+| Close a form | `ui_close_form(form_name="<form_name>", on_prompt="discard")` (`save`, `cancel`) | `closed: true`; `blocked_by` names a question left open |
+
+What goes wrong around them:
+
+1. `select`, `edit`, `delete` and `copy` act on the current row unless `row=` is given; then they go to that row first and refuse when it is missing. Reading rows keeps the cursor where it was and answers `current_row` (servers before 0.7.9 left it on the last row read).
+2. `ui_table(action="edit")` on a list opens the item form (`window_after`, `editing: false`) — it does not edit the row in place; open items with `select` and never call `end_edit` after it.
+3. `kind` values: `catalog`, `document`, `dataProcessor`, `report`, `informationRegister`, `accumulationRegister`, `chartOfCharacteristicTypes`, `chartOfAccounts`, `chartOfCalculationTypes`, `businessProcess`, `task`, `exchangePlan`, `commonForm`, or the Russian name of the kind (before 0.7.9 only the English ones).
+4. Form selectors (`target_title`, `title=` of `ui_close_form` and `ui_wait`) compare the whole title, without wildcards, and a modified form's title gets « *». Address a form by `form_name`.
+5. Elements are searched in the active window first, then in the whole application. An answer with `found_in` came from a window that is not the active one — a list under the card opened over it: check it is the window you mean.
+6. A configuration may hide a standard button and show its own with the same title (`КомандаЗаписатьИЗакрыть` beside a hidden `ФормаЗаписатьИЗакрыть`): take the name from `ui_form(action="command_bar")` or the `lite` tree — both list visible buttons only.
+7. `ui_window_tree()` is `lite` by default: visible elements without values, hidden ones counted in `hidden_skipped`. Values and states need `detail="form"`; on a large form that is tens of thousands of characters — read single fields with `ui_get_text` instead.
+8. A wrong metadata name or an exception in the form's code ends `ui_open` at once with the error text, and the error window stays open: `ui_dialog(title="OK")`, then take the exact name from the metadata (`1c-meta-info`). `ui_errors` returns the text of an open `ErrorWindow`.
+9. `ui_dialog(action="click")` needs `title=` or `name=` of the button; without them nothing is pressed.
+10. `ui_set` with text several items start with may leave the choice list open: `dropdown_selected: false`, `dropdown_open: true` — pick with `ui_field(action="dropdown_select", value=…)`. A click while the list is open only closes it.
+11. A report after «Сформировать»: an empty `ui_spreadsheet(action="size")` with `state.text` «Отчет формируется...» is not ready — read again after a pause; «Изменились настройки…» means the click did not generate it, click again.
+
+Two attempts one way are the limit. After the second failure read the window (`ui_active_window`, `ui_window_tree(detail="lite")`), then choose another way or report what was reached; do not vary arguments blindly.
+
 ## Platform behaviour (8.3.27.2130, measured)
 
 - **Idle link.** The test client drops a manager link that has been silent for 200 s. QA MCP after 0.7.2 and the platform manager keep the link alive; on 0.7.2 and earlier call `qa_reconnect(force=True)` after a pause of more than about 3 minutes. `qa_status` shows a lost link.
@@ -86,7 +126,7 @@ The first form may still be loading right after the client starts: repeat read-o
 
 ## Test journal and verdicts
 
-Keep a journal of every check so that another session can continue it after a crash, a lost link or a context reset.
+Keep a journal of every check so that another session can continue it after a crash, a lost link or a context reset. A one-off request to open or show something — no change under check, no data written — needs no journal and no screenshot: answer with what was read.
 
 - Where: the task's output directory; otherwise `%TEMP%\qa-runs\<YYYY-MM-DD>-<short name>\journal.md`. Screenshots go next to it. Give the path in the report.
 - Write it as you go, after each step:

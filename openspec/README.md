@@ -43,8 +43,11 @@ regenerates `openspec/project.md` from real 1C metadata signals:
   `Use*FormIn*Application` (→ form mode: managed / ordinary / mixed),
   `NamePrefix` (→ extension marker)
 - `CommonModules/СтандартныеПодсистемыСервер/Ext/Module.bsl` (or English
-  `StandardSubsystemsServer`) — БСП presence and version (parsed from
-  `Функция ВерсияБиблиотеки()` / `Function LibraryVersion()`)
+  `StandardSubsystemsServer`) — БСП presence;
+  `CommonModules/ОбновлениеИнформационнойБазыБСП/Ext/Module.bsl`
+  (`InfobaseUpdateSSL`) — БСП version (`Описание.Версия` in
+  `ПриДобавленииПодсистемы`), for old БСП the literal returned by
+  `Функция ВерсияБиблиотеки()` / `Function LibraryVersion()`
 - `Subsystems/*.xml` — top-level subsystems
 - `Catalogs/`, `Documents/`, `*Registers/`, `CommonModules/`, … — metadata
   counts

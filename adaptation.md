@@ -40,8 +40,8 @@
 - **Управляемый файл изменён на месте** (хэш ≠ `installedHash`): выяснить, что в правке. Перенесена в `dev` — взять из `dev`; не перенесена — сначала перенос. Молча помечать `userModified` нельзя: файл перестанет обновляться, а его копия для другого клиента разойдётся с ним.
 - **Проектные файлы с `userModified`** (`.mcp.json`, `.codex/config.toml`, `openspec/project.md`, `USER-RULES.md`, `memory.md`, `LLM-RULES.md`, `CLAUDE.md`): не перезаписывать и не генерировать заново.
 - **`.dev.env`**: только дописать недостающие ключи, значения не менять. `INFOBASE_ROLE` задаёт пользователь.
-- **Файлы OpenSpec** (`opsx/*`, `openspec-*`): установленные удалить до размещения и поставить из текущего бандла (раздел F).
-- **`__pycache__`**: не копировать; удалить в `content/` до установки и в проекте, если остался.
+- **Файлы OpenSpec** (`opsx/*`, `openspec-*`): обновляются из текущего бандла; неучтённая копия, совпадающая с файлом бандла байт в байт, берётся под управление, как это делает `install.ps1`.
+- **`__pycache__`**: не копировать (как и `install.ps1`); копию, оставшуюся в проекте от прошлой установки, удалить.
 - **Общие файлы вне проекта** (`~/.codex/prompts/*.md`) принадлежат манифестам нескольких проектов: их изменение после обновления первого проекта — не правка пользователя.
 - **Сироты манифеста** (источника в `dev` больше нет) удаляются. Файлы вне манифеста не трогаются без решения пользователя.
 
@@ -68,10 +68,10 @@
 
 Апстрим поставляет Python-точки входа для пяти команд метаданных и четырёх веб-команд `1c-web-ops`. `dev` поставляет Python-двойник для каждого инструмента, чтобы навык работал на Linux / macOS без PowerShell.
 
-- **Порты:** `content/skills/1c-metadata-manage/tools/*/scripts/*.py`. Веб-команды `tools/1c-web-ops/` — реализация апстрима (`web_common.py`) с одним отличием, ниже. Не портирован `tools/_common/DevEnv.ps1` (его Python-аналог — `dev_env.py`).
+- **Порты:** `content/skills/1c-metadata-manage/tools/*/scripts/*.py`. Веб-команды `tools/1c-web-ops/` — реализация апстрима (`web_common.py`) без отличий. Не портирован `tools/_common/DevEnv.ps1` (его Python-аналог — `dev_env.py`).
 - **Общие помощники:** `tools/_common/Invoke-1CEdit.py`, `tools/_common/MetadataAddress.py`, `tools/_common/meta_dsl.py`, `tools/_common/platform_args.py`, `tools/_shared/support_guard.py`, `tools/_shared/xml_eol.py`.
 - **Документация:** `content/skills/1c-metadata-manage/SKILL.md` (уровни Python-портов, Python-обёртка preview), `content/skills/1c-metadata-manage/NOTICE.md` (локальные отличия портов), `content/skills/1c-metadata-manage/docs/CHANGELOG.md` (записи об изменениях портов), `content/skills/1c-metadata-manage/docs/edit-preview.md` (Python-обёртка и та же политика preview), `content/skills/1c-metadata-manage/docs/cf-manage.md` (вызов `dump-validate.py`), `content/skills/1c-metadata-manage/docs/template-manage.md` (абзац об `add-template.py`), `content/skills/1c-metadata-manage/docs/db-manage.md` (параметры `ibcmd` для базы в СУБД с пометкой «только Python»), `content/skills/1c-metadata-manage/docs/web-manage.md` (пункт о публикации HTTP-сервисов расширений), `content/commands/installfilesupdatescript.md` (раздел «Linux» для `install-files-update.py`).
-- **Тесты:** `tools/tests/python-ports-regression.py` и фикстура `tools/tests/fixtures/epf-with-template/`; `tools/tests/extension-tools-regression.py` — `cfe-diff -Mode A` и инструменты `1c-extension-analysis` на синтетическом расширении; отличие веб-команд — в `tools/tests/web-python-regression.py` апстрима. Проверка апстрима «ports: exactly the documented commands have a Python peer» у нас ослаблена до «у документированных команд есть `.py`»: `.py` есть у каждого инструмента, поэтому требование «больше ни у кого» к `dev` неприменимо.
+- **Тесты:** `tools/tests/python-ports-regression.py` и фикстура `tools/tests/fixtures/epf-with-template/`; `tools/tests/extension-tools-regression.py` — `cfe-diff -Mode A` и инструменты `1c-extension-analysis` на синтетическом расширении; в `tools/tests/web-python-regression.py` апстрима добавлен тест на `publishExtensionsByDefault` (у апстрима его нет). Проверка апстрима «ports: exactly the documented commands have a Python peer» у нас ослаблена до «у документированных команд есть `.py`»: `.py` есть у каждого инструмента, поэтому требование «больше ни у кого» к `dev` неприменимо.
 
 ### Отличия портов от поведения апстрима
 
@@ -79,12 +79,10 @@
 |---|---|---|
 | `cf-edit.py`, `cfe-borrow.py`, `subsystem-compile.py`, `subsystem-edit.py`, `interface-edit.py`, `form-edit.py`, `add-help.py`, `add-template.py` | При перезаписи существующего XML сохраняется стиль строк файла; вставленные отступы не записываются как `&#13;` (`xml_eol.py`) | `lxml` при разборе приводит CRLF к LF и сериализует CR в тексте как `&#13;` |
 | `form-compile.py` | Регистрация формы в объекте сохраняет стиль строк файла объекта | Чтение в текстовом режиме приводит CRLF к LF |
-| `cf-edit.py`, `interface-edit.py`, `subsystem-compile.py`, `subsystem-edit.py` | Автопроверка вызывает соседний валидатор | Путь `../../<валидатор>/scripts/…`, который использует апстрим, в этой раскладке не существует — проверка молча пропускается. Кандидат в support |
 | `add-template.py` | `-ObjectName` принимает путь к XML объекта | Так же, как `add-template.ps1` апстрима |
 | `remove-template.py` | Гейт `-DryRun` / `-Force`, предварительный разбор, атомарная запись корневого XML | Так же, как `remove-template.ps1` апстрима |
 | `meta-edit.py` | Отказ на `add-template` называет и `add-template.py` | У апстрима сказано, что Python-версии нет; `dev` её поставляет |
 | `support_guard.py` | Режим защиты берётся только из `SUPPORT_GUARD` в `.dev.env`, без обращения к `.v8-project.json` | `.dev.env` — единственный источник рабочих параметров проекта |
-| `web_common.py` (`vrd_content()`) | В `default.vrd` задано `publishExtensionsByDefault="true"`; описано в `docs/web-manage.md` и `NOTICE.md` | Без атрибута HTTP-сервисы расширений отвечают 404. У апстрима та же ошибка и в `web_common.py`, и в `web-publish.ps1` — кандидат в support |
 | `install-files-update.py` | Таймер systemd пользователя вместо задачи планировщика Windows; зеркалирование на Python вместо `robocopy /MIR`, неизменённые файлы не перезаписываются; отказ на символических ссылках; `1cv8` — `PLATFORM_PATH/bin/1cv8` или `PLATFORM_PATH/1cv8`. В `content/commands/installfilesupdatescript.md` — отдельные абзацы: «**Linux.**» после вводной части (переадресует на раздел «Linux») и раздел «Linux» в конце; текст апстрима не тронут | У `.ps1` нет Linux-варианта; таймер без linger, как и задача Windows, работает только в сеансе пользователя — конфигуратору нужен дисплей. Неперезапись неизменённых файлов не заставляет MCP переиндексировать весь каталог. |
 | `cfe-diff.py` | Режим A показывает всё, что несёт заимствованный объект: свои дочерние объекты любого вида (владение «голых» имён — по их собственному описанию), свойства из `<xr:PropertyState>` с подробностями, добавленный `Content` подсистемы, отличия заимствованной формы от `<BaseForm>`; модули ищутся рекурсивно в `Ext/`, в `Commands/` и в корневом `Ext/`; `Language` и типы вне карты не пропускаются; в конце — файлы, которые ни одна строка не разобрала (`[UNCLASSIFIED]`) | `cfe-diff.ps1` апстрима молча пропускает это, и инвентаризация расширения выходит неполной. Закреплено `tools/tests/extension-tools-regression.py`; кандидат в upstream |
 | `db-run.py` | Флаги `-Out`, `-Wait` и `-ClientKind` | В пакетном режиме ошибки запуска видны только в `/Out`; `-Wait` возвращает код завершения клиента; `-ClientKind thin` запускает тонкий клиент — толстый к автономному серверу (`ibsrv`) не подключается |
@@ -124,10 +122,8 @@
 
 ## F. Известные ошибки апстрима без локального исправления
 
-Кандидаты в support; до исправления обходятся при установке.
+Кандидаты в support; до исправления обходятся.
 
-- `install.ps1`: при обновлении из манифеста выбрасываются записи без `userModified`, после чего `Invoke-OpenSpecArtifacts` считает существующие файлы OpenSpec пользовательскими и не обновляет их. Бандл остаётся старым, новые команды встают рядом. Обход: перед обновлением удалить установленные `opsx/*` и `openspec-*`.
-- `install.ps1`: навыки копируются из рабочего дерева целиком, включая игнорируемые git `__pycache__`. Обход: удалить `__pycache__` в `content/` перед установкой.
 - `1c-graph-metadata-mcp`: `explain_graph_entity` отвечает `not_found` на `node_id`, который сам выдал `resolve_graph_entity`; `get_object_dossier` смешивает слои основной конфигурации и расширения в один список; в графе нет процедур модулей общих форм (`CommonForms/*/Ext/Form/Module.bsl`). Обход описан в `content/skills/1c-extension-analysis/SKILL.md → MCP usage`.
 
 ## Этот файл

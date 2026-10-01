@@ -13,7 +13,7 @@ Escalate here only when the configuration dump, the static validators and the do
 
 | Need | Call | Arguments | Pass criterion |
 |---|---|---|---|
-| Does the query parse | `validatequery` | `querytext` | `"нет ошибок"` — parse only, no metadata or RLS check |
+| Does the query parse | `vcvalidatequery` | `querytext` | `"нет ошибок"` — parse only, no metadata or RLS check |
 | What does it return on real data | `vcexecutequery` | `querytext` with parameters embedded in the text | text table |
 | Does the fragment run on this platform | `vcexecutecode` | `bslcode`; assign `Результат = …` to get a value back | `"ошибок нет"` or the error text |
 | Last error in the event log | `vcloggetlasterror` | — (24 h window, level `Ошибка`, one record) | formatted record or `"ошибок не найдено"` |
@@ -21,7 +21,7 @@ Escalate here only when the configuration dump, the static validators and the do
 ## Calls
 
 ```json
-{"tool": "validatequery", "args": {"querytext": "ВЫБРАТЬ Т.Ссылка ИЗ Справочник.Контрагенты КАК Т ГДЕ Т.ИНН = \"7701234567\""}}
+{"tool": "vcvalidatequery", "args": {"querytext": "ВЫБРАТЬ Т.Ссылка ИЗ Справочник.Контрагенты КАК Т ГДЕ Т.ИНН = \"7701234567\""}}
 {"tool": "vcexecutequery", "args": {"querytext": "ВЫБРАТЬ ПЕРВЫЕ 5 Т.Ссылка, Т.ИНН ИЗ Справочник.Контрагенты КАК Т"}}
 {"tool": "vcexecutecode", "args": {"bslcode": "Результат = Строка(Метаданные.Справочники.Контрагенты.Реквизиты.ИНН.Тип.КвалификаторыСтроки.Длина);"}}
 {"tool": "vcloggetlasterror", "args": {}}
@@ -29,10 +29,10 @@ Escalate here only when the configuration dump, the static validators and the do
 
 ## Safety
 
-- Read-only first: `validatequery` → `vcexecutequery`; non-mutating fragments for `vcexecutecode`.
+- Read-only first: `vcvalidatequery` → `vcexecutequery`; non-mutating fragments for `vcexecutecode`.
 - No `Записать()`, `Удалить()`, `НачатьТранзакцию`, register movements without asking the user, naming the object and having a rollback plan; on a production IB (`.dev.env` `INFOBASE_ROLE=prod`) refuse and request a copy.
 - No secrets or personal data in `bslcode` / `querytext` — they travel over HTTP and may be logged.
-- Validate AI-generated text first (`validatequery`, `syntaxcheck`), then run it here.
+- Validate AI-generated text first (`vcvalidatequery`, `syntaxcheck`), then run it here.
 - Gate 3a (`content/rules/verification-gates.md`) uses only the read-only tools.
 
 Where it sits in the playbooks: error fixing step 2 and 6, performance step 5, new-code step 5 — `content/rules/tooling-playbooks.md`. Setup and 401/403 troubleshooting — `content/commands/checkmcp.md`. Details: `content/skills/mcp-1c-tools/docs/1c-data-mcp.md`.

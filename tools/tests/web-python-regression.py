@@ -97,7 +97,7 @@ class WebRegression(unittest.TestCase):
         self.assertEqual(str(self.apache), command[command.index("-d") + 1])
 
     def test_publish_vrd_publishes_extension_http_services(self):
-        # Local: pins publishExtensionsByDefault (web_common.vrd_content).
+        # Pins publishExtensionsByDefault (web_common.vrd_content).
         self.assertEqual(0, self.publish()[0])
         root = ET.parse(self.apache / "publish/demo/default.vrd").getroot()
         services = root.find("{http://v8.1c.ru/8.2/virtual-resource-system}httpServices")

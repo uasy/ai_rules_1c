@@ -7,7 +7,8 @@
 # of a default object / record form belongs to the owner and a zero-length
 # Description / Code is not bound (12b); Module.bsl is checked against the
 # handlers Form.xml references (13) and for form-data conversion outside
-# &НаСервере (14).
+# &НаСервере (14); a button or command Representation outside its own
+# enumeration is an error (15).
 param(
 	[Parameter(Mandatory)]
 	[Alias('Path')]
@@ -1209,6 +1210,30 @@ if (-not $stopped -and (Test-Path -LiteralPath $modulePath)) {
 		}
 	}
 	if ($conversionErrors -eq 0) { Report-OK "14. Form data conversion: server context only" }
+}
+
+# --- Check 15 (local): Representation of buttons and commands ---
+# The two properties have different enumerations: a button shows picture and
+# text as PictureAndText, a command as TextPicture. The other spelling is not a
+# value of the property, and the platform refuses the file with an XDTO
+# exception on load.
+
+if (-not $stopped) {
+	$reprErrors = 0
+	$reprAllowed = @{ "Button" = @("Auto", "Text", "Picture", "PictureAndText"); "Command" = @("Auto", "Text", "Picture", "TextPicture") }
+	$reprNodes = @()
+	foreach ($el in $allElements) { if ($el.Tag -eq "Button") { $reprNodes += @{ Kind = "Button"; Name = $el.Name; Node = $el.Node } } }
+	foreach ($cmd in $cmdNodes) { $reprNodes += @{ Kind = "Command"; Name = $cmd.GetAttribute("name"); Node = $cmd } }
+	foreach ($rn in $reprNodes) {
+		$reprNode = $rn.Node.SelectSingleNode("f:Representation", $nsMgr)
+		if (-not $reprNode) { continue }
+		$value = $reprNode.InnerText.Trim()
+		if ($reprAllowed[$rn.Kind] -notcontains $value) {
+			Report-Error "15. [$($rn.Kind)] '$($rn.Name)': Representation='$value' is not a value of this property (expected: $($reprAllowed[$rn.Kind] -join ', '))"
+			$reprErrors++
+		}
+	}
+	if ($reprErrors -eq 0) { Report-OK "15. Button/command Representation values" }
 }
 
 # --- Summary ---

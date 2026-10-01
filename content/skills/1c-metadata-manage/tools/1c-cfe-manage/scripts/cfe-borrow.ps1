@@ -1,5 +1,6 @@
 ﻿# cfe-borrow v1.9 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: BaseForm indents only between tags; a multi-line text keeps its bytes.
 param(
 	[Parameter(Mandatory)][string]$ExtensionPath,
 	[Parameter(Mandatory)][string]$ConfigPath,
@@ -300,6 +301,15 @@ $commonModuleProps = @("Global","ClientManagedApplication","Server","ExternalCon
 
 # Standard system fields to skip when collecting DataPath references
 $script:standardFields = @("Code","Description","Ref","Parent","DeletionMark","Predefined","IsFolder","LineNumber","RowsCount","PredefinedDataName")
+
+# Local: shift a serialized block one tab deeper for BaseForm. Only a line break
+# between two tags is indentation; one inside a multi-line value (v8:content)
+# is part of the text, and a tab added there made the BaseForm copy differ from
+# the configuration's form. Line breaks are written as CRLF, as before.
+function Add-BaseFormIndent([string]$xml) {
+	$xml = $xml -replace "`r?`n", "`r`n"
+	return [regex]::Replace($xml, '(?<=>)[ \t]*(?:\r\n[ \t]*)+(?=<)', { param($m) $m.Value.Replace("`r`n", "`r`n`t") })
+}
 
 # --- 7. XML manipulation helpers (from cf-edit) ---
 function Get-ChildIndent($container) {
@@ -849,21 +859,13 @@ function Borrow-Form {
 		$formXmlSb.Append("`t`t$propXml`r`n") | Out-Null
 	}
 	if ($autoCmdXml) {
-		$acLines = $autoCmdXml -split "`r?`n"
-		for ($li = 0; $li -lt $acLines.Count; $li++) {
-			if ($li -eq 0) { $formXmlSb.Append("`t`t$($acLines[$li])") | Out-Null }
-			else { $formXmlSb.Append("`t$($acLines[$li])") | Out-Null }
-			$formXmlSb.Append("`r`n") | Out-Null
-		}
+		$formXmlSb.Append("`t`t$(Add-BaseFormIndent $autoCmdXml)") | Out-Null
+		$formXmlSb.Append("`r`n") | Out-Null
 	}
 	if ($childItemsXml) {
 		# Reindent ChildItems for BaseForm (+1 tab level)
-		$ciLines = $childItemsXml -split "`r?`n"
-		for ($li = 0; $li -lt $ciLines.Count; $li++) {
-			if ($li -eq 0) { $formXmlSb.Append("`t`t$($ciLines[$li])") | Out-Null }
-			else { $formXmlSb.Append("`t$($ciLines[$li])") | Out-Null }
-			$formXmlSb.Append("`r`n") | Out-Null
-		}
+		$formXmlSb.Append("`t`t$(Add-BaseFormIndent $childItemsXml)") | Out-Null
+		$formXmlSb.Append("`r`n") | Out-Null
 	}
 
 	# BaseForm Attributes: same as main section

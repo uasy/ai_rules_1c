@@ -295,7 +295,7 @@ $vrdContent = @"
        ib="$ibString">
     <standardOdata enable="true"/>
     <ws pointEnableCommon="true"/>
-    <httpServices publishByDefault="true"/>
+    <httpServices publishByDefault="true" publishExtensionsByDefault="true"/>
 </point>
 "@
 

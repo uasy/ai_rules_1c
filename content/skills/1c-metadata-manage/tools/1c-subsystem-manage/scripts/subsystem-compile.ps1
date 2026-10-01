@@ -698,7 +698,8 @@ if ($parentXmlPath -and (Test-Path $parentXmlPath)) {
 
 # --- 7. Auto-validate ---
 if (-not $NoValidate) {
-	$validateScript = Join-Path (Join-Path $PSScriptRoot "..\..\subsystem-validate") "scripts\subsystem-validate.ps1"
+	# Local: sibling validator (the upstream ..\..\subsystem-validate path does not exist here).
+	$validateScript = Join-Path $PSScriptRoot "subsystem-validate.ps1"
 	$validateScript = [System.IO.Path]::GetFullPath($validateScript)
 	if (Test-Path $validateScript) {
 		Write-Host ""

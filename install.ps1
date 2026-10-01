@@ -130,6 +130,9 @@ $script:DevEnvExampleName = '.dev.env.example'
 $script:UseEdtKey = 'USE_EDT'
 $script:SupportKeys = @('SUPPORT_KEY', 'SUPPORT_EMAIL', 'SUPPORT_API_URL')
 $script:SupportedTools = @('cursor', 'claude-code', 'codex', 'opencode', 'kilocode', 'kimi', 'qwen', 'command-code', 'cline', 'zcode', 'mimocode', 'pi', 'other')
+# OpenCode configs belong to the user, including files tracked by older
+# installers. Never migrate, rewrite or remove any of these paths.
+$script:OpenCodeConfigPaths = @('opencode.json', 'opencode.jsonc', '.opencode/opencode.json', '.opencode/opencode.jsonc')
 $script:ManagedBlocks = @('core', 'user-defined', 'openspec')
 $script:LastChannel = 'powershell'
 $script:Utf8NoBom = New-Object System.Text.UTF8Encoding $false
@@ -1186,8 +1189,8 @@ function ConvertTo-OpenCodeMcpKey {
 
 function New-McpConfig-OpenCode {
     # OpenCode MCP schema (https://opencode.ai/docs/mcp-servers/). The config
-    # goes into `opencode.json` at the PROJECT ROOT (see adapters/opencode.yaml
-    # > mcp.target) — NOT `.opencode/opencode.json`, which OpenCode never reads.
+    # defaults to `opencode.json` at the project root for a fresh installation.
+    # Existing configs (including .opencode/ and JSONC) are preserved in place.
     # Each entry is validated with Zod `.strict()`: ONLY the documented keys are
     # allowed, and any unknown key (e.g. `description`, `connection_id`) makes
     # OpenCode reject the whole config so the servers silently never load.
@@ -1348,7 +1351,7 @@ function Get-ToolDetectionSignals {
         'cursor'       = @((Test-Path (Join-Path $Root '.cursor')))
         'claude-code'  = @((Test-Path (Join-Path $Root '.claude')), (Test-Path (Join-Path $Root 'CLAUDE.md')))
         'codex'        = @((Test-Path (Join-Path $Root '.codex')))
-        'opencode'     = @((Test-Path (Join-Path $Root '.opencode')), (Test-Path (Join-Path $Root 'opencode.json')))
+        'opencode'     = @((Test-Path (Join-Path $Root '.opencode')), (Test-Path (Join-Path $Root 'opencode.json')), (Test-Path (Join-Path $Root 'opencode.jsonc')))
         'kilocode'     = @((Test-Path (Join-Path $Root '.kilo')), (Test-Path (Join-Path $Root '.kilocode')))
         'kimi'         = @((Test-Path (Join-Path $Root '.kimi-code')), (Test-Path (Join-Path $Root '.kimi')))
         'qwen'         = @((Test-Path (Join-Path $Root '.qwen')), (Test-Path (Join-Path $Root 'QWEN.md')))
@@ -1686,9 +1689,14 @@ function Invoke-OpenSpecArtifacts {
                 }
             }
             $absTarget = Join-Path $Root $destRel
-            if ((Test-Path $absTarget) -and -not $Manifest.files.Contains($destRel)) {
+            if ((Test-Path $absTarget) -and -not $Manifest.files.Contains($destRel) -and
+                -not (Test-ForcePath $destRel) -and
+                (Get-FileSha256 $absTarget) -ne (Get-FileSha256 $_.FullName)) {
                 # Pre-existing OpenSpec command/skill is user-owned. The bundle
                 # is skip-if-exists on first install; never adopt and overwrite it.
+                # A byte-identical copy is ours already (an update before the
+                # manifest kept bundle entries dropped them) and is adopted;
+                # -Force / -ForcePaths take an older untracked copy back.
                 $toolKept++
                 return
             }
@@ -1705,7 +1713,7 @@ function Invoke-OpenSpecArtifacts {
         }
         if ($toolCopied -gt 0 -or $toolKept -gt 0) {
             $msg = "  [$tool] OpenSpec artefacts: $toolCopied placed"
-            if ($toolKept -gt 0) { $msg += ", $toolKept kept (userModified)" }
+            if ($toolKept -gt 0) { $msg += ", $toolKept kept (user-owned)" }
             Write-Info $msg
         }
         $totalCopied += $toolCopied
@@ -1860,8 +1868,13 @@ function Get-1cProjectInfo {
     if ($info.NamePrefix -and -not $info.IsExtension) { $info.IsExtension = $true }
 
     # БСП detection — common module path is the canonical signal; fall back to
-    # the matching subsystem .xml. Version is parsed from the body of the
-    # `Функция ВерсияБиблиотеки()` (or English `LibraryVersion()`) function.
+    # the matching subsystem .xml. Version comes from `Описание.Версия` in
+    # `ПриДобавленииПодсистемы` of ОбновлениеИнформационнойБазыБСП (English
+    # `OnAddSubsystem` of InfobaseUpdateSSL); old БСП without that module return a
+    # literal from `ВерсияБиблиотеки()` (`LibraryVersion()`). Both searches stay
+    # inside their own procedure: modern `ВерсияБиблиотеки()` returns an
+    # expression, and an unbounded search ran on to the next `Возврат "<digits>"`
+    # of the module - the minimum platform version.
     $bspCandidates = @(
         'CommonModules\СтандартныеПодсистемыСервер\Ext\Module.bsl',
         'CommonModules\StandardSubsystemsServer\Ext\Module.bsl'
@@ -1876,17 +1889,38 @@ function Get-1cProjectInfo {
             if (Test-Path (Join-Path $sourceRoot "Subsystems\$n")) { $info.BspDetected = $true; break }
         }
     }
-    if ($bspFile) {
+    foreach ($c in @('CommonModules\ОбновлениеИнформационнойБазыБСП\Ext\Module.bsl',
+                     'CommonModules\InfobaseUpdateSSL\Ext\Module.bsl')) {
+        $p = Join-Path $sourceRoot $c
+        if (-not (Test-Path $p)) { continue }
         $info.BspDetected = $true
         try {
-            $bspContent = Get-Content -Raw -Path $bspFile -ErrorAction Stop
-            $rxRu = [regex]'(?ms)Функция\s+ВерсияБиблиотеки\s*\(\s*\)\s+Экспорт.*?Возврат\s+"([0-9.]+)"'
-            $rxEn = [regex]'(?ms)Function\s+LibraryVersion\s*\(\s*\)\s+Export.*?Return\s+"([0-9.]+)"'
-            $vm = $rxRu.Match($bspContent)
-            if (-not $vm.Success) { $vm = $rxEn.Match($bspContent) }
-            if ($vm.Success) { $info.BspVersion = $vm.Groups[1].Value }
+            $updContent = Get-Content -Raw -Path $p -ErrorAction Stop
+            $pm = [regex]::Match($updContent, '(?ms)^\s*(?:Процедура|Procedure)\s+(?:ПриДобавленииПодсистемы|OnAddSubsystem)\s*\([^)]*\)(.*?)^\s*(?:КонецПроцедуры|EndProcedure)')
+            if ($pm.Success) {
+                $vm = [regex]::Match($pm.Groups[1].Value, '\.\s*(?:Версия|Version)\s*=\s*"([0-9.]+)"')
+                if ($vm.Success) { $info.BspVersion = $vm.Groups[1].Value }
+            }
         }
         catch {}
+        break
+    }
+    if ($bspFile) {
+        $info.BspDetected = $true
+        if (-not $info.BspVersion) {
+            try {
+                $bspContent = Get-Content -Raw -Path $bspFile -ErrorAction Stop
+                $rxRu = [regex]'(?ms)Функция\s+ВерсияБиблиотеки\s*\(\s*\)\s+Экспорт(.*?)КонецФункции'
+                $rxEn = [regex]'(?ms)Function\s+LibraryVersion\s*\(\s*\)\s+Export(.*?)EndFunction'
+                $fm = $rxRu.Match($bspContent)
+                if (-not $fm.Success) { $fm = $rxEn.Match($bspContent) }
+                if ($fm.Success) {
+                    $vm = [regex]::Match($fm.Groups[1].Value, '(?:Возврат|Return)\s+"([0-9.]+)"')
+                    if ($vm.Success) { $info.BspVersion = $vm.Groups[1].Value }
+                }
+            }
+            catch {}
+        }
     }
 
     $subsDir = Join-Path $sourceRoot 'Subsystems'
@@ -2243,9 +2277,13 @@ function Invoke-PlaceSkill {
         New-Item -ItemType Directory -Force -Path $absTarget | Out-Null
     }
 
-    # 1) Copy / refresh every source file unless the user owns it.
+    # 1) Copy / refresh every source file unless the user owns it. Python
+    #    bytecode is not content: a source tree whose tools were run carries
+    #    git-ignored __pycache__ directories, and a copy tracked by an earlier
+    #    install is pruned in step 2 as no longer shipped.
     $sourceRels = @{}
-    foreach ($sf in Get-ChildItem -Recurse -File -Path $srcFull) {
+    foreach ($sf in Get-ChildItem -Recurse -File -Path $srcFull |
+            Where-Object { $_.FullName -notmatch '[\\/]__pycache__[\\/]' -and $_.Extension -ne '.pyc' }) {
         $relWithin = Get-InstallerRelativePath -BasePath $srcFull -ChildPath $sf.FullName
         $sourceRels[$relWithin] = $true
         $key = "$targetRelBase/$relWithin"
@@ -2817,6 +2855,17 @@ function Convert-AgentsMdPaths {
 # SECTION 11: MCP PHASE
 # ============================================================================
 
+function Unregister-OpenCodeConfigs {
+    # Older manifests may claim the whole config or its entire `mcp` section.
+    # Drop that ownership before drift checks and removal, without touching disk.
+    param([System.Collections.IDictionary]$Manifest)
+    foreach ($rel in @($Manifest.files.Keys)) {
+        if ([string]$rel.Replace('\', '/') -in $script:OpenCodeConfigPaths) {
+            [void]$Manifest.files.Remove($rel)
+        }
+    }
+}
+
 function Get-McpConfigMap {
     # Resolve a dictionary path, including ZCode's nested mcp.servers.
     # Reject malformed config instead of replacing user data with an object.
@@ -2847,6 +2896,18 @@ function Invoke-McpPhase {
         [hashtable]$Adapters,
         [System.Collections.IDictionary]$Manifest
     )
+    Unregister-OpenCodeConfigs -Manifest $Manifest
+    if ('opencode' -in $ActiveTools) {
+        $existingConfigs = @($script:OpenCodeConfigPaths | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) })
+        if ($existingConfigs.Count -gt 0) {
+            Write-Info ("  [opencode] MCP config: сохраняю существующие файлы без изменений: " + ($existingConfigs -join ', ') + '. Для изменения подключений используйте /setupmcp.')
+            $ActiveTools = @($ActiveTools | Where-Object { $_ -ne 'opencode' })
+        }
+    }
+    if ($ActiveTools.Count -eq 0) {
+        $Manifest.mcpServers = @()
+        return
+    }
     $servers = Read-McpServers -Root $SourceRoot
 
     # Substitute {INFOBASE_PUBLISH_URL} placeholders in server URLs from the
@@ -3049,6 +3110,12 @@ function Invoke-McpPhase {
         }
 
         Write-TextFile -Path $absTarget -Content ($finalContent + "`n")
+        if ($tool -eq 'opencode') {
+            # A fresh config is a starter template, not an installer-owned file.
+            # Later updates and removal must preserve even a byte-identical copy.
+            Write-Info "  [$tool] MCP config создан: $target (пользовательский файл)"
+            continue
+        }
         $previousMcpEntry = $null
         if ($Manifest.files.Contains($target)) { $previousMcpEntry = $Manifest.files[$target] }
         $mcpEntry = [ordered]@{
@@ -5248,6 +5315,7 @@ function Invoke-Update {
     foreach ($k in $manifest.files.Keys) { $script:PreviousFiles[$k] = $true }
 
     Write-Section 'Detecting user-modified files'
+    Unregister-OpenCodeConfigs -Manifest $manifest
     $dirty = @()
     foreach ($rel in @($manifest.files.Keys)) {
         $abs = Resolve-ManifestPath -Root $Root -Rel $rel
@@ -5306,13 +5374,16 @@ function Invoke-Update {
     # refresh decision needs the previous installedHash from the manifest.
     # Dropping the clean entry here made Update-AgentsMd treat the existing
     # file as user-owned: it was never refreshed and got permanently flagged
-    # userModified on every update.
+    # userModified on every update. The OpenSpec bundle has the same rule:
+    # Invoke-OpenSpecArtifacts leaves a file it finds on disk without an entry
+    # to the user, so a dropped entry froze the bundle after the first update.
     $newFiles = [ordered]@{}
     foreach ($k in $manifest.files.Keys) {
         # Per-server MCP ownership must survive pruning so update can replace
         # our servers while preserving pre-existing user servers with any id.
         if ($manifest.files[$k].userModified -or $k -eq $script:AgentsMdFileName -or
-            $manifest.files[$k].Contains('managedServers')) { $newFiles[$k] = $manifest.files[$k] }
+            $manifest.files[$k].Contains('managedServers') -or
+            ([string]$manifest.files[$k].source).StartsWith('content/openspec-bundle/')) { $newFiles[$k] = $manifest.files[$k] }
     }
     $manifest.files = $newFiles
 
@@ -5562,6 +5633,7 @@ function Invoke-Remove {
     )
     $manifest = Read-Manifest -Root $Root
     if (-not $manifest) { Write-Info 'No manifest; nothing to remove.'; return }
+    Unregister-OpenCodeConfigs -Manifest $manifest
 
     if ($ScopeTool) {
         if ($ScopeTool -notin $manifest.tools) { Write-Warn "$ScopeTool is not installed."; return }

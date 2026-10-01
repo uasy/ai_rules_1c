@@ -26,7 +26,7 @@ Router for query work: load it first, then only the companions the table selects
 3. **Pick the right source** — catalog / document / information-register slice / accumulation virtual table (`Остатки`, `Обороты`, `ОстаткиИОбороты`); a wrong source is a design defect, not a tuning problem.
 4. **Apply the hard rules** of `standards(name="dev-standards-architecture") §3`; preserve slice semantics when moving virtual-table filters (`standards(name="anti-patterns") §4`).
 5. **Temp-table / union checklist** for every multi-batch query: each temp table later used in a `СОЕДИНЕНИЕ` / `ОБЪЕДИНИТЬ` / `В (ВЫБРАТЬ …)` has `ИНДЕКСИРОВАТЬ ПО` on its join keys (the 2–3 most selective fields); no `РАЗЛИЧНЫЕ` inside `ОБЪЕДИНИТЬ` operands or on top of `СГРУППИРОВАТЬ ПО`; correlated subqueries replaced by an indexed temp table + join; virtual-table periodicity matches the join keys; a virtual table joined directly only when its parameters already narrow it (`content/skills/1c-metadata-manage/docs/query-optimization.md → Joins with Virtual Tables`).
-6. **Smoke-check the finished text** — `validatequery` (`1c-data-mcp`) on every query before it lands in a module or a DCS scheme, when the server is exposed and the connected IB is a dev / test base (`verification-gates.md → Gate 3a`); mandatory right after a non-deterministic `rewrite_1c_code` / `modify_1c_code` output.
+6. **Smoke-check the finished text** — `vcvalidatequery` (`1c-data-mcp`) on every query before it lands in a module or a DCS scheme, when the server is exposed and the connected IB is a dev / test base (`verification-gates.md → Gate 3a`); mandatory right after a non-deterministic `rewrite_1c_code` / `modify_1c_code` output.
 
 ## Virtual-table parameters
 

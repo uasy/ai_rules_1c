@@ -33,16 +33,17 @@ PowerShell 5.1+, `powershell -NoProfile -ExecutionPolicy Bypass -File <path>\qa-
 ```
 qa-testclient.ps1 start -Base "<file infobase>" | -Server "<server>\<infobase>" [-User <name>] [-PasswordEnv <VAR>] [-Hidden] [-MaxSeconds <n>] [-Port 1538] [-Version <x.y.z.b>]
 qa-testclient.ps1 capture [-Port 1538] [-Out <file.png>]
-qa-testclient.ps1 stop [-Port 1538]
+qa-testclient.ps1 stop [-Port 1538] [-CloseTimeoutSec 60] [-Force]
 qa-testclient.ps1 status [-Port 1538]
 ```
 
 - It prints one JSON object; an `error` field and exit code 1 mean failure. State and logs live in `%LOCALAPPDATA%\mcp_qa_testclient\` (`<port>.json`, `<port>.log`).
 - Parameters come from `.dev.env`: `INFOBASE_KIND` + `INFOBASE_PATH` → `-Base` (file) or `-Server` (server); `IB_USER` → `-User`; `PLATFORM_PATH` → `-Version` = its version folder (the newest installed platform otherwise). The password is read from the environment variable named by `-PasswordEnv`: load `IB_PASSWORD` into that variable in the launching shell, never type it into the chat or the command line; omit `-PasswordEnv` for an empty password.
 - `start` waits until the main window opens; the port opens earlier, before the licence and sign-in checks. A client that exits during start-up returns 1C's own message from the log: report it, do not retry in a loop. No main window before the timeout means a start-up dialog is waiting — `capture` shows it, then `stop`.
-- `-MaxSeconds <n>` closes the client `n` seconds after launch even if the agent does not come back; use it when the project bounds test sessions, and never extend a deadline through relaunch loops.
-- `capture` saves a PNG of the client's own windows and popups only, on the hidden desktop too, and also for a client the person started (found by port). The port listens before the main window exists: a capture right after the port opens finds no windows.
-- `stop` closes only a client this script started, through its main window, and refuses a client the person started.
+- `-MaxSeconds <n>` closes the client `n` seconds after launch even if the agent does not come back, and ends the process if it does not close by itself; use it when the project bounds test sessions, and never extend a deadline through relaunch loops.
+- `capture` saves a PNG of the client's own windows and popups only, on the hidden desktop too, and also for a client the person started (found by port). The port listens before the main window exists: a capture right after the port opens finds no windows. On 8.5 a maximised client painted through `PrintWindow` hangs (a core busy, the test link dead until `stop -Force`; measured on 8.5.1.1522): `capture` restores such windows for the shot and maximises them again (`maximized_restored_for_capture`). Do not shoot a maximised 8.5 client window with other PrintWindow-based tools; a screen capture (Windows-MCP Screenshot) is not affected.
+- `stop` closes only a client this script started, through its main window, and refuses a client the person started. It waits `-CloseTimeoutSec` for the process to exit and answers `how: closed` with `port_free`. A client that has not closed answers `how: still closing` with an `error`: it is still exiting or a question is waiting — `capture`, then `stop` again. `-Force` ends the process; use it only when the person agrees (licence trap below).
+- `status` answers `started_here: true` only while that client is alive. A client the person closed, or one that exited, is forgotten with its deadline watchdog and reported once as `gone`. A closed client can take over a minute to exit (seen on a large configuration): `alive` or a refused `start` right after closing means "wait and ask `status` again", not a conflict.
 
 ## Starting and connecting
 
@@ -81,7 +82,7 @@ Windows cannot move a window between desktops. **The client becomes visible** by
 
 When the person wants to watch or click themselves:
 
-- Start the client visible. A deadline meant for unattended runs is too short to watch: ask how long to keep the client and pass that as `-MaxSeconds`.
+- Start the client visible. A deadline meant for unattended runs is too short to watch: ask how long to keep the client and pass that as `-MaxSeconds`; when asking is not possible, keep it for 30 minutes (`-MaxSeconds 1800`) and say so.
 - Bring the form to the requested state and stop. Do not close forms or the client; say which form is open and in what state. Close them only when the person says so.
 - The person's clicks do not break the link. Before continuing, read the window again: earlier snapshots and `ui_here` pins are stale.
 - Do not send Windows-MCP input while the person works in the client.
@@ -110,7 +111,7 @@ Windows outside the testing model — platform error dialogs it does not reach, 
 
 A UI step that writes data — a record created, a document posted, register movements, balances — is confirmed through `1c-data-mcp` when the result matters to the check and the form does not show it. `ui_eval` and `qa_run_script` are unavailable in `native`; their jobs go here, under `content/skills/1c-live-ib/SKILL.md` and its Safety section:
 
-- `validatequery`, then `vcexecutequery` — read-only. Find objects the check created by a marker the check entered itself (a comment, a code), since queries take no parameters.
+- `vcvalidatequery`, then `vcexecutequery` — read-only. Find objects the check created by a marker the check entered itself (a comment, a code), since queries take no parameters.
 - A value computed on the server: a read-only `vcexecutecode` fragment.
 - After a failing or refused step: `vcloggetlasterror`. Its limits go into the report: only the most recent error of 24 hours, not filtered by session.
 - Preparing or cleaning test data through `1c-data-mcp` changes the base: only with the person's explicit consent and never on `INFOBASE_ROLE=prod`.

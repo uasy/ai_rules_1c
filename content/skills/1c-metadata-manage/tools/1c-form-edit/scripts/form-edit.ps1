@@ -4,6 +4,9 @@
 # and emit <Settings xsi:type="DynamicList">. An attribute without a source
 # loads into the designer but the form fails to open
 # ("не задан ни текст запроса, ни основная таблица").
+# Local: Button and Command children are written in the platform order, and a
+# command's picture-and-text Representation is TextPicture - the upstream order
+# and value were refused with an XDTO exception on load.
 param(
 	[Parameter(Mandatory)]
 	[Alias('Path')]
@@ -757,10 +760,23 @@ function Emit-Button {
 	param($el, [string]$name, [int]$id, [string]$indent)
 	X "$indent<Button name=`"$name`" id=`"$id`">"
 	$inner = "$indent`t"
+	# Child order is the platform's (Type, Visible, Representation, DefaultButton,
+	# Enabled, CommandName, Picture, Title, LocationInCommandBar): the loader reads
+	# Form.xml as a sequence, and CommandName before Representation was refused
+	# with an XDTO exception.
 	if ($el.type) {
 		$btnType = switch ("$($el.type)") { "usual" { "UsualButton" } "hyperlink" { "Hyperlink" } "commandBar" { "CommandBarButton" } default { "$($el.type)" } }
 		X "$inner<Type>$btnType</Type>"
 	}
+	if ($el.visible -eq $false -or $el.hidden -eq $true) { X "$inner<Visible>false</Visible>" }
+	if ($el.representation) {
+		# A button spells picture-and-text PictureAndText; TextPicture is the command's spelling.
+		$btnRepr = if ("$($el.representation)" -eq 'TextPicture') { 'PictureAndText' } else { "$($el.representation)" }
+		X "$inner<Representation>$btnRepr</Representation>"
+	}
+	if ($el.defaultButton -eq $true) { X "$inner<DefaultButton>true</DefaultButton>" }
+	if ($el.enabled -eq $false -or $el.disabled -eq $true) { X "$inner<Enabled>false</Enabled>" }
+	if ($el.readOnly -eq $true) { X "$inner<ReadOnly>true</ReadOnly>" }
 	if ($el.command) { X "$inner<CommandName>Form.Command.$($el.command)</CommandName>" }
 	if ($el.stdCommand) {
 		$sc = "$($el.stdCommand)"
@@ -770,16 +786,13 @@ function Emit-Button {
 			X "$inner<CommandName>Form.StandardCommand.$sc</CommandName>"
 		}
 	}
-	Emit-Title -el $el -name $name -indent $inner
-	Emit-CommonFlags -el $el -indent $inner
-	if ($el.defaultButton -eq $true) { X "$inner<DefaultButton>true</DefaultButton>" }
 	if ($el.picture) {
 		X "$inner<Picture>"
 		X "$inner`t<xr:Ref>$($el.picture)</xr:Ref>"
 		X "$inner`t<xr:LoadTransparent>true</xr:LoadTransparent>"
 		X "$inner</Picture>"
 	}
-	if ($el.representation) { X "$inner<Representation>$($el.representation)</Representation>" }
+	Emit-Title -el $el -name $name -indent $inner
 	if ($el.locationInCommandBar) { X "$inner<LocationInCommandBar>$($el.locationInCommandBar)</LocationInCommandBar>" }
 	Emit-Companion -tag "ExtendedTooltip" -name "${name}РасширеннаяПодсказка" -indent $inner
 	Emit-Events -el $el -elementName $name -indent $inner -typeKey "button"
@@ -1294,6 +1307,16 @@ if ($def.commands -and $def.commands.Count -gt 0) {
 
 		if ($cmd.title) { Emit-MLText -tag "Title" -text "$($cmd.title)" -indent $inner }
 
+		# Platform order: Title, Shortcut, Picture, Action, Representation. A
+		# Picture after Action was refused with an XDTO exception on load.
+		if ($cmd.shortcut) { X "$inner<Shortcut>$($cmd.shortcut)</Shortcut>" }
+		if ($cmd.picture) {
+			X "$inner<Picture>"
+			X "$inner`t<xr:Ref>$($cmd.picture)</xr:Ref>"
+			X "$inner`t<xr:LoadTransparent>true</xr:LoadTransparent>"
+			X "$inner</Picture>"
+		}
+
 		# Support single action with optional callType, or multiple actions
 		if ($cmd.actions) {
 			# Multiple actions: [{ "callType": "Before", "handler": "..." }, ...]
@@ -1307,14 +1330,12 @@ if ($def.commands -and $def.commands.Count -gt 0) {
 			X "$inner<Action$callTypeAttr>$($cmd.action)</Action>"
 		}
 
-		if ($cmd.shortcut) { X "$inner<Shortcut>$($cmd.shortcut)</Shortcut>" }
-		if ($cmd.picture) {
-			X "$inner<Picture>"
-			X "$inner`t<xr:Ref>$($cmd.picture)</xr:Ref>"
-			X "$inner`t<xr:LoadTransparent>true</xr:LoadTransparent>"
-			X "$inner</Picture>"
+		if ($cmd.representation) {
+			# A command spells picture-and-text TextPicture; PictureAndText is the button's
+			# spelling and is not a value of the command property.
+			$cmdRepr = if ("$($cmd.representation)" -eq 'PictureAndText') { 'TextPicture' } else { "$($cmd.representation)" }
+			X "$inner<Representation>$cmdRepr</Representation>"
 		}
-		if ($cmd.representation) { X "$inner<Representation>$($cmd.representation)</Representation>" }
 
 		X "$cmdChildIndent</Command>"
 		$actionStr = if ($cmd.action) { " -> $($cmd.action)" } elseif ($cmd.actions) { " -> $($cmd.actions.Count) action(s)" } else { "" }

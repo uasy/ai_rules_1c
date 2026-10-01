@@ -111,10 +111,6 @@ publication layout rather than copied from upstream Python:
   rollback on failed publication updates. Runtime differences are documented
   in `docs/web-manage.md`; offline checks are in
   `tools/tests/web-python-regression.py` in the ruleset source.
-  Local delta, marked `# Local:` in `vrd_content()`: `default.vrd` also sets
-  `publishExtensionsByDefault="true"` on `<httpServices>`, so the HTTP services
-  of the infobase's extensions are published too; without it they answer 404.
-  `web-publish.ps1` has the same gap. Pinned by `tools/tests/web-python-regression.py`.
 
 The pin above is not to be advanced without re-running
 `tools/tests/python-ports-regression.py` and re-recording the deltas here.
