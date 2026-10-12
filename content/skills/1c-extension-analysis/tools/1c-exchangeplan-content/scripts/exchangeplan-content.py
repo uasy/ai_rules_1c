@@ -35,6 +35,30 @@ import sys
 import xml.etree.ElementTree as ET
 
 
+# Content.xml <Metadata> type -> source-tree folder, used to tell an object the
+# base configuration already has from one only the extension declares.
+TYPE_DIRS = {
+    "Catalog": "Catalogs", "Document": "Documents", "Constant": "Constants",
+    "InformationRegister": "InformationRegisters",
+    "AccumulationRegister": "AccumulationRegisters",
+    "AccountingRegister": "AccountingRegisters", "CalculationRegister": "CalculationRegisters",
+    "ChartOfCharacteristicTypes": "ChartsOfCharacteristicTypes",
+    "ChartOfAccounts": "ChartsOfAccounts", "ChartOfCalculationTypes": "ChartsOfCalculationTypes",
+    "BusinessProcess": "BusinessProcesses", "Task": "Tasks", "ExchangePlan": "ExchangePlans",
+    "Sequence": "Sequences",
+}
+
+
+def exists_in_tree(root, ref):
+    """True / False when the tree has / lacks the object's descriptor, None when the
+    type is not one this tool maps."""
+    kind, _, name = ref.partition(".")
+    folder = TYPE_DIRS.get(kind)
+    if folder is None or not name:
+        return None
+    return os.path.isfile(os.path.join(root, folder, f"{name}.xml"))
+
+
 def _localname(tag):
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
@@ -156,7 +180,7 @@ def inspect_tree(root, plan_name, label):
         print(f"  Content.xml not found at {os.path.relpath(path, root)} "
               f"(plan not present / not adopted in this tree, or exported without content)")
     else:
-        print(f"  {len(content)} item(s) in Ext/Content.xml:")
+        print(f"  Items in Ext/Content.xml ({len(content)}):")
         for metadata, autorecord in sorted(content.items()):
             print(f"    {metadata} — AutoRecord={autorecord}")
 
@@ -168,10 +192,10 @@ def inspect_tree(root, plan_name, label):
 
     dispatch_hits = find_bsp_dispatch_hits(root)
     if dispatch_hits:
-        print(f"  BSP registration-dispatch code found in this tree ({len(dispatch_hits)} "
-              f"location(s), plan-independent — read for ANY AutoRecord=Deny object above, "
-              f"since an empty template rule set for that object falls through to hardcoded "
-              f"BSL here rather than the template):")
+        print(f"  BSP registration-dispatch code found in this tree — plan-independent, read "
+              f"it for ANY AutoRecord=Deny object above, since an empty template rule set for "
+              f"that object falls through to hardcoded BSL here rather than the template "
+              f"({len(dispatch_hits)}):")
         for rel, line_no, text in dispatch_hits:
             print(f"      {rel}:{line_no}: {text}")
     else:
@@ -182,8 +206,8 @@ def inspect_tree(root, plan_name, label):
 
     code_hits = find_registration_code_hits(root, plan_name)
     if code_hits:
-        print(f"  Candidate registration code — {len(code_hits)} literal mention(s) of "
-              f"'{plan_name}' in .bsl (read each before concluding anything):")
+        print(f"  Candidate registration code — literal mentions of '{plan_name}' in .bsl, "
+              f"read each before concluding anything ({len(code_hits)}):")
         for rel, line_no, text in code_hits:
             print(f"      {rel}:{line_no}: {text}")
     else:
@@ -193,7 +217,7 @@ def inspect_tree(root, plan_name, label):
     return content
 
 
-def diff_trees(base_content, ext_content, plan_name, new_objects):
+def diff_trees(base_content, ext_content, plan_name, new_objects, base_root):
     print(f"--- Diff: {plan_name} ---")
     if base_content is None and ext_content is None:
         print("  Plan absent from both trees — nothing to compare.\n")
@@ -208,29 +232,46 @@ def diff_trees(base_content, ext_content, plan_name, new_objects):
     only_in_base = sorted(base_keys - ext_keys)
     changed = sorted(k for k in (base_keys & ext_keys) if base_content[k] != ext_content[k])
 
-    print("  NOTE: Ext/Content.xml declarations appear to be per-tree and additive, not a "
-          "full replacement snapshot (verified empirically — every item found in a real "
-          "extension's own Content.xml was itself an object added by that extension, not "
-          "an overlap with the base list). Do NOT read 'only_in_base' below as 'removed by "
-          "the extension' — it most likely just means the extension did not need to "
-          "re-declare it. Only 'changed' entries are a genuine, unambiguous override.")
+    print("  NOTE: an extension's Ext/Content.xml declares what it adds to the plan's "
+          "composition, not a full replacement snapshot — do NOT read 'only in the base' below "
+          "as 'removed by the extension'; only 'AutoRecord changed' entries are a genuine "
+          "override. An entry the extension adds is NOT necessarily an object it added: most "
+          "are usually typical objects it pulls into this exchange, which the stock plan does "
+          "not replicate — the added entries are split below by whether the base tree has "
+          "the object.")
 
     if added_by_ext:
+        typical = [k for k in added_by_ext if exists_in_tree(base_root, k) is True]
+        own = [k for k in added_by_ext if exists_in_tree(base_root, k) is False]
+        unmapped = [k for k in added_by_ext if exists_in_tree(base_root, k) is None]
         print(f"\n  Declared only in the extension's own Content.xml ({len(added_by_ext)}):")
         for k in added_by_ext:
             print(f"    {k} — AutoRecord={ext_content[k]}")
+        print(f"\n  Of these, typical objects (present in the base tree) the extension pulls "
+              f"into this exchange ({len(typical)}):")
+        for k in typical:
+            print(f"    {k}")
+        print(f"\n  Of these, objects absent from the base tree — the extension's own "
+              f"({len(own)}):")
+        for k in own:
+            print(f"    {k}")
+        if unmapped:
+            print(f"\n  Of these, of a type this tool does not map — check by hand "
+                  f"({len(unmapped)}):")
+            for k in unmapped:
+                print(f"    {k}")
 
     if only_in_base:
-        print(f"\n  Declared only in the base's Content.xml ({len(only_in_base)}) — "
-              f"see NOTE above, not evidence of removal:")
+        print(f"\n  Declared only in the base's Content.xml — see NOTE above, not evidence "
+              f"of removal ({len(only_in_base)}):")
         for k in only_in_base[:20]:
             print(f"    {k} — AutoRecord={base_content[k]}")
         if len(only_in_base) > 20:
             print(f"    ... and {len(only_in_base) - 20} more")
 
     if changed:
-        print(f"\n  AutoRecord changed for the same Metadata ref in both trees ({len(changed)}) "
-              f"— genuine override, worth a closer look:")
+        print(f"\n  AutoRecord changed for the same Metadata ref in both trees — genuine "
+              f"override, worth a closer look ({len(changed)}):")
         for k in changed:
             print(f"    {k}: base={base_content[k]} -> ext={ext_content[k]}")
     else:
@@ -239,10 +280,10 @@ def diff_trees(base_content, ext_content, plan_name, new_objects):
     if new_objects:
         combined = base_keys | ext_keys
         missing = sorted(obj for obj in new_objects if obj not in combined)
-        print(f"\n  Cross-check against {len(new_objects)} supplied new-object ref(s):")
+        print(f"\n  Cross-check against the supplied new-object refs ({len(new_objects)}):")
         if missing:
-            print(f"    NOT found in either Content.xml ({len(missing)}) — verify whether "
-                  f"these should participate in this exchange plan:")
+            print(f"    NOT found in either Content.xml — verify whether these should "
+                  f"participate in this exchange plan ({len(missing)}):")
             for obj in missing:
                 print(f"      {obj}")
         else:
@@ -299,7 +340,7 @@ def main():
         base_content = inspect_tree(base_path, plan_name, "Base") if base_path else None
         ext_content = inspect_tree(ext_path, plan_name, "Extension") if ext_path else None
         if base_path and ext_path:
-            diff_trees(base_content, ext_content, plan_name, new_objects)
+            diff_trees(base_content, ext_content, plan_name, new_objects, base_path)
 
 
 if __name__ == "__main__":

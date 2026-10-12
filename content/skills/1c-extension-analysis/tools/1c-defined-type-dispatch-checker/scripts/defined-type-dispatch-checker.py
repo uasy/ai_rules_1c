@@ -178,7 +178,8 @@ def main():
              "stale in the extension's own copy)",
     )
     parser.add_argument("-DefinedType", required=True, help="DefinedType name, e.g. ИмяОпределяемогоТипа")
-    parser.add_argument("-BslFile", required=True, help="Path to the .bsl module containing the dispatch function")
+    parser.add_argument("-BslFile", required=True, help="Path to the .bsl module containing the dispatch function; a relative path is "
+                             "tried against the working directory, then against -ExtensionPath")
     parser.add_argument(
         "-Function", default=None,
         help="Name of the Функция/Процедура to scope the search to (recommended); "
@@ -197,11 +198,19 @@ def main():
     if config_path and not os.path.isabs(config_path):
         config_path = os.path.join(os.getcwd(), config_path)
 
+    # A relative -BslFile is tried against the working directory first, then
+    # against -ExtensionPath: a path copied from this skill's other tools is
+    # relative to the extension tree, and resolving it only against the working
+    # directory answered "BSL file not found" for a file that exists.
     bsl_path = args.BslFile
     if not os.path.isabs(bsl_path):
-        bsl_path = os.path.join(os.getcwd(), bsl_path)
+        candidates = [os.path.join(os.getcwd(), bsl_path),
+                      os.path.join(extension_path, bsl_path)]
+        bsl_path = next((c for c in candidates if os.path.isfile(c)), candidates[0])
+    else:
+        candidates = [bsl_path]
     if not os.path.isfile(bsl_path):
-        print(f"BSL file not found: {bsl_path}", file=sys.stderr)
+        print("BSL file not found; tried: " + "; ".join(candidates), file=sys.stderr)
         sys.exit(1)
 
     raw_types, note = load_composition(extension_path, config_path, args.DefinedType)

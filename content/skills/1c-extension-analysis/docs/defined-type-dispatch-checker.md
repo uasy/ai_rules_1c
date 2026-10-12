@@ -31,7 +31,7 @@ python3 skills/1c-extension-analysis/tools/1c-defined-type-dispatch-checker/scri
 | `ExtensionPath` | Path to the extension source dump | — (required) |
 | `ConfigPath` | Path to the base configuration source dump | none — **strongly recommended**, see below |
 | `DefinedType` | Name of the `ОпределяемыйТип` to check composition against | — (required) |
-| `BslFile` | Path to the `.bsl` module containing the dispatch code | — (required) |
+| `BslFile` | Path to the `.bsl` module containing the dispatch code. A relative path is tried against the working directory first, then against `ExtensionPath` — so a path printed by the other tools of this skill (relative to the extension tree) works as is | — (required) |
 | `Function` | Name of the specific `Функция`/`Процедура` to scope the search to | none — whole file scanned if omitted (noisier, may pick up unrelated `Тип("...")` calls elsewhere in the module) |
 
 Always pass `-Function` when the dispatcher is one routine among several in the same module — scoping avoids false "handled" matches from an unrelated routine that happens to reference the same type elsewhere in the file.

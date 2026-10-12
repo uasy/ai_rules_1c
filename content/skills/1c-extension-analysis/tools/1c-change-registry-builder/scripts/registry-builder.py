@@ -15,9 +15,9 @@
 # given object actually owns. A name-search can only ever find what you already
 # think to look for; this tool enumerates what is actually there.
 #
-# Two modes:
+# Modes:
 #   1. Generate (default) — walk the extension, print one row per own change,
-#      leaving the "Блок" column for the analyst to fill in during step 3.
+#      leaving the "Блок" column (and "Форм" on DISPATCHER rows) for the analyst.
 #   2. Compare (-CompareAgainst <file>) — additionally check whether each
 #      generated object name still appears somewhere in an already-written
 #      report/registry file, and flag the ones that do not (the same output,
@@ -25,6 +25,17 @@
 #      strict per-row structural diff — it only proves an object was not even
 #      mentioned, not that its every mechanism was individually addressed
 #      inside the mentioning text (see docs/registry-builder.md -> Known gaps).
+#   3. Closure (-CloseAgainst <saved cfe-diff -Mode A output>) — the set
+#      difference between the objects cfe-diff shows with own content and the
+#      objects the registry mentions, both ways, with a reason per name. An
+#      object whose only module is empty or commented out yields no row and no
+#      unclassified file, so without this the registry ends on
+#      "0 unclassified file(s)" while objects are silently missing from it.
+#      The own-content predicate of SKILL.md step 2 lives here, in
+#      cfe_object_content(), and nowhere else.
+#   4. Grouping (-GroupByModule) — objects whose interceptors sit in two or
+#      more modules: the cheapest mechanical signal of a second, unrelated block
+#      inside one object. Run it before grouping, not after the report is drafted.
 #
 # Coverage: every ChildObjects kind of an adopted object (templates, commands,
 # enum values, dimensions, nested subsystems ...), the properties the platform
@@ -421,7 +432,8 @@ def find_own_bsl_files(ext_path, type_dir, name):
     The object's own `Ext/` is walked recursively, not listed: a common form keeps
     its module at `Ext/Form/Module.bsl`, one level deeper than an object module,
     and a flat listing missed that file — and with it every interceptor the
-    extension put on a typical common form."""
+    extension put on a typical common form (2 of the 101 annotations on a real
+    extension were invisible for exactly this reason)."""
     obj_dir = os.path.join(ext_path, type_dir, name)
     if not os.path.isdir(obj_dir):
         return []
@@ -441,7 +453,8 @@ def find_own_bsl_files(ext_path, type_dir, name):
     # An object's own commands keep their modules at
     # `<Object>/Commands/<Name>/Ext/CommandModule.bsl` — outside both `Ext/` and
     # `Forms/`, so neither walk above reaches them and the whole command module
-    # was invisible.
+    # was invisible (3 such files on a real extension, one of them holding a
+    # command that opens a form of an object that does not exist).
     commands_dir = os.path.join(obj_dir, "Commands")
     if os.path.isdir(commands_dir):
         for dirpath, _dirnames, filenames in os.walk(commands_dir):
@@ -557,8 +570,10 @@ def scan_bsl_routines_with_lines(bsl_path):
     unannotated routine in such a module is an addition by construction, and no
     base-configuration copy is needed to tell.
 
-    It agrees with `1c-graph-metadata-mcp`'s independent layer diff: the unannotated
-    routines are its "Добавлены", the annotated ones its "Переопределены"."""
+    Verified against `1c-graph-metadata-mcp`'s independent layer diff on a real
+    extension: for `Документ.Отпуск`'s manager module this rule yields exactly the
+    five routines the graph reports as "Добавлены", and the annotated ones exactly
+    match its "Переопределены"."""
     lines = read_lines(bsl_path)
     out = []
     for idx, line in enumerate(lines):
@@ -609,7 +624,9 @@ def module_rows(ext_path, bsl, obj_label, borrowed):
     # an annotated interceptor. Emitted regardless of whether the module
     # also carries interceptors: a module with an interceptor used to
     # suppress these rows entirely, which silently dropped whole layers of
-    # own code.
+    # own code (39 own routines on one real extension, among them 17
+    # copies of the same registry-id helper; and, in a form module, a
+    # 420-line own procedure sitting beside one annotated interceptor).
     annotated_lines = {ic["RoutineLine"] for ic in interceptors}
     added = [r for r in scan_bsl_routines_with_lines(bsl)
              if r["Line"] not in annotated_lines]
@@ -672,12 +689,20 @@ def module_rows(ext_path, bsl, obj_label, borrowed):
                         f'decompose by unique shape before assigning Блок'
                     ),
                     "Block": "",
+                    # Number of distinct branch shapes, filled in by the analyst.
+                    # An empty cell is visible in the artifact; "decompose" in
+                    # prose was skipped on four dispatchers of five.
+                    "Shapes": "",
+                    "Module": rel,
+                    "Annotation": f'&{ic["Type"]}("{ic["Method"]}")',
                 })
             else:
                 rows.append({
                     "Object": obj_label,
                     "Mechanism": f'&{ic["Type"]}("{ic["Method"]}") at {rel}:{ic["Line"]}',
                     "Block": "",
+                    "Module": rel,
+                    "Annotation": f'&{ic["Type"]}("{ic["Method"]}")',
                 })
     return rows
 
@@ -753,6 +778,157 @@ def unclassified_files(ext_path, accounted):
     return sorted(p for p in files_under(ext_path) if p not in accounted)
 
 
+def group_by_module(rows):
+    """{object: {module: [annotation, ...]}} for objects whose interceptors sit in
+    two or more modules, in registry order."""
+    by_obj = {}
+    for r in rows:
+        if "Module" not in r:
+            continue
+        by_obj.setdefault(r["Object"], {}).setdefault(r["Module"], []).append(r["Annotation"])
+    return {o: mods for o, mods in by_obj.items() if len(mods) >= 2}
+
+
+def print_group_by_module(rows):
+    groups = group_by_module(rows)
+    print(f"=== objects whose interceptors sit in two or more modules ({len(groups)}) — "
+          f"each is a candidate for a second, unrelated block; read every module ===")
+    for obj, mods in groups.items():
+        print(f"=== {obj} ===")
+        for mod, anns in mods.items():
+            print(f"  {mod}: {len(anns)} — {', '.join(anns)}")
+    print(f"=== group-by-module: {len(groups)} object(s) with interceptors in 2+ modules ===")
+
+
+RE_CFE_OBJECT = re.compile(r"^  \[(BORROWED|OWN|CONFIGURATION)\]\s+(\S+)")
+RE_CFE_BORROWED_ONLY = re.compile(r"^ChildObjects: \d+ borrowed items$")
+RE_CFE_PREDEFINED_ADOPTED_ONLY = re.compile(r"^Extended: Predefined\b.*no own items")
+RE_CFE_MODULE_NO_INTERCEPTORS = re.compile(r"^(\S+\.bsl) \(no interceptors\)$")
+
+
+def parse_cfe_diff_mode_a(text):
+    """{object: {"Kind": BORROWED|OWN|CONFIGURATION, "Lines": [detail lines]}} from a
+    saved `cfe-diff -Mode A` output. Refuses a truncated file: a run cut by `| head`
+    looks complete, and closing against it would silently close against part of
+    the extension."""
+    lines = text.splitlines()
+    if not any(l.startswith("=== Unclassified files:") for l in lines):
+        raise ValueError("no final '=== Unclassified files: N ===' line — the cfe-diff output "
+                         "is truncated or is not a -Mode A run; redirect the whole run to a "
+                         "file and pass that file")
+    objects, cur = {}, None
+    for line in lines:
+        m = RE_CFE_OBJECT.match(line)
+        if m:
+            cur = "Configuration" if m.group(1) == "CONFIGURATION" else m.group(2)
+            objects[cur] = {"Kind": m.group(1), "Lines": []}
+            continue
+        if line.startswith("==="):
+            cur = None
+        elif cur and line.startswith("     ") and line.strip():
+            objects[cur]["Lines"].append(line.strip())
+    return objects
+
+
+def cfe_object_content(obj):
+    """The own-content predicate of SKILL.md step 2, applied to one object's
+    cfe-diff lines. Returns (has_content, kind) where kind is "own",
+    "predefined-adopted-only", "borrowed-only" or "content".
+
+      own object                                         -> content
+      only "ChildObjects: N borrowed items"              -> no content
+      "Extended: Predefined ... no own items" (+ above)  -> no content
+      any other line (own children, extended property
+      with detail, an interceptor, a module without
+      interceptors, a changed form ...)                  -> content
+    """
+    if obj["Kind"] in ("OWN", "CONFIGURATION"):
+        return True, "own"
+    rest = [l for l in obj["Lines"] if not RE_CFE_BORROWED_ONLY.match(l)]
+    if rest and all(RE_CFE_PREDEFINED_ADOPTED_ONLY.match(l) for l in rest):
+        return False, "predefined-adopted-only"
+    if not rest:
+        return False, "borrowed-only"
+    return True, "content"
+
+
+def module_state(path):
+    """Why a module yields no registry row: empty, or commented out in full."""
+    lines = read_lines(path)
+    code = [l.strip() for l in lines if l.strip()]
+    size = os.path.getsize(path) if os.path.isfile(path) else 0
+    if not code:
+        return f"module is empty ({size} bytes)"
+    if all(l.startswith("//") for l in code):
+        return f"module is commented out in full ({len(lines)} lines)"
+    return None
+
+
+def unaccounted_reason(ext_path, obj):
+    """A reason per object cfe-diff shows with content and the registry lacks."""
+    reasons = []
+    for line in obj["Lines"]:
+        m = RE_CFE_MODULE_NO_INTERCEPTORS.match(line)
+        if m:
+            state = module_state(os.path.join(ext_path, m.group(1)))
+            reasons.append(f"{state}: {m.group(1)}" if state else
+                           f"module declares code the registry did not row — read it: "
+                           f"{m.group(1)}")
+        elif not RE_CFE_BORROWED_ONLY.match(line):
+            reasons.append(f"cfe-diff line with no registry row — a gap in this tool: {line}")
+    return "; ".join(reasons) or "no detail line in the cfe-diff output — read the object"
+
+
+def print_closure(ext_path, rows, cfe_text, cfe_name):
+    objects = parse_cfe_diff_mode_a(cfe_text)
+    with_content = {n for n, o in objects.items() if cfe_object_content(o)[0]}
+    registry = []
+    for r in rows:
+        if r["Object"] not in registry:
+            registry.append(r["Object"])
+    # A nested subsystem gets its own registry label "<parent>.Subsystem.<child>";
+    # cfe-diff prints it as a child line of the parent, so the label accounts for
+    # the parent and is explained, not flagged, on the reverse side.
+    mentioned = set(registry)
+    for name in registry:
+        if ".Subsystem." in name:
+            mentioned.add(name.split(".Subsystem.")[0])
+
+    missing = [n for n in objects if n in with_content and n not in mentioned]
+    print(f"=== closure against {cfe_name}: objects cfe-diff shows with own content that "
+          f"the registry does not mention ({len(missing)}) ===")
+    for n in missing:
+        print(f"  [UNACCOUNTED] {n} — {unaccounted_reason(ext_path, objects[n])}")
+
+    extra = [n for n in registry if n not in with_content]
+    print(f"=== registry objects cfe-diff does not show with own content ({len(extra)}) ===")
+    for n in extra:
+        parent = n.split(".Subsystem.")[0]
+        if ".Subsystem." in n and parent in objects:
+            print(f"  [NESTED] {n} — a nested subsystem: cfe-diff prints it as a child line "
+                  f"of {parent}, not as an object of its own; not an error")
+        elif n in objects:
+            print(f"  [CHECK] {n} — cfe-diff shows no own content, the registry has a row: "
+                  f"compare the two")
+        else:
+            print(f"  [CHECK] {n} — absent from the cfe-diff output altogether")
+
+    zero = [(n, cfe_object_content(o)[1]) for n, o in objects.items()
+            if not cfe_object_content(o)[0]]
+    pre = [n for n, k in zero if k == "predefined-adopted-only"]
+    print(f"=== extended Predefined with adopted items only — zero-content by the predicate, "
+          f"absent from the registry by design ({len(pre)}) ===")
+    for n in pre:
+        print(f"  {n}")
+    print(f"=== zero-content borrowed objects — the -Object list for reference-finder "
+          f"({len(zero)}) ===")
+    print("  " + ";;".join(n for n, _k in zero))
+
+    in_registry = len(with_content & mentioned)
+    print(f"=== closure: {len(with_content)} object(s) with content, {in_registry} in "
+          f"registry, {len(missing)} unaccounted ===")
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
@@ -768,7 +944,20 @@ def main():
         help="Path to an already-written report/registry Markdown file; flags objects "
              "generated here that are not even mentioned anywhere in that file",
     )
+    parser.add_argument(
+        "-CloseAgainst", default=None,
+        help="Path to a saved, complete `cfe-diff -Mode A` output of the same extension; "
+             "prints the set difference with the registry both ways, a reason per name, "
+             "and the zero-content list for reference-finder (whole-extension runs only)",
+    )
+    parser.add_argument(
+        "-GroupByModule", action="store_true",
+        help="Print only the objects whose interceptors sit in two or more modules",
+    )
     args = parser.parse_args()
+    if args.CloseAgainst and args.Object:
+        print("-CloseAgainst needs a whole-extension run; drop -Object", file=sys.stderr)
+        sys.exit(2)
 
     ext_path = args.ExtensionPath
     if not os.path.isabs(ext_path):
@@ -791,6 +980,25 @@ def main():
         with open(cmp_path, "r", encoding="utf-8", errors="replace") as fh:
             report_text = fh.read()
 
+    if args.CloseAgainst or args.GroupByModule:
+        if args.GroupByModule:
+            print_group_by_module(rows)
+        if args.CloseAgainst:
+            cfe_path = args.CloseAgainst
+            if not os.path.isfile(cfe_path):
+                print(f"-CloseAgainst file not found: {cfe_path}", file=sys.stderr)
+                sys.exit(1)
+            with open(cfe_path, "r", encoding="utf-8", errors="replace") as fh:
+                cfe_text = fh.read()
+            if args.GroupByModule:
+                print()
+            try:
+                print_closure(ext_path, rows, cfe_text, os.path.basename(cfe_path))
+            except ValueError as exc:
+                print(f"-CloseAgainst refused: {exc}", file=sys.stderr)
+                sys.exit(2)
+        return
+
     if report_text is not None:
         missing = [r for r in rows if r["Object"] not in report_text]
         print(f"=== {len(missing)} object(s) generated from source but NOT mentioned anywhere in "
@@ -811,11 +1019,14 @@ def main():
                 print()
             print(f"=== {r['Object']} ===")
             current_object = r["Object"]
-        print(f"  | {r['Mechanism']} | Блок: {r['Block'] or '(fill in)'}")
+        shapes = f" | Форм: {r['Shapes'] or '?'}" if "Shapes" in r else ""
+        print(f"  | {r['Mechanism']}{shapes} | Блок: {r['Block'] or '(fill in)'}")
 
+    dispatchers = sum(1 for r in rows if "Shapes" in r)
     print()
-    print(f"=== {len(rows)} row(s) generated — every row needs a non-empty Блок before the "
-          f"analysis counts as complete (SKILL.md step 5) ===")
+    print(f"=== {len(rows)} row(s) generated — every row needs a non-empty Блок, and each of "
+          f"the {dispatchers} DISPATCHER row(s) a number in Форм, before the analysis counts "
+          f"as complete (SKILL.md step 5) ===")
 
     # Completeness check (whole-extension runs only): a file no row interprets is
     # either an unsupported construct or a gap in this tool — never silent.
