@@ -248,6 +248,15 @@ foreach ($f in $xmlFiles) {
 		if (-not $typeMap.ContainsKey("DefinedType")) { $typeMap["DefinedType"] = @{} }
 		$typeMap["DefinedType"][$name] = $true
 	}
+
+	# Common forms named as the object's forms (БСП reports: DefaultForm = CommonForm.ФормаОтчета).
+	# The platform refuses the build without them ("Неизвестный объект метаданных") and resolves
+	# them by name, so an empty stub form of the same name is enough.
+	$cfPattern = '<(?:DefaultForm|AuxiliaryForm|DefaultSettingsForm|AuxiliarySettingsForm|DefaultVariantForm)>CommonForm\.([A-Za-zЀ-ӿ\d_]+)<'
+	foreach ($m in [regex]::Matches($content, $cfPattern)) {
+		if (-not $typeMap.ContainsKey("CommonForm")) { $typeMap["CommonForm"] = @{} }
+		$typeMap["CommonForm"][$m.Groups[1].Value] = $true
+	}
 }
 
 # --- 1b. Scan Form.xml for register record set columns ---
@@ -427,6 +436,7 @@ if ($hasRefTypes) {
 		"AccountingRegister"           = @{tag="AccountingRegister";dir="AccountingRegisters"}
 		"CalculationRegister"          = @{tag="CalculationRegister";dir="CalculationRegisters"}
 		"DefinedType"                  = @{tag="DefinedType";dir="DefinedTypes"}
+		"CommonForm"                   = @{tag="CommonForm";dir="CommonForms"}
 	}
 
 	# StandardAttribute boilerplate
@@ -1196,10 +1206,30 @@ $stdAttrs			<Characteristics/>
 			</Type>
 "@
 				}
+				"CommonForm" {
+					$propsXml = @"
+			<Name>$objName</Name>
+			<Synonym/>
+			<Comment/>
+			<FormType>Managed</FormType>
+			<IncludeHelpInContents>false</IncludeHelpInContents>
+			<UsePurposes>
+				<v8:Value xsi:type="app:ApplicationUsePurpose">PlatformApplication</v8:Value>
+			</UsePurposes>
+			<UseStandardCommands>false</UseStandardCommands>
+			<ExtendedPresentation/>
+			<Explanation/>
+"@
+					# An empty managed form body: the platform loads the object only with one.
+					$cfExtDir = Join-Path (Join-Path $objDir $objName) "Ext"
+					New-Item -ItemType Directory -Path $cfExtDir -Force | Out-Null
+					$cfFormXml = "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<Form xmlns=`"http://v8.1c.ru/8.3/xcf/logform`" xmlns:v8=`"http://v8.1c.ru/8.1/data/core`" xmlns:xsi=`"http://www.w3.org/2001/XMLSchema-instance`" version=`"2.17`">`r`n`t<AutoCommandBar name=`"ФормаКоманднаяПанель`" id=`"-1`">`r`n`t`t<Autofill>true</Autofill>`r`n`t</AutoCommandBar>`r`n`t<ChildItems/>`r`n</Form>`r`n"
+					[System.IO.File]::WriteAllText((Join-Path $cfExtDir "Form.xml"), $cfFormXml, $enc)
+				}
 			}
 
 			$childObjLine = "`n`t`t<ChildObjects/>"
-		if ($metaType -eq "DefinedType") {
+		if ($metaType -eq "DefinedType" -or $metaType -eq "CommonForm") {
 			$childObjLine = ""
 		} elseif ($metaType -eq "InformationRegister") {
 			# Check if we have actual column names from form scanning

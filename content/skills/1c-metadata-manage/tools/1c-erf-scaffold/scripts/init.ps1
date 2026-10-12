@@ -8,7 +8,10 @@ param(
 
 	[string]$SrcDir = "src",
 
-	[switch]$WithSKD
+	[switch]$WithSKD,
+
+	# Основная форма, форма настроек и форма варианта — общие формы БСП (ФормаОтчета и др.)
+	[switch]$BspForms
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +43,10 @@ $mainDCSElement = if ($mainDCSValue) {
 	"<MainDataCompositionSchema/>"
 }
 
+$defaultFormElement = if ($BspForms) { "<DefaultForm>CommonForm.ФормаОтчета</DefaultForm>" } else { "<DefaultForm/>" }
+$settingsFormElement = if ($BspForms) { "<DefaultSettingsForm>CommonForm.ФормаНастроекОтчета</DefaultSettingsForm>" } else { "<DefaultSettingsForm/>" }
+$variantFormElement = if ($BspForms) { "<DefaultVariantForm>CommonForm.ФормаВариантаОтчета</DefaultVariantForm>" } else { "<DefaultVariantForm/>" }
+
 $childObjectsXml = if ($childObjectsContent) {
 	"<ChildObjects>$childObjectsContent</ChildObjects>"
 } else {
@@ -69,12 +76,12 @@ $xml = @"
 				</v8:item>
 			</Synonym>
 			<Comment/>
-			<DefaultForm/>
+			$defaultFormElement
 			<AuxiliaryForm/>
 			$mainDCSElement
-			<DefaultSettingsForm/>
+			$settingsFormElement
 			<AuxiliarySettingsForm/>
-			<DefaultVariantForm/>
+			$variantFormElement
 			<VariantsStorage/>
 			<SettingsStorage/>
 		</Properties>

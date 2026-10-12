@@ -79,7 +79,7 @@ What changes:
 
 - **Gate 5 (`verify_xml`) does not apply to MDO.** Use EDT's validation: `revalidate_objects` → `get_project_errors` / `get_problem_summary`. In `auto`/`off` without MCP, request the corresponding validation in EDT by the user, bound to the current saved state; until results arrive it is unverified. `required` remains blocked without its tool evidence. Report the actual source of validation.
 - **`apply_quick_fix`** applies EDT's official auto-fix to **one** marker. Apply deliberately, one at a time, and re-validate — it is a code change like any other, not a formatting nicety. `get_check_description` explains what a check code actually means before you "fix" it.
-- **Budget discipline is unchanged** (`AGENTS.md → MCP Tool Calling → B.1`): re-validating unchanged state is forbidden, and EDT markers do not open a new retry loop of their own.
+- **Budget discipline is unchanged** (`mcp-policy.md → B.1`): re-validating unchanged state is forbidden, and EDT markers do not open a new retry loop of their own.
 - `validate_query` (EDT-MCP) checks query text against the **project's metadata** — syntax and semantic errors with line numbers, without touching an infobase. It satisfies Gate 3a's query branch when `1c-data-mcp` is not exposed, and complements it when it is: EDT resolves tables and fields, `1c-data-mcp` answers what the live base returns. State which one produced the evidence.
 
 ## DB update, launches, external objects

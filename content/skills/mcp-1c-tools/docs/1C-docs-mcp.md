@@ -27,7 +27,7 @@ formatspec(name="1c-form-spec")      # that specification, entire
 formatspec(query="реквизиты формы")  # search inside the specifications only
 ```
 
-- **There is no `corpus` argument on any tool of this server.** Passing one is an unknown-argument error and the guessed-parameter defect of `AGENTS.md → MCP Tool Calling → C.4`.
+- **There is no `corpus` argument on any tool of this server.** Passing one is an unknown-argument error and the guessed-parameter defect of `mcp-policy.md → C.4`.
 - **`scope` does not reach the collections.** `standards` and `formatspec` are the only routes to them; `docsearch(scope="all")` still searches only the syntax reference and the prose.
 - **Documents are paged, not cut.** A document over `max_chars` returns `collection.parts` and `next_cursor`; continue until you have what you need. A first page is not the whole standard.
 - **Returned identifiers are opaque.** Copy `doc_id` and cursors exactly; do not manufacture them from names, paths, or call expressions.
@@ -53,7 +53,7 @@ formatspec(query="реквизиты формы")  # search inside the specifica
 
 ## Platform capability discovery
 
-Canonical procedure for `AGENTS.md → MCP Tool Calling → A.7`: before implementing a specialized capability by hand, check whether the platform already ships it. The platform has many niche built-in mechanisms that model training data routinely misses — this server indexes the real documentation and is the authority.
+Canonical procedure for `mcp-policy.md → A.7`: before implementing a specialized capability by hand, check whether the platform already ships it. The platform has many niche built-in mechanisms that model training data routinely misses — this server indexes the real documentation and is the authority.
 
 **Trigger domains** (non-exhaustive — apply to any capability that feels like "a platform could have this built in"):
 
@@ -81,7 +81,7 @@ Skipping this check and hand-rolling a capability from a trigger domain is a def
 
 ## Using a found platform mechanism
 
-> Canon for `AGENTS.md → MCP Tool Calling → A.7` (reuse half). Applies to **`docsearch` / `docinfo`** (and БСП via `ssl_search`) — **not** to **`templatesearch`** (code templates — `1c-templates-mcp.md → Using a found template`).
+> Canon for `mcp-policy.md → A.7` (reuse half). Applies to **`docsearch` / `docinfo`** (and БСП via `ssl_search`) — **not** to **`templatesearch`** (code templates — `1c-templates-mcp.md → Using a found template`).
 
 When platform documentation (or БСП) confirms a built-in mechanism fits the task:
 

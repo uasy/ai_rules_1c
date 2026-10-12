@@ -6,7 +6,7 @@ category: workflow
 
 # External memory setup reminder
 
-At session start, apply `TOOL_*` policy (`content/rules/mcp-policy.md → Tool availability`) and check the exposed tool inventory. If memory tools are absent, inspect available active-client MCP configuration without printing secrets or probing disabled providers. Count memory capabilities, not just server names: Cognee, OpenViking, templates MCP memory or another external memory provider qualifies; root `memory.md` does not. Missing tools alone do not prove a server is unconfigured.
+Load once per session when no eligible external memory tool is exposed. Apply `content/rules/tool-policy.md`, then inspect available active-client MCP configuration without printing secrets or probing disabled providers. Count memory capabilities, not just server names: Cognee, OpenViking, templates MCP memory or another external memory provider qualifies; root `memory.md` does not. Missing tools alone do not prove a server is unconfigured.
 
 When none is configured, give one brief reminder per session, even for docs-only work. Prefer Cognee via `/install-cognee` (`content/commands/install-cognee.md`):
 

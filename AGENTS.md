@@ -72,32 +72,19 @@ Report changes, every modified file, checks and real limitations; for non-trivia
 
 ## MCP Tool Calling
 
-**Hard gate:** before the first 1C MCP call (per session; per run for a subagent) and before writing or reviewing BSL/metadata, 1C spec or memory operation — even with no server exposed — read `content/rules/mcp-policy.md` in full, then `content/skills/mcp-1c-tools/SKILL.md` and the operation skill it names. The policy owns tool policy, availability, fallbacks and server answers; the index below uses its numbers and never replaces it. Acting without it is a defect.
+**Hard gate:** before the first non-memory 1C MCP call (per session; per subagent run), and before writing or reviewing BSL/metadata or a 1C-fact spec, read `content/rules/mcp-policy.md` in full, `content/skills/mcp-1c-tools/SKILL.md`, then the selected operation skill. This applies even when no server is exposed. Memory-only operations enter through `content/rules/project-memory.md`; they do not load the 1C policy/router.
 
 ### A. Priority and obligation
 
-1. **Scope:** risk-bearing 1C work, memory and 1C-fact specs use the relevant exposed tools; prose-only edits get structural checks.
-2. **External knowledge:** platform/БСП/ITS only when their facts matter.
-3. **Evidence:** minimum set per `content/rules/tooling-playbooks.md`; confirm 1C facts before writing; disclose gaps.
-4. **Search:** `content/rules/mcp-first-search.md` before searching 1C sources; extensions / multi-project — verified `project_id` and layer (`content/rules/extension-workspace.md`).
-5. **Validation:** saved BSL → `syntaxcheck_file` → `check_1c_code` → `review_1c_code` at the active depth; XML → `verify_xml`.
-6. **ITS:** `its_help` → `fetch_its` for every document relied on.
-7. **Platform first:** before a custom specialized mechanism — `docsearch` → `docinfo` (+ `ssl_search`); build on a find; partial fit → `CONFUSION`; reject only for documented incompatibility, stated.
-8. **`templatesearch`:** task text or a same-goal paraphrase, never keywords.
-9. **Template reuse:** a fitting template is the base; reject only for a named reason; report its disposition.
+`mcp-policy.md → A. Priority and obligation` owns tool selection and minimum evidence, scoped source search, platform-first discovery, template reuse and ITS retrieval. Load `content/rules/mcp-first-search.md` before 1C source discovery. Platform APIs must be verified before use; a fitting template is the base; ITS search hits require full retrieval. Saved BSL follows `syntaxcheck_file` → `check_1c_code` → `review_1c_code` at the active depth; XML requires `verify_xml`.
 
 ### B. Limits and non-determinism
 
-1. One clean pass on the latest state; a blocking fix needs confirmation within `content/rules/verification-policy.md` budgets; no loops for style noise; unconfirmed = unverified.
-2. AI rewrites and answers are drafts; validate before delivery.
+`mcp-policy.md → B. Limits and non-determinism` and `verification-policy.md` own validator budgets. AI output is a draft; a required check without a clean confirming result is unverified.
 
 ### C. Call discipline
 
-1. Each call closes a gap; no repeats on unchanged state; independent opening calls go in one parallel batch.
-2. Tune parameter-rich queries; reformulate a miss once.
-3. Structural tools before substring search or full reads.
-4. Argument names come from the operation skill, never guessed.
-5. A typed server answer maps to an action by its code; a closed lane stays closed.
+`mcp-policy.md → C. Call discipline and server answers` owns bounded recovery. Each call closes a gap; no unchanged repeats. Batch independent calls, prefer structural searches and use documented arguments. A closed lane stays closed.
 
 ## Coding Standards
 
@@ -116,7 +103,7 @@ Before writing or reviewing BSL/metadata, load `content/rules/coding-standards.m
 
 ## Project memory
 
-1C changes and corrections → `content/rules/project-memory.md`; `content/rules/memory-setup.md` once per session. Recall before design (scope by triage); save corrections in the same turn; no secrets/PII.
+Before memory operations, 1C changes or correction capture, load `content/rules/project-memory.md` and its shared tool policy. Recall scope, durable writes and failure recovery live there. With no eligible memory tools, load `content/rules/memory-setup.md` once per session. Save corrections in the same turn; no secrets/PII.
 
 ## Rules self-improvement (`/evolve` + `LLM-RULES.md`)
 

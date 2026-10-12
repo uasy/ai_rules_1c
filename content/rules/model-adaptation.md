@@ -55,7 +55,7 @@ A profile tunes **how much the agent does on its own initiative** and **how it c
 **A profile MUST NOT** touch any of these, and any reading of a profile that seems to do so is a misreading:
 
 - the hard gates — `1c-metadata-manage` for metadata mutations and infobase-operation tooling (`AGENTS.md → Skills and Subagents`), MCP-first search (`content/rules/mcp-first-search.md`), the platform-capability check and `templatesearch` / `recall` obligations (`AGENTS.md → MCP Tool Calling → A`), and the memory gates (`AGENTS.md → Project memory`);
-- the validator chain and its budget (`syntaxcheck → check_1c_code → review_1c_code`, `AGENTS.md → MCP Tool Calling → B.1`) or the gates in `content/rules/verification-gates.md`. **Mandated validator calls are tool evidence, not self-verification** — a profile that damps "over-verification" damps only the extra passes the agent invents for itself;
+- the validator chain and its budget (`syntaxcheck → check_1c_code → review_1c_code`, `mcp-policy.md → B.1`) or the gates in `content/rules/verification-gates.md`. **Mandated validator calls are tool evidence, not self-verification** — a profile that damps "over-verification" damps only the extra passes the agent invents for itself;
 - triage (`content/rules/verification-policy.md`), the `CONFUSION` obligation on material forks, the completeness / no-placeholders principle, the source-language policy, or the evidence one-liners (`Template:`, `Memory:`, `Metadata tooling:`, `IB tooling:`);
 - the requirement to confirm destructive or hard-to-reverse actions.
 
@@ -70,8 +70,8 @@ These are the parts of both vendor guides that apply to **every** model. They ar
 - **Structure mixed content with tags.** Wrap distinct kinds of content (instructions vs. input vs. examples) in named tags in long briefs. Worked examples are a **per-model** lever, not part of this baseline: the latest guides of both vendors report that examples narrow the newest models' exploration and cost tokens, so each profile decides their place; an example remains the right tool to pin an exact output format.
 - **Long context: data first, question last.** Put long inputs (module listings, XML dumps, logs) above the instruction, and ground answers in quoted fragments of what you read.
 - **Say what to do, not what not to do.** Positive examples of the wanted shape beat prohibitions.
-- **Parallel independent tool calls; never guess parameters.** Batch independent MCP / file calls, keep dependent calls sequential, and never invent an argument name or value (`AGENTS.md → MCP Tool Calling → C.1`, `C.4`).
-- **Investigate before answering.** Never speculate about code you have not opened; read the file the user named (`AGENTS.md → MCP Tool Calling → A.3`, `content/rules/mcp-first-search.md`).
+- **Parallel independent tool calls; never guess parameters.** Batch independent MCP / file calls, keep dependent calls sequential, and never invent an argument name or value (`mcp-policy.md → C.1`, `C.4`).
+- **Investigate before answering.** Never speculate about code you have not opened; read the file the user named (`mcp-policy.md → A.3`, `content/rules/mcp-first-search.md`).
 - **Define success criteria and verify against them.** Turn imperative tasks into verifiable goals (`AGENTS.md → Development Procedure → 4`).
 - **Keep instructions non-contradictory.** Conflicting instructions degrade every model; resolve a conflict explicitly (`CONFUSION`, or the precedence chain above) instead of averaging the two readings.
 - **User task vs on-demand skill process.** The user's current-task instruction outranks an on-demand skill's process guidance, except hard gates and the MUST NOT list. A skill must not turn an already authorized task into an approval loop.

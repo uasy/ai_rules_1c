@@ -59,7 +59,7 @@ Generates the minimal set of XML source files for a 1C external report: root met
 ### Usage
 
 ```powershell
-powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-erf-scaffold/scripts/init.ps1 -Name "<Name>" [-Synonym "<Synonym>"] [-SrcDir "<SrcDir>"] [-WithSKD]
+powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-erf-scaffold/scripts/init.ps1 -Name "<Name>" [-Synonym "<Synonym>"] [-SrcDir "<SrcDir>"] [-WithSKD] [-BspForms]
 ```
 
 | Parameter | Required | Default | Description |
@@ -68,6 +68,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-erf-scaffold/
 | Synonym | no | = Name | Synonym (display name) |
 | SrcDir | no | `src` | Source directory relative to CWD |
 | WithSKD | no | — | Create empty DCS and bind to MainDataCompositionSchema |
+| BspForms | no | — | Main, settings and variant forms = БСП common forms `CommonForm.ФормаОтчета` / `ФормаНастроекОтчета` / `ФормаВариантаОтчета` |
 
 ### What Gets Created
 
@@ -92,6 +93,7 @@ With `--WithSKD` additionally:
 
 - Root XML contains `MetaDataObject/ExternalReport` with empty `DefaultForm`, `MainDataCompositionSchema`, and `ChildObjects`
 - With `--WithSKD` — `MainDataCompositionSchema` is filled with template reference, `ChildObjects` contains `<Template>`
+- With `-BspForms` — `DefaultForm`, `DefaultSettingsForm`, `DefaultVariantForm` name the БСП common forms. External reports may reference common forms of the configuration (Designer: «Формы → Основные»); the reference resolves by name in the infobase the report is built in or opened from
 - ClassId is fixed: `e41aff26-25cf-4bb6-b6c1-3f478a75f374`
 - File is created in UTF-8 with BOM
 
@@ -145,6 +147,10 @@ Take the infobase and platform from `.dev.env` (`INFOBASE_PATH`, `PLATFORM_PATH`
 ### Reference Types
 
 If the processor/report uses configuration reference types (`CatalogRef.XXX`, `DocumentRef.XXX`) — building in an empty database will fail with an XDTO error. Register a database with the target configuration via `1c-db-manage add`.
+
+### Common Forms
+
+`DefaultForm` / `DefaultSettingsForm` / `DefaultVariantForm` (and the auxiliary ones) may be `CommonForm.<Name>` — a common form of the configuration, as БСП reports use. The platform refuses the build in an infobase without that form («Неизвестный объект метаданных - CommonForm.<Name>»). Without an explicit infobase the stub database gets an empty common form of each referenced name, so the build passes; the reference is stored by name and resolves to the real form of the configuration the report is opened in (checked on 8.3.27).
 
 ### Examples
 

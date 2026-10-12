@@ -445,6 +445,10 @@ if ($defaultFormVal) {
 			Report-Error "5. DefaultForm references '$refFormName', but no such Form in ChildObjects"
 			$check5Ok = $false
 		}
+	} elseif ($defaultFormVal -match '^CommonForm\.[\p{L}_][\p{L}\d_]*$') {
+		# A common form of the configuration (БСП reports: CommonForm.ФормаОтчета) — the
+		# Designer offers it for external objects too; it resolves by name in the infobase
+		# the object is built in, so there is nothing to cross-check here.
 	} else {
 		Report-Warn "5. DefaultForm value '$defaultFormVal' has unexpected prefix (expected '$expectedPrefix...')"
 	}

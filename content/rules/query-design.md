@@ -22,7 +22,7 @@ Router for query work: load it first, then only the companions the table selects
 ## Pre-flight (every non-trivial query)
 
 1. **Verify metadata** before the first `ВЫБРАТЬ` — `metadatasearch` / `get_metadata_details` / `get_object_dossier`; never invent attribute or tabular-section names.
-2. **Find a proven shape** — `templatesearch` (task text verbatim; a hit is the base — `AGENTS.md → MCP Tool Calling → A.8–A.9`), `codesearch` / `search_code` for local patterns.
+2. **Find a proven shape** — `templatesearch` (task text verbatim; a hit is the base — `mcp-policy.md → A. Priority and obligation`, items 8–9), `codesearch` / `search_code` for local patterns.
 3. **Pick the right source** — catalog / document / information-register slice / accumulation virtual table (`Остатки`, `Обороты`, `ОстаткиИОбороты`); a wrong source is a design defect, not a tuning problem.
 4. **Apply the hard rules** of `standards(name="dev-standards-architecture") §3`; preserve slice semantics when moving virtual-table filters (`standards(name="anti-patterns") §4`).
 5. **Temp-table / union checklist** for every multi-batch query: each temp table later used in a `СОЕДИНЕНИЕ` / `ОБЪЕДИНИТЬ` / `В (ВЫБРАТЬ …)` has `ИНДЕКСИРОВАТЬ ПО` on its join keys (the 2–3 most selective fields); no `РАЗЛИЧНЫЕ` inside `ОБЪЕДИНИТЬ` operands or on top of `СГРУППИРОВАТЬ ПО`; correlated subqueries replaced by an indexed temp table + join; virtual-table periodicity matches the join keys; a virtual table joined directly only when its parameters already narrow it (`content/skills/1c-metadata-manage/docs/query-optimization.md → Joins with Virtual Tables`).

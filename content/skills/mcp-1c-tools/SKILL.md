@@ -1,6 +1,6 @@
 ---
 name: mcp-1c-tools
-description: "Router for the 1C MCP ecosystem — which server answers which need, which operation skill holds the exact calls and parameter names, and the fallback chain. Load before selecting any 1c-*-mcp / 1C-*-mcp tool."
+description: "Router for non-memory 1C MCP operations: select the server, operation skill with exact arguments, and fallback. Load before choosing a 1C tool; memory-only work enters through project-memory.md."
 ---
 
 # MCP tools for 1C — router
@@ -21,7 +21,8 @@ Load the skill for the operation, not this whole catalogue. Each skill lists the
 | Read forms, form artifacts, XSD / format specs before a form change | `content/skills/1c-form-inspect/SKILL.md` | code, graph, docs |
 | Validate changed BSL and metadata XML (Gates 1–3, 5) | `content/skills/1c-validate/SKILL.md` | syntax, checker, code |
 | Platform reference, capability check, БСП API, routed standards, ITS, configuration docs | `content/skills/1c-platform-help/SKILL.md` | docs, ssl, checker, code |
-| Templates as the base, project memory recall / save | `content/skills/1c-templates-memory/SKILL.md` | templates, cognee, openviking |
+| Templates as the base | `content/skills/1c-templates-memory/SKILL.md` | templates |
+| Memory recall / save (independent entry point) | `content/rules/project-memory.md` | cognee, openviking, templates |
 | Run a query or fragment in the live infobase, last event-log error | `content/skills/1c-live-ib/SKILL.md` | data |
 | Check behaviour in the 1C interface (thin client): forms, fields, tables, commands, messages | `content/skills/1c-qa-testing/SKILL.md` + `content/rules/qa-testclient.md` | qa |
 | Create / edit / remove metadata, forms, roles, DCS, MXL, infobases | `content/skills/1c-metadata-manage/SKILL.md` | scripts, not MCP |
@@ -29,28 +30,7 @@ Load the skill for the operation, not this whole catalogue. Each skill lists the
 
 ## Server catalog
 
-| Server id | Purpose | Details |
-|---|---|---|
-| `1c-graph-metadata-mcp` | Neo4j graph: dossier, impact, call graph, usages, business search, extension layers | `docs/1c-graph-metadata-mcp.md` |
-| `1c-code-metadata-mcp` | Metadata and BSL search, navigation, forms, XSD, `verify_xml` | `docs/1c-code-metadata-mcp.md` |
-| `1c-syntax-checker-mcp` | BSL Language Server: `syntaxcheck_file` (default), `syntaxcheck` (text fallback) | `docs/1c-syntax-checker-mcp.md` |
-| `1c-code-check-mcp` | 1С:Напарник: `check_1c_code`, `review_1c_code`, AI drafts, ITS, version docs | `docs/1c-code-check-mcp.md` |
-| `1C-docs-mcp` | Platform reference (`docsearch`, `docinfo`), `standards`, `formatspec` | `docs/1C-docs-mcp.md` |
-| `1c-ssl-mcp` | БСП / SSL API search | `docs/1c-ssl-mcp.md` |
-| `1c-templates-mcp` | Code templates, memory fallback | `docs/1c-templates-mcp.md` |
-| `cognee`, `openviking` *(optional)* | Memory providers | `docs/memory-providers.md` |
-| `1c-data-mcp` | Live-IB execution over `hs/mcp` | `docs/1c-data-mcp.md` |
-| `1c-qa` | QA MCP: test manager driving a 1C test client — UI checks under `UI_TESTING` | `content/skills/1c-qa-testing/SKILL.md` |
-| `edt-mcp` *(conditional)* | Live EDT workspace | `docs/edt-mcp.md` |
-
-### Optional pre-alpha servers
-
-These are experimental projects, separate from the eight main servers above and not required by normal development gates. Client aliases vary; use the tools actually exposed in this session. Read their catalog only for a task that needs them; do not install, start a client, replay UI actions or write conversion files merely to check availability.
-
-| Project / runtime server name | Purpose | Details |
-|---|---|---|
-| `MCP_Test` / `1C Visual UI Test` | Testing knowledge base, scenario preparation, test-client processes and UI replay | `docs/mcp-test.md` |
-| `MCP_ConversionData20` / `1C Конвертация данных 2.0 — разработка правил обмена` | Metadata mapping and conversion-rule authoring/validation/export | `docs/mcp-conversion-data20.md` |
+The operation table above is sufficient for ordinary routing. Read [server-catalog.md](docs/server-catalog.md) only to identify an unfamiliar server/alias, find a server-specific reference, or select an optional pre-alpha integration. Do not load the whole catalog before a known operation.
 
 ## Fallback chain
 

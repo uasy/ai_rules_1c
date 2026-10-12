@@ -26,7 +26,7 @@ Load the owner that matches the task; do not preload the whole set. Routed stand
 
 ## Code reuse
 
-Before writing new code: `search_function`, `ssl_search`, `templatesearch`, `codesearch` — an existing export method, a БСП API or a template beats new code. A `templatesearch` hit for the same task is the base (`AGENTS.md → MCP Tool Calling → A.9`); a specialized capability (cryptography, СЛАУ, data analysis, collaboration system, integration bus, full-text search, regex) triggers the platform-capability check before any custom implementation (`AGENTS.md → MCP Tool Calling → A.7`).
+Before writing new code: `search_function`, `ssl_search`, `templatesearch`, `codesearch` — an existing export method, a БСП API or a template beats new code. A `templatesearch` hit for the same task is the base (`mcp-policy.md → A.9`); a specialized capability (cryptography, СЛАУ, data analysis, collaboration system, integration bus, full-text search, regex) triggers the platform-capability check before any custom implementation (`mcp-policy.md → A.7`).
 
 ## Project rules stricter than the ITS standard
 

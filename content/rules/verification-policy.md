@@ -14,7 +14,7 @@ Depth controls validators, not UI confirmation or completion review. `lite` is n
 
 ## Validator budget
 
-Single owner of the retry budget for `syntaxcheck`, `check_1c_code` and `review_1c_code`; `AGENTS.md → MCP Tool Calling → B.1` and the gate descriptions point here.
+Single owner of the retry budget for `syntaxcheck`, `check_1c_code` and `review_1c_code`; `mcp-policy.md → B.1` and the gate descriptions point here.
 
 - **Cycle** — one logical edit of one module; every new behavioural edit starts a new cycle.
 - **Default** — one clean pass per validator on the latest artifact state.

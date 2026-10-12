@@ -1,6 +1,6 @@
 # Memory providers — Cognee, OpenViking and templates MCP
 
-Policy, write priority, search coverage and failure handling are owned by `content/rules/project-memory.md`. Apply `TOOL_COGNEE` / `TOOL_OPENVIKING` / `TOOL_TEMPLATES` before runtime discovery (`content/rules/mcp-policy.md → Tool availability`). This catalog does not make a configured or installed server callable.
+Policy, write priority, search coverage and failure handling are owned by `content/rules/project-memory.md`. Apply `TOOL_COGNEE` / `TOOL_OPENVIKING` / `TOOL_TEMPLATES` through `content/rules/tool-policy.md` before runtime discovery. Read only the selected provider below when extra detail is needed. This catalog does not make a configured or installed server callable.
 
 ## Cognee
 

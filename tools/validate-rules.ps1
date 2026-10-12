@@ -800,7 +800,7 @@ foreach ($file in $ruleFiles) {
 $hotPathFiles = @(
     'AGENTS.md',
     'content/rules/verification-policy.md', 'content/rules/verification-gates.md', 'content/rules/verification-delivery.md',
-    'content/rules/mcp-policy.md', 'content/rules/mcp-first-search.md', 'content/rules/coding-standards.md',
+    'content/rules/tool-policy.md', 'content/rules/mcp-policy.md', 'content/rules/mcp-first-search.md', 'content/rules/coding-standards.md',
     'content/rules/tooling-playbooks.md', 'content/rules/project-memory.md',
     'content/skills/mcp-1c-tools/SKILL.md', 'content/skills/1c-code-search/SKILL.md',
     'content/skills/1c-validate/SKILL.md', 'content/skills/1c-templates-memory/SKILL.md'

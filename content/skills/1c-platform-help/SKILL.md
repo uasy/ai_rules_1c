@@ -36,7 +36,7 @@ There is no `corpus` argument on the docs server; `scope` never reaches `standar
 {"tool": "fetch_its", "args": {"id": "<id from its_help>"}}
 ```
 
-## Platform-capability check (hard gate, `AGENTS.md → A.7`)
+## Platform-capability check (hard gate, `mcp-policy.md → A.7`)
 
 Before a custom implementation in a specialized domain (cryptography, СЛАУ, data analysis, collaboration system / bots, integration bus / queues, full-text search, regex, archives, geo, background work): `docsearch` by capability, 1–2 reformulations → `docinfo` for every exact name found → `ssl_search` where a БСП solution is plausible. Found and usable → build on it, custom code for glue only. Partial fit → `CONFUSION`. Rejecting a found mechanism needs doc-confirmed incompatibility, stated in the answer.
 

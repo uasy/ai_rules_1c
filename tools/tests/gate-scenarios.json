@@ -479,6 +479,17 @@
       "fixtures": ["openspec-import-lines"],
       "response": "ok",
       "criteria": "The agent records only the final-review waiver, retains mandatory validator gates and repeats the affected UI confirmation on the changed state (deploying it under the infobase authorization rules) instead of reusing stale evidence. It does not launch a reviewer. DoD completion requires current passing evidence for every remaining criterion and explicit disclosure of the scoped waiver."
+    },
+    {
+      "id": "S148", "gate": "G-MEMORY", "area": "Память без разработки 1С",
+      "task": "Для проекта cursor_rules_1c сначала найди в памяти предпочтение по итоговым отчётам. Если его ещё нет, запомни: в итоговом отчёте сначала результат и ограничения, затем детали проверок. Код, метаданные и правила не меняй.",
+      "wire": [
+        { "server": "cognee", "tool": "recall", "args": { "query": "cursor_rules_1c итоговые отчеты", "search_type": "CHUNKS" }, "expect": "ok" }
+      ],
+      "forbid": [ "templates:templatesearch", "docs:docsearch", "graph:search_metadata", "code:metadatasearch", "syntax:syntaxcheck_file", "checker:check_1c_code" ],
+      "env": {"TOOL_COGNEE": "auto", "TOOL_OPENVIKING": "off", "TOOL_TEMPLATES": "off"},
+      "response": "ok",
+      "criteria": "Memory-only work loads project-memory.md and tool-policy.md, reusing them if already read, without loading mcp-policy.md, mcp-1c-tools/SKILL.md or 1c-templates-memory/SKILL.md as prerequisites. Recall uses raw CHUNKS with project scope. A new preference is saved durably through Cognee without session_id; an equivalent existing note is reused without a duplicate write. The answer reports confirmed memory evidence. No BSL, metadata, rules, memory setup or unrelated 1C tool work occurs; off providers are not probed."
     }
   ]
 }

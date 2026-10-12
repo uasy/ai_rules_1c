@@ -1,29 +1,20 @@
 ---
-description: MCP obligations and evidence policy — tool availability, risk-bearing scope, platform-first, template reuse, validator budgets, call discipline, server answers. Load before choosing 1C MCP tools; AGENTS.md indexes it by the same section numbers.
+description: "1C MCP obligations: evidence, platform-first discovery, template reuse, validation and bounded recovery. Load before non-memory 1C MCP calls or BSL/metadata work; memory-only calls use project-memory.md."
 alwaysApply: false
 category: tooling
 ---
 
 # MCP Policy — Obligations and Evidence
 
-This file owns the obligations summarized in `AGENTS.md → MCP Tool Calling`. Routing and schemas: `content/skills/mcp-1c-tools/SKILL.md`; validator budgets and triage: `verification-policy.md`.
+This file owns the 1C obligations routed from `AGENTS.md → MCP Tool Calling`. Routing and schemas: `content/skills/mcp-1c-tools/SKILL.md`; validator budgets and triage: `verification-policy.md`.
 
 ## Tool availability
 
-All availability-driven routing checks BOTH policy and runtime. **Exposed** describes the live tool schema; exposure alone never overrides policy. Before selecting tools, read applicable `TOOL_*` keys in `.dev.env`; names: `content/rules/dev-standards-env.md → Tool policy`. Commands, skills and subagents inherit this filter, including instructions phrased as «when exposed/connected».
-
-- `auto` (missing / empty default): use eligible tools; on absence or failure follow the operation's documented fallback.
-- `off`: do not call, probe, recommend installing, or bypass the provider through aliases, HTTP or CLI. Record `disabled by policy` when it affects required evidence; then use the documented fallback.
-- `required`: when task/depth/routing selects this provider, it must supply the needed capability. Missing tools, failed calls or unsuitable scope block that step; alternatives can gather context but cannot satisfy it. Continue independent work. Do not downgrade or auto-install. This does not invoke unrelated providers, inactive workflows or already-unneeded fallbacks.
-- An invalid non-empty value leaves that provider's dependent step blocked until corrected; never interpret a typo as permission. Settings are case-insensitive. Installation/status commands may inspect a disabled tool on explicit request; installation does not change policy. A specific user override applies only to its stated scope.
-
-Runtime evidence is operation-specific: MCP tools must be callable in this session; CLI tools must already exist and run; read and write capabilities are separate. Config entries, healthy endpoints and `required` do not prove capability. Select verified project/layer/IB scope and check freshness before relying on results. Tool failures follow section C, not a new retry loop. Re-evaluate after policy, session or target changes; pass policy and evidence to children, which check their own exposed tools.
-
-These switches select execution paths, never waive hard gates. `auto`/`off` fallbacks keep their own limitations: unavailable standards stay unverified/blocked, missing validators require compensating checks, memory falls back locally, metadata/IB/repository tooling gates remain. `USE_EDT` and `UI_TESTING` still decide whether those workflows apply; a tool flag cannot activate them. Report relevant gaps with policy, capability and consequence, distinguishing disabled, absent, failed and wrong/stale scope.
+Load `content/rules/tool-policy.md` before selecting a provider; it owns `TOOL_*` values, runtime evidence and inherited policy. Reuse it within the same unchanged session. This file adds the 1C obligations and recovery below. Memory-only calls use `content/rules/project-memory.md` directly and do not load this policy or the 1C tool router.
 
 ### A. Priority and obligation
 
-1. **Mandatory scope.** When a relevant server is exposed, MCP calls are mandatory for risk-bearing 1C work: BSL written into files or into the reply, BSL / metadata edits or review, metadata XML, forms, integrations, refactoring, performance, runtime errors, platform API checks, impact analysis, syntax / quality validation, project-memory operations, and OpenSpec spec authoring that references concrete 1C facts (`content/rules/sdd-integrations.md`). Prose-only Markdown / rules work needs no 1C MCP calls — validate structure, links, paths and consistency instead.
+1. **Mandatory scope.** When a relevant server is exposed, MCP calls are mandatory for risk-bearing 1C work: BSL written into files or into the reply, BSL / metadata edits or review, metadata XML, forms, integrations, refactoring, performance, runtime errors, platform API checks, impact analysis, syntax / quality validation, and OpenSpec spec authoring that references concrete 1C facts (`content/rules/sdd-integrations.md`). Memory operations follow `project-memory.md`. Prose-only Markdown / rules work needs no 1C MCP calls — validate structure, links, paths and consistency instead.
 2. **Conditional external knowledge.** Platform docs, БСП / SSL and ITS tools — when the task depends on versioned platform behaviour, reusable БСП APIs, or standards compliance; not for prose cleanup.
 3. **Verify before writing BSL / metadata / specs.** Use the minimum evidence set from `content/rules/tooling-playbooks.md → Minimum Evidence Matrix`: quick-fix — the directly relevant code / syntax context; full-cycle — templates, existing project code, metadata, and platform / БСП / ITS docs when they affect correctness; metadata XML / forms — schema, examples, metadata validation; spec authoring — `recall` plus the MCP tools that confirm every referenced 1C fact. The final answer of a non-trivial BSL / metadata change or spec lists the context sources actually used; skipping a relevant source silently is a defect.
 4. **No blind chaining; MCP-first search.** Every call closes a concrete context gap (section C). On 1C project source the eligible project-index tools come before native discovery, within verified contour coverage, with a bounded miss → native fallback and a "what was tried" note; an empty result proves absence only with coverage and freshness evidence. Never invent a `grep` argument (Code's file-scan fallback is internal) and never substitute a neighbouring contour's index. Canon, including contour scope, the fragment-first `Read` rule and the fallback note — `content/rules/mcp-first-search.md → Hard rule`; multiple roots — `content/rules/multi-contour-search.md`.

@@ -54,7 +54,7 @@ Reformulate as a **different task description** (rephrase the goal, add one clau
 
 ## Using a found template (`templatesearch` only)
 
-> Canon for `AGENTS.md → MCP Tool Calling → A.9`. Applies **after** a successful **`templatesearch`** — not to `docsearch` / platform docs (those follow `1C-docs-mcp.md → Using a found platform mechanism`).
+> Canon for `mcp-policy.md → A.9`. Applies **after** a successful **`templatesearch`** — not to `docsearch` / platform docs (those follow `1C-docs-mcp.md → Using a found platform mechanism`).
 
 When **`templatesearch`** returns a template that matches the task (same goal: e.g. «вывести группы справочника и уровень иерархии», «обход иерархии запросом», «HTTP JSON интеграция»):
 

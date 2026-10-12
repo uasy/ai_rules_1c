@@ -22,9 +22,9 @@ Use the smallest set that closes the real context gaps; do not promote a task to
 
 ## Common preamble — every playbook that writes or changes BSL
 
-0. **Platform-capability check** when the task enters a specialized domain (cryptography, СЛАУ / numerical methods, data analysis, collaboration system / bots, integration bus / queues, full-text search, regex, …) — `AGENTS.md → MCP Tool Calling → A.7`.
+0. **Platform-capability check** when the task enters a specialized domain (cryptography, СЛАУ / numerical methods, data analysis, collaboration system / bots, integration bus / queues, full-text search, regex, …) — `mcp-policy.md → A.7`.
 1. **`recall`** with the task's key terms — `content/rules/project-memory.md`.
-2. **`templatesearch`** — task text verbatim; a hit is the base — `AGENTS.md → MCP Tool Calling → A.8–A.9`.
+2. **`templatesearch`** — task text verbatim; a hit is the base — `mcp-policy.md → A. Priority and obligation`, items 8–9.
 
 The steps below assume the preamble is done. Validator steps are `syntaxcheck` (by path — `syntaxcheck_file`) → `check_1c_code` → `review_1c_code` within `verification-policy.md → Validator budget`.
 

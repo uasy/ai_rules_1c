@@ -25,7 +25,7 @@ The parent closing gate MUST reuse that evidence when the current fingerprint an
 context match the recorded state. Checking a fingerprint or reading the edit target is allowed;
 it is not a repeated validator run.
 It runs only missing or stale gates and MUST NOT repeat a validator against unchanged content
-(`AGENTS.md → MCP Tool Calling → C.1`). Any later edit invalidates the affected validator
+(`mcp-policy.md → C.1`). Any later edit invalidates the affected validator
 evidence; the final editor becomes the new owner. The same rule applies to `verify_xml` and
 impact-analysis evidence.
 
@@ -93,7 +93,7 @@ Gate 3a supplies narrowly scoped evidence from a dev/test infobase. When eligibl
 - **Metadata references / runtime resolution.** Reuse current metadata lookups to confirm referenced tables, fields and types; those lookups alone do not prove the whole query resolves at runtime. If runtime resolution is the open question, use a bounded read-only `vcexecutequery` against a dev/test IB with the relevant current metadata / extensions and representative safe parameter values; record that state and the technical user's rights. A successful run proves resolution only for that tested query and context.
 - **Result correctness → expected-value comparison.** For a query, compare returned rows / values against the stated scenario; for a pure function use a **read-only** `vcexecutecode` fragment returning the value via `Результат`. `"ошибок нет"` without an expected-value comparison proves absence of a runtime exception only. A run under the technical user does not prove RLS behaviour for other users.
 - **Mutations are out of scope for this gate.** No `Записать()` / `Удалить()` / `НачатьТранзакцию` / register movements — the read-only discipline and the consent rules of `content/skills/mcp-1c-tools/docs/1c-data-mcp.md → Safety and discipline` apply unchanged. If confirming the change requires a mutation, that is a task for `1c-tester` against a test base, not for this gate.
-- **Budget:** one call per applicable tool / artifact state; run only the checks needed to close an open question. Re-run after a relevant artifact or test-state change only — the no-change-repeat rule (`AGENTS.md → MCP Tool Calling → C.1`) applies.
+- **Budget:** one call per applicable tool / artifact state; run only the checks needed to close an open question. Re-run after a relevant artifact or test-state change only — the no-change-repeat rule (`mcp-policy.md → C.1`) applies.
 
 **Failure is blocking for the artifact,** the same as a Gate 1 `error`: fix the query / fragment and re-run once against the changed state.
 
