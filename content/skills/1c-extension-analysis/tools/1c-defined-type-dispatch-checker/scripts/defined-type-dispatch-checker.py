@@ -201,7 +201,7 @@ def main():
     # A relative -BslFile is tried against the working directory first, then
     # against -ExtensionPath: a path copied from this skill's other tools is
     # relative to the extension tree, and resolving it only against the working
-    # directory answered "BSL file not found" for a file that exists.
+    # directory would answer "BSL file not found" for a file that exists.
     bsl_path = args.BslFile
     if not os.path.isabs(bsl_path):
         candidates = [os.path.join(os.getcwd(), bsl_path),

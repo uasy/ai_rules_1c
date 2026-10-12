@@ -6,13 +6,11 @@
 #
 # Companion to 1c-reference-finder / 1c-enum-value-checker / 1c-defined-type-
 # dispatch-checker / 1c-broken-metadata-path-checker / 1c-dead-code-after-insert-
-# checker (same skill: 1c-extension-analysis). Born from a concrete methodology
-# gap found while auditing a real 1C extension (see docs/registry-builder.md ->
-# Provenance for the exact case): a document's second, differently-named own
-# interceptor (registering data into an unrelated typical register) was missed
-# by every pass that searched for a single already-known interceptor name
-# (e.g. an already-known interceptor name) across the tree instead of enumerating everything a
-# given object actually owns. A name-search can only ever find what you already
+# checker (same skill: 1c-extension-analysis). It closes a methodology gap
+# (docs/registry-builder.md -> Provenance): a document's second, differently-named
+# own interceptor (registering data into an unrelated typical register) is missed
+# by every pass that searches for a single already-known interceptor name across
+# the tree instead of enumerating everything a given object actually owns. A name-search can only ever find what you already
 # think to look for; this tool enumerates what is actually there.
 #
 # Modes:
@@ -432,8 +430,7 @@ def find_own_bsl_files(ext_path, type_dir, name):
     The object's own `Ext/` is walked recursively, not listed: a common form keeps
     its module at `Ext/Form/Module.bsl`, one level deeper than an object module,
     and a flat listing missed that file — and with it every interceptor the
-    extension put on a typical common form (2 of the 101 annotations on a real
-    extension were invisible for exactly this reason)."""
+    extension put on a typical common form."""
     obj_dir = os.path.join(ext_path, type_dir, name)
     if not os.path.isdir(obj_dir):
         return []
@@ -453,8 +450,7 @@ def find_own_bsl_files(ext_path, type_dir, name):
     # An object's own commands keep their modules at
     # `<Object>/Commands/<Name>/Ext/CommandModule.bsl` — outside both `Ext/` and
     # `Forms/`, so neither walk above reaches them and the whole command module
-    # was invisible (3 such files on a real extension, one of them holding a
-    # command that opens a form of an object that does not exist).
+    # would be invisible.
     commands_dir = os.path.join(obj_dir, "Commands")
     if os.path.isdir(commands_dir):
         for dirpath, _dirnames, filenames in os.walk(commands_dir):
@@ -493,13 +489,12 @@ def scan_bsl_for_interceptors(bsl_path):
     the current typical implementation with only the `#Вставка`/`#КонецВставки`
     portions being the extension's own — comparisons living in the untouched
     copied text are not the extension's own dispatch logic and must not inflate
-    the branch count (confirmed gap: a real `&ИзменениеИКонтроль` dispatcher had
-    ~85 total `ОбъектМетаданных = Метаданные.X` comparisons in its full copied
-    body, but only a handful were inside its own `#Вставка` blocks — the rest was
-    typical code copied in whole by the annotation's own mechanics, not new
-    dispatch branches added by the extension). For every other annotation type
-    the whole body is the extension's own by construction, so the full-body count
-    from earlier versions of this tool remains correct there."""
+    the branch count (the copied body of a typical dispatcher can hold dozens of
+    `ОбъектМетаданных = Метаданные.X` comparisons while only a handful sit inside
+    the extension's own `#Вставка` blocks — the rest is typical code copied in
+    whole by the annotation's own mechanics, not new dispatch branches added by
+    the extension). For every other annotation type the whole body is the
+    extension's own by construction, so the full-body count is correct there."""
     lines = read_lines(bsl_path)
     results = []
     i = 0
@@ -570,10 +565,8 @@ def scan_bsl_routines_with_lines(bsl_path):
     unannotated routine in such a module is an addition by construction, and no
     base-configuration copy is needed to tell.
 
-    Verified against `1c-graph-metadata-mcp`'s independent layer diff on a real
-    extension: for `Документ.Отпуск`'s manager module this rule yields exactly the
-    five routines the graph reports as "Добавлены", and the annotated ones exactly
-    match its "Переопределены"."""
+    It agrees with `1c-graph-metadata-mcp`'s independent layer diff: the unannotated
+    routines are its "Добавлены", the annotated ones its "Переопределены"."""
     lines = read_lines(bsl_path)
     out = []
     for idx, line in enumerate(lines):
@@ -622,11 +615,10 @@ def module_rows(ext_path, bsl, obj_label, borrowed):
 
     # Routines the extension added to this module — everything that is not
     # an annotated interceptor. Emitted regardless of whether the module
-    # also carries interceptors: a module with an interceptor used to
-    # suppress these rows entirely, which silently dropped whole layers of
-    # own code (39 own routines on one real extension, among them 17
-    # copies of the same registry-id helper; and, in a form module, a
-    # 420-line own procedure sitting beside one annotated interceptor).
+    # also carries interceptors: suppressing these rows for a module with an
+    # interceptor would silently drop whole layers of own code (helpers
+    # copied across objects; in a form module, a long own procedure sitting
+    # beside one annotated interceptor).
     annotated_lines = {ic["RoutineLine"] for ic in interceptors}
     added = [r for r in scan_bsl_routines_with_lines(bsl)
              if r["Line"] not in annotated_lines]
@@ -690,8 +682,8 @@ def module_rows(ext_path, bsl, obj_label, borrowed):
                     ),
                     "Block": "",
                     # Number of distinct branch shapes, filled in by the analyst.
-                    # An empty cell is visible in the artifact; "decompose" in
-                    # prose was skipped on four dispatchers of five.
+                    # An empty cell is visible in the artifact; "decompose" asked
+                    # for in prose gets skipped.
                     "Shapes": "",
                     "Module": rel,
                     "Annotation": f'&{ic["Type"]}("{ic["Method"]}")',

@@ -6,9 +6,9 @@
 # property: layout elements (by name, at any depth), form attributes, commands
 # and parameters (by name) and the form's own properties. Element `id` values,
 # whitespace, indentation and namespace declarations are ignored; nothing else
-# is filtered. A text diff of the two sides needed six hand-written rules (indent
-# normalisation, wrapper lines, a "noise" class, reading order ...) and every
-# run implemented them differently; a tree comparison needs none of them.
+# is filtered. A text diff of the two sides needs six hand-written rules (indent
+# normalisation, wrapper lines, a "noise" class, reading order ...), which come
+# out differently each time they are written; a tree comparison needs none of them.
 #
 # Event bindings (`Events`) and command actions (`Action`) are reported apart as
 # handler bindings: they wire module code to the form and do not change its
@@ -20,9 +20,9 @@
 #
 # No -ConfigPath: the base configuration's form is a third point, and comparing
 # the snapshot with it answers mostly serialisation — the snapshot omits form
-# attributes, titles and data paths and names sub-elements differently (measured
-# on the reference extension: 59 "differences" on a form whose snapshot matches
-# the extension's version). See docs/form-basediff.md -> Not offered.
+# attributes, titles and data paths and names sub-elements differently (even a
+# form whose snapshot matches the extension's version gives dozens of
+# "differences"). See docs/form-basediff.md -> Not offered.
 #
 # Never use this tool's silence on an own form: it has no snapshot (no-snapshot),
 # and "what differs from stock" does not apply to it.

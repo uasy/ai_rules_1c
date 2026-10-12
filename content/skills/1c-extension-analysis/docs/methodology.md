@@ -37,7 +37,7 @@ This distinction matters more here than in most work, because the deliverable *i
 
 A changed object is a trace. What the reader decides with — before a configuration update, or when scoping the extension down — is **which usage scenario differs from stock, and what happens to it if the change goes away**. So section 2 is a list of scenarios, and interceptors, attributes and form elements appear underneath as what proves each one.
 
-**A scenario is an inference, not a code fact, and it must be graded as one.** Put scenarios at the centre without grading and the report becomes convincing fiction — worse than a dry inventory, because a story does not get re-checked. The worked example is real, and it cuts both ways. On one adopted form a renderer shows both write buttons as hidden, which reads as "the extension took writing out of this scenario" — and the base form already carries both flags, so that scenario is an invention. **But the opposite conclusion was equally wrong on the same form:** an earlier revision of this file ended the example with "the copy holds nothing of its own, the scenario is *none*, the object is a removal candidate", and that was false. The form's real change was a read-only flag removed from two fields — invisible to any rendering, visible only in the diff against the snapshot — and it carries the one manual way out of an exchange packet-number desynchronisation. Both errors come from the same move: reading a scenario off one side of a diff. State it only from the difference between the live form and its own snapshot, and treat "no own content" as a claim needing that diff, never as the default when nothing catches the eye.
+**A scenario is an inference, not a code fact, and it must be graded as one.** Put scenarios at the centre without grading and the report becomes convincing fiction — worse than a dry inventory, because a story does not get re-checked. The example cuts both ways. A renderer can show both write buttons of an adopted form as hidden, which reads as "the extension took writing out of this scenario" — while the base form already carries both flags, so that scenario is an invention. **But the opposite conclusion can be equally wrong on the same form:** "the copy holds nothing of its own, the scenario is *none*, the object is a removal candidate". Its real change can be a read-only flag removed from two fields — invisible to any rendering, visible only in the diff against the snapshot — and on an exchange-plan node form such an edit carries the one manual way out of an exchange packet-number desynchronisation. Both errors come from the same move: reading a scenario off one side of a diff. State it only from the difference between the live form and its own snapshot, and treat "no own content" as a claim needing that diff, never as the default when nothing catches the eye.
 
 ### Scenario kinds — all first-class
 
@@ -61,16 +61,16 @@ A changed object is a trace. What the reader decides with — before a configura
 | adopted, no own content at all | **no scenario** → removal candidate | direct |
 | adopted, XML identical to base, but it carries a module | the scenario is in code, the interface is untouched | direct |
 
-The ownership column of the two "hidden element" rows is what keeps them apart, and it is easy to lose: on a real extension the hidden-element signal fired on one adopted form out of six, and there it meant two *own* read-only tables, not a removed stock step.
+The ownership column of the two "hidden element" rows is what keeps them apart, and it is easy to lose: the hidden-element signal can mean *own* read-only tables, not a removed stock step.
 
 ### Two rules that keep the scenario list from rotting
 
-- **An implementation detail attaches to the scenario it serves and never becomes one.** Seventeen copies of the same registry-id helper are the mechanics of one scenario, not seventeen scenarios. Otherwise the scenario report bloats exactly as the mechanical one did.
+- **An implementation detail attaches to the scenario it serves and never becomes one.** Many copies of the same helper are the mechanics of one scenario, not many scenarios. Otherwise the scenario report bloats exactly as the mechanical one did.
 - **Absence of change is a finding.** An adopted form whose XML matches the base tells the reader what they will see: nothing. State it; do not bury it as a technical detail.
 
 ### The report feeds specification work — write it so the lift is mechanical
 
-There is usually no other source of requirements for an extension like this, so the report is the seed for `openspec/specs/`. That workspace lives next to the sources (`<version>/openspec/`, not the repository root) and fixes the shape: one folder per capability holding one `spec.md`, `### Requirement: <name>` carrying a normative MUST/SHALL statement, and `#### Scenario: <name>` written as `GIVEN` / `WHEN` / `THEN` / `AND` bullets. Load `content/rules/sdd-integrations.md` before writing anything there; specs are updated through a change proposal, not by editing `specs/` by hand.
+There is usually no other source of requirements for an extension like this, so the report is the seed for `openspec/specs/`. That workspace (where the project rules put it) fixes the shape: one folder per capability holding one `spec.md`, `### Requirement: <name>` carrying a normative MUST/SHALL statement, and `#### Scenario: <name>` written as `GIVEN` / `WHEN` / `THEN` / `AND` bullets. Load `content/rules/sdd-integrations.md` before writing anything there; specs are updated through a change proposal, not by editing `specs/` by hand.
 
 Map the report onto that shape directly:
 

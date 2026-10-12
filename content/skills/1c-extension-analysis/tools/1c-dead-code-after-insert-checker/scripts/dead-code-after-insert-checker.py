@@ -46,9 +46,8 @@ RE_ROUTINE_END = re.compile(r"^(КонецФункции|КонецПроцед�
 #       ВидДокумента.Код, ...);
 # — "Возврат СтрШаблон(...)," does not terminate the statement (unbalanced open
 # paren, no trailing ";"), so it must NOT be treated as a complete, reachable-once
-# top-level Возврат. Confirmed false-positive class found while validating this
-# tool: dozens of string-building helper functions in a real extension use exactly this
-# multi-line-call return shape.
+# top-level Возврат. A common false-positive class otherwise: string-building
+# helper functions often use exactly this multi-line-call return shape.
 RE_RETURN = re.compile(r"^Возврат(\s+.+)?;\s*$", re.IGNORECASE)
 
 

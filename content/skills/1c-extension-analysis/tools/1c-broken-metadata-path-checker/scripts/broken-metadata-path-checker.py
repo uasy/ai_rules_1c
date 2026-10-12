@@ -133,10 +133,10 @@ def main():
                           f"extension; no -ConfigPath given to check base config — {stripped}")
 
     print()
-    # The label must state what actually happened: printing "(no -ConfigPath)"
-    # unconditionally made a run that DID pass the argument look like the argument
-    # had been ignored, and the natural reaction - rerun without it - turns a
-    # confirmed broken path back into an unknown.
+    # The label must state what actually happened: a "(no -ConfigPath)" label on a
+    # run that DID pass the argument reads as "the argument was ignored", and the
+    # natural reaction - rerun without it - turns a confirmed broken path back into
+    # an unknown.
     scope = ("extension + base config" if config_path
              else "extension only, no -ConfigPath given")
     print(f"=== {total_hits} metadata-path literal(s) checked: "

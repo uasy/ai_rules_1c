@@ -10,7 +10,7 @@
 # written for the commented spelling returns zero blocks, which reads as "the
 # extension inserts nothing". And reading the blocks on demand, per object
 # already classified, misses the comment that sits in another object's block:
-# dump them all before grouping (docs/insert-blocks.md -> Provenance).
+# dump them all before grouping (docs/insert-blocks.md -> Why this exists).
 #
 # The block and interceptor parsing is registry-builder's, loaded from this
 # skill's own tools, so the two tools cannot disagree on what a block is.

@@ -38,7 +38,7 @@ Always pass `-Function` when the dispatcher is one routine among several in the 
 
 ## Adopted DefinedType resolution — read before trusting a `[MISSING]` verdict
 
-**Same pitfall as `enum-value-checker.py`, confirmed on a real extension.** An extension's own copy of an `Adopted` (typical) `DefinedType` can be a stale snapshot with far fewer `<v8:Type>` entries than the base configuration currently declares. Resolving composition from the extension's own snapshot alone in that case would make this tool useless (it could report "N members, nothing missing" when the true composition is much larger). See Provenance below for the case that surfaced this.
+**Same pitfall as `enum-value-checker.py`.** An extension's own copy of an `Adopted` (typical) `DefinedType` can be a stale snapshot with far fewer `<v8:Type>` entries than the base configuration currently declares. Resolving composition from the extension's own snapshot alone in that case would make this tool useless (it could report "N members, nothing missing" when the true composition is much larger). See Provenance below for the case that surfaced this.
 
 **Resolution the tool applies**, identical in spirit to the enum checker:
 

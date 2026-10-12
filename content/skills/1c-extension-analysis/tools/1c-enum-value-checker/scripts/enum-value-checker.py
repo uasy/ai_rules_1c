@@ -143,14 +143,11 @@ def parse_enum_file(xml_path):
 def load_enum_values(extension_path, config_path, enum_name):
     """Resolves the authoritative declared value list for <enum_name>.
 
-    Confirmed pitfall (found while validating this tool against a real extension,
-    details intentionally not reproduced here to avoid disclosing a third party's
-    codebase — see docs/enum-value-checker.md -> Provenance): an extension's own
-    copy of an ADOPTED enum can be a stale snapshot — missing values the base
+    Confirmed pitfall (docs/enum-value-checker.md -> Provenance): an extension's
+    own copy of an ADOPTED enum can be a stale snapshot — missing values the base
     configuration has genuinely declared since the extension last adopted the
-    object. In the confirmed case, values referenced by BSL code that looked
-    "missing" against the extension's own snapshot turned out to genuinely exist in
-    the base config, so treating the extension's own snapshot as authoritative for
+    object. Values referenced by BSL code that look "missing" against the
+    extension's own snapshot can genuinely exist in the base config, so treating the extension's own snapshot as authoritative for
     an Adopted enum produces false "BROKEN" verdicts. This is exactly the kind of
     drift a customer typically worries about across a base-config update.
 
