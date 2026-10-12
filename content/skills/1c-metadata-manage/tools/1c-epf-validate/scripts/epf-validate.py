@@ -378,6 +378,11 @@ def main():
             if ref_form_name not in form_names:
                 report_error(f"5. DefaultForm references '{ref_form_name}', but no such Form in ChildObjects")
                 check5_ok = False
+        elif re.match(r"^CommonForm\.[^\W\d][\w]*$", default_form_val):
+            # A common form of the configuration (БСП reports: CommonForm.ФормаОтчета) — the
+            # Designer offers it for external objects too; it resolves by name in the infobase
+            # the object is built in, so there is nothing to cross-check here.
+            pass
         else:
             report_warn(f"5. DefaultForm value '{default_form_val}' has unexpected prefix (expected '{expected_prefix}...')")
 

@@ -126,6 +126,10 @@ The PowerShell scripts under `tools/1c-db-ops/scripts/` were refreshed from [Nik
 
 ## epf-manage.md
 
+### Python runtimes: common forms in external reports (`2026-10-12`)
+
+`epf-validate.py`, `stub-db-create.py` and `erf-init` (`init.py`) follow the PowerShell fix of 2026-10-07: `CommonForm.<Name>` in `DefaultForm` is accepted, the stub infobase of a build gets an empty managed common form for each one named, and `-BspForms` writes the three БСП report forms. Pinned by `tools/tests/python-ports-regression.py`.
+
 ### Local fix `2026-10-07` — common forms in external reports
 
 External reports and data processors may name configuration common forms in `DefaultForm` / `DefaultSettingsForm` / `DefaultVariantForm` (БСП reports: `CommonForm.ФормаОтчета`). Checked on 8.3.27.2130: such an ERF builds in an infobase that has the form, and the reference survives a dump in another infobase with a same-named form (it is stored by name); without the form the build fails with «Неизвестный объект метаданных».

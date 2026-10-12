@@ -22,6 +22,8 @@ def main():
     parser.add_argument('-Synonym', dest='Synonym', default=None)
     parser.add_argument('-SrcDir', dest='SrcDir', default='src')
     parser.add_argument('-WithSKD', dest='WithSKD', action='store_true')
+    # Основная форма, форма настроек и форма варианта — общие формы БСП (ФормаОтчета и др.)
+    parser.add_argument('-BspForms', dest='BspForms', action='store_true')
     args = parser.parse_args()
 
     name = args.Name
@@ -40,6 +42,10 @@ def main():
     if args.WithSKD:
         main_dcs_value = f"ExternalReport.{name}.Template.ОсновнаяСхемаКомпоновкиДанных"
         child_objects_content = f"\n\t\t\t<Template>ОсновнаяСхемаКомпоновкиДанных</Template>\n"
+
+    default_form_element = "<DefaultForm>CommonForm.ФормаОтчета</DefaultForm>" if args.BspForms else "<DefaultForm/>"
+    settings_form_element = "<DefaultSettingsForm>CommonForm.ФормаНастроекОтчета</DefaultSettingsForm>" if args.BspForms else "<DefaultSettingsForm/>"
+    variant_form_element = "<DefaultVariantForm>CommonForm.ФормаВариантаОтчета</DefaultVariantForm>" if args.BspForms else "<DefaultVariantForm/>"
 
     main_dcs_element = f"<MainDataCompositionSchema>{main_dcs_value}</MainDataCompositionSchema>" if main_dcs_value else "<MainDataCompositionSchema/>"
     child_objects_xml = f"<ChildObjects>{child_objects_content}\t\t</ChildObjects>" if child_objects_content else "<ChildObjects/>"
@@ -66,12 +72,12 @@ def main():
 \t\t\t\t</v8:item>
 \t\t\t</Synonym>
 \t\t\t<Comment/>
-\t\t\t<DefaultForm/>
+\t\t\t{default_form_element}
 \t\t\t<AuxiliaryForm/>
 \t\t\t{main_dcs_element}
-\t\t\t<DefaultSettingsForm/>
+\t\t\t{settings_form_element}
 \t\t\t<AuxiliarySettingsForm/>
-\t\t\t<DefaultVariantForm/>
+\t\t\t{variant_form_element}
 \t\t\t<VariantsStorage/>
 \t\t\t<SettingsStorage/>
 \t\t</Properties>

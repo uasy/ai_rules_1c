@@ -1866,6 +1866,51 @@ def _(work):
     assert_tree_identical(before, snapshot_tree(dest), "a failed export touched the published dump")
 
 
+@case("epf: an external report may name configuration common forms (erf-init -BspForms, epf-validate, stub base)")
+def _(work):
+    """erf-init -BspForms writes CommonForm.ФормаОтчета / ФормаНастроекОтчета / ФормаВариантаОтчета,
+    epf-validate accepts CommonForm.* in DefaultForm instead of warning, and the stub infobase
+    for a build gets an empty managed common form for each one named (as the .ps1 do)."""
+    init = os.path.join(TOOLS_DIR, "1c-erf-scaffold", "scripts", "init.py")
+    validate = os.path.join(TOOLS_DIR, "1c-epf-validate", "scripts", "epf-validate.py")
+    stub = os.path.join(TOOLS_DIR, "1c-epf-build", "scripts", "stub-db-create.py")
+    src = os.path.join(work, "src")
+    _run_ok(init, ["-Name", "Отчёт", "-SrcDir", src, "-BspForms"], work, "erf-init -BspForms")
+    with open(os.path.join(src, "Отчёт.xml"), encoding="utf-8-sig") as handle:
+        root_xml = handle.read()
+    for prop, form in (("DefaultForm", "ФормаОтчета"), ("DefaultSettingsForm", "ФормаНастроекОтчета"),
+                       ("DefaultVariantForm", "ФормаВариантаОтчета")):
+        assert_true(f"<{prop}>CommonForm.{form}</{prop}>" in root_xml, f"erf-init -BspForms wrote no {prop}")
+    run = run_python_tool(validate, ["-Path", os.path.join(src, "Отчёт.xml"), "-Detailed"], work)
+    assert_equal(0, run["exit_code"], run["stdout"][-400:])
+    assert_true("unexpected prefix" not in run["stdout"], f"CommonForm.* in DefaultForm is warned about:\n{run['stdout']}")
+
+    plain = os.path.join(work, "plain")
+    _run_ok(init, ["-Name", "Отчёт", "-SrcDir", plain], work, "erf-init")
+    with open(os.path.join(plain, "Отчёт.xml"), encoding="utf-8-sig") as handle:
+        assert_true("<DefaultForm/>" in handle.read(), "erf-init without -BspForms must leave DefaultForm empty")
+
+    bin_dir = os.path.join(work, "bin-fail")
+    os.makedirs(bin_dir)
+    ibcmd = os.path.join(bin_dir, "ibcmd")
+    with open(ibcmd, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("#!/bin/sh\nexit 7\n")
+    os.chmod(ibcmd, 0o755)
+    base = os.path.join(work, "stub-base")
+    run = run_python_tool(stub, ["-SourceDir", src, "-V8Path", ibcmd, "-TempBasePath", base], work)
+    assert_equal(1, run["exit_code"], f"the failing ibcmd stub must stop the run: {run['stdout'][-300:]}")
+    cfg = os.path.join(base, "cfg")
+    with open(os.path.join(cfg, "Configuration.xml"), encoding="utf-8-sig") as handle:
+        cfg_xml = handle.read()
+    for form in ("ФормаОтчета", "ФормаНастроекОтчета", "ФормаВариантаОтчета"):
+        assert_true(f"<CommonForm>{form}</CommonForm>" in cfg_xml, f"Configuration.xml does not list CommonForm {form}")
+        with open(os.path.join(cfg, "CommonForms", f"{form}.xml"), encoding="utf-8-sig") as handle:
+            descriptor = handle.read()
+        assert_true("<FormType>Managed</FormType>" in descriptor and "<ChildObjects" not in descriptor,
+                    f"{form}: stub descriptor shape")
+        assert_true(os.path.isfile(os.path.join(cfg, "CommonForms", form, "Ext", "Form.xml")), f"{form}: no form body")
+
+
 DBMS_ARGS = ["-Dbms", "PostgreSQL", "-DbServer", "pg port=5433", "-DbName", "base1",
              "-DbUser", "u1", "-DbPassword", "Secr3tX"]
 
@@ -3841,12 +3886,15 @@ def _(work):
 
 @case("docs: the skill documents the Python runtime for the shipped commands only")
 def _(work):
-    path = os.path.join(REPO_ROOT, "content", "skills", "1c-metadata-manage", "SKILL.md")
-    with open(path, "rb") as handle:
-        text = handle.read().decode("utf-8-sig")
+    # The runtime table moved from SKILL.md to docs/runtime-selection.md, which SKILL.md routes to.
+    skill = os.path.join(REPO_ROOT, "content", "skills", "1c-metadata-manage")
+    text = ""
+    for rel in ("SKILL.md", os.path.join("docs", "runtime-selection.md")):
+        with open(os.path.join(skill, rel), "rb") as handle:
+            text += handle.read().decode("utf-8-sig")
     for stem in PORTED_COMMANDS:
         assert_true(f"{stem}.py" in text,
-                    f"SKILL.md does not name the ported entry point {stem}.py")
+                    f"SKILL.md / runtime-selection.md do not name the ported entry point {stem}.py")
     # The honest half: a tool with no Python peer must not be advertised with one.
     unported = sorted(
         (entry, name[:-4] + ".py")

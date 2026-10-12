@@ -65,6 +65,7 @@ def scan_ref_types(source_dir):
     )
     char_pattern = re.compile(r'cfg:Characteristic\.([A-Za-z\u0400-\u04FF\d_]+)')
     dt_pattern = re.compile(r'cfg:DefinedType\.([A-Za-z\u0400-\u04FF\d_]+)')
+    cf_pattern = re.compile(r'<(?:DefaultForm|AuxiliaryForm|DefaultSettingsForm|AuxiliarySettingsForm|DefaultVariantForm)>CommonForm\.([A-Za-z\u0400-\u04FF\d_]+)<')
 
     ref_map = {
         'CatalogRef': 'Catalog', 'DocumentRef': 'Document', 'EnumRef': 'Enum',
@@ -111,6 +112,11 @@ def scan_ref_types(source_dir):
                 type_map.setdefault('ChartOfCharacteristicTypes', {})[m.group(1)] = True
             for m in dt_pattern.finditer(content):
                 type_map.setdefault('DefinedType', {})[m.group(1)] = True
+            # Common forms named as the object's forms (БСП reports: DefaultForm = CommonForm.ФормаОтчета).
+            # The platform refuses the build without them ("Неизвестный объект метаданных") and resolves
+            # them by name, so an empty stub form of the same name is enough.
+            for m in cf_pattern.finditer(content):
+                type_map.setdefault('CommonForm', {})[m.group(1)] = True
 
     return type_map
 
@@ -238,6 +244,7 @@ META_INFO = {
     'AccountingRegister': ('AccountingRegister', 'AccountingRegisters'),
     'CalculationRegister': ('CalculationRegister', 'CalculationRegisters'),
     'DefinedType': ('DefinedType', 'DefinedTypes'),
+    'CommonForm': ('CommonForm', 'CommonForms'),
 }
 
 STD_ATTRS_BY_TYPE = {
@@ -734,6 +741,25 @@ PROPS['Task'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<UpdateDataHistoryImmediatelyAfterWrite>false</UpdateDataHistoryImmediatelyAfterWrite>
 \t\t\t<ExecuteAfterWriteDataHistoryVersionProcessing>false</ExecuteAfterWriteDataHistoryVersionProcessing>"""
 
+PROPS['CommonForm'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
+\t\t\t<Synonym/>
+\t\t\t<Comment/>
+\t\t\t<FormType>Managed</FormType>
+\t\t\t<IncludeHelpInContents>false</IncludeHelpInContents>
+\t\t\t<UsePurposes>
+\t\t\t\t<v8:Value xsi:type="app:ApplicationUsePurpose">PlatformApplication</v8:Value>
+\t\t\t</UsePurposes>
+\t\t\t<UseStandardCommands>false</UseStandardCommands>
+\t\t\t<ExtendedPresentation/>
+\t\t\t<Explanation/>"""
+
+# An empty managed form body: the platform loads a common form only with one.
+COMMON_FORM_BODY = ('<?xml version="1.0" encoding="UTF-8"?>\r\n<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" '
+                    'xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+                    'version="2.17">\r\n\t<AutoCommandBar name="\u0424\u043e\u0440\u043c\u0430\u041a\u043e\u043c\u0430\u043d\u0434\u043d\u0430\u044f'
+                    '\u041f\u0430\u043d\u0435\u043b\u044c" id="-1">\r\n\t\t<Autofill>true</Autofill>\r\n\t</AutoCommandBar>'
+                    '\r\n\t<ChildItems/>\r\n</Form>\r\n')
+
 PROPS['DefinedType'] = lambda n, sa: f"""\t\t\t<Name>{n}</Name>
 \t\t\t<Synonym/>
 \t\t\t<Comment/>
@@ -974,7 +1000,7 @@ def main():
                     props_xml = f'\t\t\t<Name>{obj_name}</Name>\n\t\t\t<Synonym/>\n\t\t\t<Comment/>'
 
                 # ChildObjects — varies by type
-                if meta_type == 'DefinedType':
+                if meta_type in ('DefinedType', 'CommonForm'):
                     child_obj_xml = ''
                 elif meta_type == 'InformationRegister':
                     reg_key = f'InformationRegister.{obj_name}'
@@ -1061,6 +1087,10 @@ def main():
 </MetaDataObject>
 """
                 write_bom(os.path.join(obj_dir, f'{obj_name}.xml'), obj_xml)
+                if meta_type == 'CommonForm':
+                    cf_ext_dir = os.path.join(obj_dir, obj_name, 'Ext')
+                    os.makedirs(cf_ext_dir, exist_ok=True)
+                    write_bom(os.path.join(cf_ext_dir, 'Form.xml'), COMMON_FORM_BODY)
 
         print(f'Generated stub configuration with {len(type_map)} metadata types')
         if register_columns:
