@@ -9,6 +9,9 @@
 # Button and Command children are written in the platform order, and a command's
 # picture-and-text Representation is TextPicture (form-edit.ps1 does the same) -
 # the earlier order and value were refused with an XDTO exception on load.
+# Local: removeElements / removeCommands remove form elements and commands by name
+# (form-edit.ps1 the same); a new element Events section goes before the element's
+# ChildItems, as form-edit.ps1 puts it.
 import argparse
 import json
 import os
@@ -175,6 +178,121 @@ if base_form is not None:
         next_cmd_id = 1000000
     if next_elem_id < 1000000:
         next_elem_id = 1000000
+
+
+# ── 4c. Remove elements and commands ────────────────────────
+# Local: "removeElements" / "removeCommands" take names. The whole plan is checked
+# before anything changes: a name that is not in the form, a command that an element
+# left in the form still names, or an element that another one still refers to stops
+# the run with nothing written. Handlers in Module.bsl are left to the caller.
+
+removed_elems = []
+removed_cmds = []
+removal_notes = []
+
+
+def _find_form_element(name):
+    for section in (root.find("f:AutoCommandBar", NS), root.find("f:ChildItems", NS)):
+        if section is None:
+            continue
+        for node in section.iter():
+            if not isinstance(node.tag, str) or node.get("name") != name:
+                continue
+            parent = node.getparent()
+            if parent is not None and local_name(parent) == "ChildItems":
+                return node
+    return None
+
+
+def _inside(node, subtrees):
+    while node is not None:
+        if any(node is s for s in subtrees):
+            return True
+        node = node.getparent()
+    return False
+
+
+def _detach(node):
+    """Remove *node*; the whitespace that followed it goes to the node before it (or to
+    the parent's text), so the next tag and the closing tag keep their lines."""
+    parent = node.getparent()
+    prev = node.getprevious()
+    if prev is not None:
+        prev.tail = node.tail
+    else:
+        parent.text = node.tail
+    parent.remove(node)
+    return parent
+
+
+def _drop_if_empty(container):
+    # A ChildItems or Commands section left without children is dropped: the
+    # designer writes no empty section of these kinds.
+    if container is not None and len(container) == 0 and local_name(container) in ("ChildItems", "Commands"):
+        owner = _detach(container)
+        # An owner left with nothing inside (a command bar without buttons) closes itself.
+        if len(owner) == 0 and not (owner.text or "").strip():
+            owner.text = None
+
+
+remove_elem_names = [str(n) for n in (defn.get("removeElements") or [])]
+remove_cmd_names = [str(n) for n in (defn.get("removeCommands") or [])]
+
+if remove_elem_names or remove_cmd_names:
+    elem_nodes = []
+    for name in remove_elem_names:
+        node = _find_form_element(name)
+        if node is None:
+            print(f"[ERROR] removeElements: element '{name}' not found in the form", file=sys.stderr)
+            sys.exit(1)
+        elem_nodes.append(node)
+
+    cmd_nodes = []
+    for name in remove_cmd_names:
+        node = None
+        for cmd_el in root.findall("f:Commands/f:Command", NS):
+            if cmd_el.get("name") == name:
+                node = cmd_el
+                break
+        if node is None:
+            print(f"[ERROR] removeCommands: command '{name}' not found in the form", file=sys.stderr)
+            sys.exit(1)
+        cmd_nodes.append(node)
+
+    removed_subtrees = elem_nodes + cmd_nodes
+    for name in remove_cmd_names:
+        ref = f"Form.Command.{name}"
+        for node in root.iter(f"{{{FORM_NS}}}CommandName"):
+            if (node.text or "").strip() == ref and not _inside(node, removed_subtrees):
+                holder = node.getparent().get("name")
+                print(f"[ERROR] removeCommands: '{name}' is still used by element '{holder}'"
+                      " -- remove that element too", file=sys.stderr)
+                sys.exit(1)
+    for name in remove_elem_names:
+        for node in root.iter():
+            if not isinstance(node.tag, str) or _inside(node, removed_subtrees):
+                continue
+            text = (node.text or "").strip()
+            if (local_name(node) == "Item" and text == name) or text.startswith(f"Items.{name}."):
+                print(f"[ERROR] removeElements: '{name}' is still referred to by {local_name(node)}"
+                      f" '{text}'", file=sys.stderr)
+                sys.exit(1)
+
+    for node in elem_nodes:
+        name = node.get("name")
+        handlers = [e.text for e in node.findall("f:Events/f:Event", NS) if e.text]
+        _drop_if_empty(_detach(node))
+        removed_elems.append(f"  - [{local_name(node)}] {name}")
+        for h in handlers:
+            removal_notes.append(f"  handler {h} of {name} stays in Module.bsl")
+    for node in cmd_nodes:
+        name = node.get("name")
+        action = node.find("f:Action", NS)
+        _drop_if_empty(_detach(node))
+        removed_cmds.append(f"  - {name}")
+        if action is not None and action.text:
+            removal_notes.append(f"  handler {action.text} of command {name} stays in Module.bsl")
+    root_ci = root.find("f:ChildItems", NS)
 
 
 def new_elem_id():
@@ -1376,15 +1494,33 @@ if elem_events_list:
             print(f"[WARN] Element '{target_name}' not found -- skipping elementEvent")
             continue
 
-        # Find or create Events element within the target
+        # Find or create Events element within the target. A new section goes where
+        # form-edit.ps1 puts it: before the element's ChildItems (a table's columns, a
+        # group's children), otherwise last - the loader refuses Events after ChildItems.
+        # Each tag stays on its own line.
         target_events = target_el.find("f:Events", NS)
         if target_events is None:
-            target_events = etree.SubElement(target_el, f"{{{FORM_NS}}}Events")
-
-        ee_child_indent = get_child_indent(target_events)
-        if not ee_child_indent:
-            parent_indent = get_child_indent(target_el)
-            ee_child_indent = parent_indent + "\t"
+            target_events = etree.Element(f"{{{FORM_NS}}}Events")
+            el_indent = get_child_indent(target_el)
+            ci_node = target_el.find("f:ChildItems", NS)
+            if ci_node is not None:
+                ci_node.addprevious(target_events)
+                target_events.tail = "\n" + el_indent
+            else:
+                last = target_el[-1] if len(target_el) else None
+                if last is not None:
+                    target_events.tail = last.tail
+                    last.tail = "\n" + el_indent
+                else:
+                    target_el.text = "\n" + el_indent
+                    target_events.tail = "\n" + el_indent[:-1]
+                target_el.append(target_events)
+            ee_child_indent = el_indent + "\t"
+        else:
+            ee_child_indent = get_child_indent(target_events)
+            if not ee_child_indent:
+                parent_indent = get_child_indent(target_el)
+                ee_child_indent = parent_indent + "\t"
 
         ee_name = str(ee["name"])
         ee_handler = str(ee["handler"])
@@ -1424,6 +1560,24 @@ with open(resolved_form_path, "wb") as f:
 
 if is_extension:
     print("[EXTENSION] BaseForm detected -- IDs start at 1000000+")
+    print()
+
+if removed_elems:
+    print("Removed elements:")
+    for line in removed_elems:
+        print(line)
+    print()
+
+if removed_cmds:
+    print("Removed commands:")
+    for line in removed_cmds:
+        print(line)
+    print()
+
+if removal_notes:
+    print("[INFO] Module.bsl is not edited:")
+    for line in removal_notes:
+        print(line)
     print()
 
 if added_form_events:
@@ -1467,6 +1621,10 @@ if added_cmds:
 
 print("---")
 total_parts = []
+if removed_elems:
+    total_parts.append(f"{len(removed_elems)} element(s) removed")
+if removed_cmds:
+    total_parts.append(f"{len(removed_cmds)} command(s) removed")
 if added_form_events:
     total_parts.append(f"{len(added_form_events)} form event(s)")
 if added_elem_events:

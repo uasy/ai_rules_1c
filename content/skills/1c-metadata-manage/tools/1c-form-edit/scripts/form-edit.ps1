@@ -288,6 +288,133 @@ if ($baseForm) {
 	if ($script:nextElemId -lt 1000000) { $script:nextElemId = 1000000 }
 }
 
+# --- 4c. Remove elements and commands ---
+# Local: "removeElements" / "removeCommands" take names. The whole plan is checked
+# before anything changes: a name that is not in the form, a command that an element
+# left in the form still names, or an element that another one still refers to stops
+# the run with nothing written. Handlers in Module.bsl are left to the caller.
+
+$removedElems = @()
+$removedCmds = @()
+$removalNotes = @()
+
+function Find-FormElement([string]$name, [System.Collections.ArrayList]$found) {
+	foreach ($section in @($root.SelectSingleNode("f:AutoCommandBar", $nsMgr), $root.SelectSingleNode("f:ChildItems", $nsMgr))) {
+		if (-not $section) { continue }
+		foreach ($node in $section.SelectNodes(".//*[@name]")) {
+			if ($node.GetAttribute("name") -eq $name -and $node.ParentNode.LocalName -eq "ChildItems") {
+				[void]$found.Add($node)
+				return
+			}
+		}
+	}
+}
+
+function Test-Inside($node, [System.Collections.ArrayList]$subtrees) {
+	while ($node) {
+		foreach ($s in $subtrees) { if ([object]::ReferenceEquals($node, $s)) { return $true } }
+		$node = $node.ParentNode
+	}
+	return $false
+}
+
+# Removes the node with the whitespace before it, so the next tag and the closing tag
+# keep their lines.
+function Remove-WithLayout($node) {
+	$parent = $node.ParentNode
+	$prev = $node.PreviousSibling
+	if ($prev -and ($prev.NodeType -eq 'Whitespace' -or $prev.NodeType -eq 'SignificantWhitespace')) {
+		[void]$parent.RemoveChild($prev)
+	}
+	[void]$parent.RemoveChild($node)
+}
+
+# A ChildItems or Commands section left without children is dropped: the designer
+# writes no empty section of these kinds. An owner left with nothing inside (a command
+# bar without buttons) closes itself.
+function Remove-IfEmpty($container) {
+	if ($container.LocalName -ne "ChildItems" -and $container.LocalName -ne "Commands") { return }
+	if ($container.SelectNodes("*").Count -gt 0) { return }
+	$owner = $container.ParentNode
+	Remove-WithLayout $container
+	if ($owner.SelectNodes("*").Count -eq 0 -and -not $owner.InnerText.Trim()) {
+		$owner.IsEmpty = $true
+	}
+}
+
+$removeElemNames = @()
+if ($def.removeElements) { $removeElemNames = @($def.removeElements | ForEach-Object { "$_" }) }
+$removeCmdNames = @()
+if ($def.removeCommands) { $removeCmdNames = @($def.removeCommands | ForEach-Object { "$_" }) }
+
+if ($removeElemNames.Count -gt 0 -or $removeCmdNames.Count -gt 0) {
+	$elemNodes = New-Object System.Collections.ArrayList
+	foreach ($name in $removeElemNames) {
+		$before = $elemNodes.Count
+		Find-FormElement $name $elemNodes
+		if ($elemNodes.Count -eq $before) {
+			[Console]::Error.WriteLine("[ERROR] removeElements: element '$name' not found in the form")
+			exit 1
+		}
+	}
+
+	$cmdNodes = New-Object System.Collections.ArrayList
+	foreach ($name in $removeCmdNames) {
+		$before = $cmdNodes.Count
+		foreach ($cmd in $root.SelectNodes("f:Commands/f:Command", $nsMgr)) {
+			if ($cmd.GetAttribute("name") -eq $name) { [void]$cmdNodes.Add($cmd); break }
+		}
+		if ($cmdNodes.Count -eq $before) {
+			[Console]::Error.WriteLine("[ERROR] removeCommands: command '$name' not found in the form")
+			exit 1
+		}
+	}
+
+	$removedSubtrees = New-Object System.Collections.ArrayList
+	$removedSubtrees.AddRange($elemNodes)
+	$removedSubtrees.AddRange($cmdNodes)
+	foreach ($name in $removeCmdNames) {
+		$ref = "Form.Command.$name"
+		foreach ($node in $root.SelectNodes("//f:CommandName", $nsMgr)) {
+			if ($node.InnerText.Trim() -eq $ref -and -not (Test-Inside $node $removedSubtrees)) {
+				$holder = $node.ParentNode.GetAttribute("name")
+				[Console]::Error.WriteLine("[ERROR] removeCommands: '$name' is still used by element '$holder' -- remove that element too")
+				exit 1
+			}
+		}
+	}
+	foreach ($name in $removeElemNames) {
+		foreach ($node in $root.SelectNodes("//*")) {
+			if ($node.SelectNodes("*").Count -gt 0) { continue }
+			$text = $node.InnerText.Trim()
+			if (-not (($node.LocalName -eq "Item" -and $text -eq $name) -or $text.StartsWith("Items.$name."))) { continue }
+			if (Test-Inside $node $removedSubtrees) { continue }
+			[Console]::Error.WriteLine("[ERROR] removeElements: '$name' is still referred to by $($node.LocalName) '$text'")
+			exit 1
+		}
+	}
+
+	foreach ($node in $elemNodes) {
+		$name = $node.GetAttribute("name")
+		$handlers = @($node.SelectNodes("f:Events/f:Event", $nsMgr) | ForEach-Object { $_.InnerText } | Where-Object { $_ })
+		$parent = $node.ParentNode
+		Remove-WithLayout $node
+		Remove-IfEmpty $parent
+		$removedElems += "  - [$($node.LocalName)] $name"
+		foreach ($h in $handlers) { $removalNotes += "  handler $h of $name stays in Module.bsl" }
+	}
+	foreach ($node in $cmdNodes) {
+		$name = $node.GetAttribute("name")
+		$action = $node.SelectSingleNode("f:Action", $nsMgr)
+		$parent = $node.ParentNode
+		Remove-WithLayout $node
+		Remove-IfEmpty $parent
+		$removedCmds += "  - $name"
+		if ($action -and $action.InnerText) { $removalNotes += "  handler $($action.InnerText) of command $name stays in Module.bsl" }
+	}
+	$rootCI = $root.SelectSingleNode("f:ChildItems", $nsMgr)
+}
+
 function New-ElemId { $id = $script:nextElemId; $script:nextElemId++; return $id }
 function New-AttrId { $id = $script:nextAttrId; $script:nextAttrId++; return $id }
 function New-CmdId { $id = $script:nextCmdId; $script:nextCmdId++; return $id }
@@ -1500,6 +1627,24 @@ if ($script:isExtension) {
 	Write-Host ""
 }
 
+if ($removedElems.Count -gt 0) {
+	Write-Host "Removed elements:"
+	foreach ($line in $removedElems) { Write-Host $line }
+	Write-Host ""
+}
+
+if ($removedCmds.Count -gt 0) {
+	Write-Host "Removed commands:"
+	foreach ($line in $removedCmds) { Write-Host $line }
+	Write-Host ""
+}
+
+if ($removalNotes.Count -gt 0) {
+	Write-Host "[INFO] Module.bsl is not edited:"
+	foreach ($line in $removalNotes) { Write-Host $line }
+	Write-Host ""
+}
+
 if ($addedFormEvents.Count -gt 0) {
 	Write-Host "Added form events:"
 	foreach ($line in $addedFormEvents) { Write-Host $line }
@@ -1536,6 +1681,8 @@ if ($addedCmds.Count -gt 0) {
 
 Write-Host "---"
 $totalParts = @()
+if ($removedElems.Count -gt 0) { $totalParts += "$($removedElems.Count) element(s) removed" }
+if ($removedCmds.Count -gt 0) { $totalParts += "$($removedCmds.Count) command(s) removed" }
 if ($addedFormEvents.Count -gt 0) { $totalParts += "$($addedFormEvents.Count) form event(s)" }
 if ($addedElemEvents.Count -gt 0) { $totalParts += "$($addedElemEvents.Count) element event(s)" }
 if ($addedElems.Count -gt 0) {

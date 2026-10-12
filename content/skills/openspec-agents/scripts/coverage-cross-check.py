@@ -68,20 +68,28 @@ def test_file(cap, name):
             return True
     return False
 
+# Without arguments: the capabilities with a main spec. A capability whose requirements are still
+# only in a delta is checked by name — a deferred change would otherwise be a standing finding.
 caps = sys.argv[1:] or sorted(p.parent.name for p in (ROOT / "openspec" / "specs").glob("*/spec.md"))
 problems = 0
 for cap in caps:
     spec = ROOT / "openspec" / "specs" / cap / "spec.md"
     readme = ROOT / "openspec" / "tests" / cap / "README.md"
-    if not spec.exists() or not readme.exists():
-        print(f"## {cap}: no {'spec' if not spec.exists() else 'tests README'}"); problems += 1; continue
 
-    pairs = parse_spec(spec)
     deltas = []
     for d in sorted((ROOT / "openspec" / "changes").glob(f"*/specs/{cap}/spec.md")):
         if "archive" in d.parts: continue
         for r, s in parse_spec(d):
             deltas.append((r, s, d.parts[-3]))
+
+    # A capability whose first change is not archived yet has no main spec: its requirements
+    # live in the delta alone, and that is a complete input for this check.
+    if not readme.exists():
+        print(f"## {cap}: no tests README"); problems += 1; continue
+    if not spec.exists() and not deltas:
+        print(f"## {cap}: no spec"); problems += 1; continue
+
+    pairs = parse_spec(spec) if spec.exists() else []
     tests, excl_reqs, excl = parse_readme(readme)
     claimed = {norm(c): t for t, _req, cs in tests for c in cs}
 

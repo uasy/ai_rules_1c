@@ -2236,6 +2236,88 @@ def _(work):
                     f"{tag}: ChildItems closing tag is joined:\n{text[-200:]!r}")
 
 
+@case("xml layout: form-edit puts a new element Events section before ChildItems, on its own lines")
+def _(work):
+    """form-edit.ps1 order: an element's Events goes before its ChildItems (a table's columns),
+    otherwise last; the loader refuses Events after ChildItems."""
+    table = ('\t<ChildItems>\n\t\t<Table name="Список" id="1">\n\t\t\t<DataPath>Список</DataPath>\n'
+             '\t\t\t<ContextMenu name="СписокКонтекстноеМеню" id="2"/>\n'
+             '\t\t\t<ChildItems>\n\t\t\t\t<InputField name="СписокИмя" id="3">\n'
+             '\t\t\t\t\t<DataPath>Список.Имя</DataPath>\n\t\t\t\t</InputField>\n\t\t\t</ChildItems>\n'
+             '\t\t</Table>\n\t\t<InputField name="Поле" id="4">\n\t\t\t<DataPath>Поле</DataPath>\n'
+             '\t\t\t<ExtendedTooltip name="ПолеРасширеннаяПодсказка" id="5"/>\n\t\t</InputField>\n\t</ChildItems>\n')
+    definition = {"elementEvents": [
+        {"element": "Список", "name": "OnActivateRow", "handler": "СписокПриАктивизацииСтроки"},
+        {"element": "Список", "name": "Selection", "handler": "СписокВыбор"},
+        {"element": "Поле", "name": "StartChoice", "handler": "ПолеНачалоВыбора"}]}
+    for eol, tag in (("\n", "lf"), ("\r\n", "crlf")):
+        form, run = _form_edit(os.path.join(work, tag), FORM_BAR + table, definition, tag, eol)
+        assert_equal(0, run["exit_code"], f"{tag}: {run['stdout'][-300:]}")
+        text = _read_form(form)
+        table_events = ('\t\t\t<ContextMenu name="СписокКонтекстноеМеню" id="2"/>\n\t\t\t<Events>\n'
+                        '\t\t\t\t<Event name="OnActivateRow">СписокПриАктивизацииСтроки</Event>\n'
+                        '\t\t\t\t<Event name="Selection">СписокВыбор</Event>\n\t\t\t</Events>\n\t\t\t<ChildItems>\n')
+        assert_true(table_events.replace("\n", eol) in text, f"{tag}: table Events is not before ChildItems:\n{text!r}")
+        field_events = ('\t\t\t<ExtendedTooltip name="ПолеРасширеннаяПодсказка" id="5"/>\n\t\t\t<Events>\n'
+                        '\t\t\t\t<Event name="StartChoice">ПолеНачалоВыбора</Event>\n\t\t\t</Events>\n\t\t</InputField>\n')
+        assert_true(field_events.replace("\n", eol) in text, f"{tag}: field Events is not last on its own lines:\n{text!r}")
+        crlf = text.count("\r\n")
+        assert_true(crlf == text.count("\n") if eol == "\r\n" else crlf == 0, f"{tag}: mixed line endings")
+
+
+FORM_REMOVE_BAR = ('\t<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">\n\t\t<ChildItems>\n'
+                   '\t\t\t<Button name="ФормаПервая" id="1">\n\t\t\t\t<Type>CommandBarButton</Type>\n'
+                   '\t\t\t\t<CommandName>Form.Command.Первая</CommandName>\n'
+                   '\t\t\t\t<ExtendedTooltip name="ФормаПерваяРасширеннаяПодсказка" id="2"/>\n\t\t\t</Button>\n'
+                   '\t\t\t<Button name="ФормаВторая" id="3">\n\t\t\t\t<Type>CommandBarButton</Type>\n'
+                   '\t\t\t\t<CommandName>Form.Command.Вторая</CommandName>\n'
+                   '\t\t\t\t<ExtendedTooltip name="ФормаВтораяРасширеннаяПодсказка" id="4"/>\n\t\t\t</Button>\n'
+                   '\t\t</ChildItems>\n\t</AutoCommandBar>\n\t<ChildItems/>\n')
+FORM_REMOVE_COMMANDS = ('\t<Commands>\n\t\t<Command name="Первая" id="1">\n\t\t\t<Action>ПерваяОбработка</Action>\n'
+                        '\t\t</Command>\n\t\t<Command name="Вторая" id="2"/>\n\t</Commands>\n')
+
+
+@case("form-edit: removeElements / removeCommands keep the layout and drop emptied sections")
+def _(work):
+    """A button and its command go together; the next tag keeps its line, a section
+    left empty is dropped, the command's handler is reported, not deleted."""
+    for eol, tag in (("\n", "lf"), ("\r\n", "crlf")):
+        form, run = _form_edit(os.path.join(work, f"one-{tag}"), FORM_REMOVE_BAR + FORM_REMOVE_COMMANDS,
+                               {"removeElements": ["ФормаВторая"], "removeCommands": ["Вторая"]}, tag, eol)
+        assert_equal(0, run["exit_code"], f"{tag}: {run['stdout'][-300:]}")
+        text = _read_form(form)
+        expected = ('\t\t\t\t<ExtendedTooltip name="ФормаПерваяРасширеннаяПодсказка" id="2"/>\n\t\t\t</Button>\n'
+                    '\t\t</ChildItems>\n\t</AutoCommandBar>\n\t<ChildItems/>\n\t<Commands>\n'
+                    '\t\t<Command name="Первая" id="1">\n\t\t\t<Action>ПерваяОбработка</Action>\n'
+                    '\t\t</Command>\n\t</Commands>\n</Form>\n')
+        assert_true(text.endswith(expected.replace("\n", eol)), f"{tag}: layout after removal:\n{text!r}")
+        assert_true("ФормаВторая" not in text and '"Вторая"' not in text, f"{tag}: removed names are left:\n{text!r}")
+
+        form, run = _form_edit(os.path.join(work, f"all-{tag}"), FORM_REMOVE_BAR + FORM_REMOVE_COMMANDS,
+                               {"removeElements": ["ФормаПервая", "ФормаВторая"],
+                                "removeCommands": ["Первая", "Вторая"]}, tag, eol)
+        assert_equal(0, run["exit_code"], f"{tag}: all: {run['stdout'][-300:]}")
+        text = _read_form(form)
+        expected = '\t<AutoCommandBar name="ФормаКоманднаяПанель" id="-1"/>\n\t<ChildItems/>\n</Form>\n'
+        assert_true(text.endswith(expected.replace("\n", eol)), f"{tag}: emptied sections are not dropped:\n{text!r}")
+        assert_true("ПерваяОбработка" in run["stdout"], f"{tag}: the handler left in Module.bsl is not reported")
+
+
+@case("form-edit: removal refuses a command still in use and an unknown name, writing nothing")
+def _(work):
+    cases = [
+        ("in-use", {"removeCommands": ["Вторая"]}, "still used by element 'ФормаВторая'"),
+        ("unknown-element", {"removeElements": ["Нет"]}, "element 'Нет' not found"),
+        ("unknown-command", {"removeCommands": ["Нет"]}, "command 'Нет' not found"),
+    ]
+    for label, definition, message in cases:
+        form, run = _form_edit(os.path.join(work, label), FORM_REMOVE_BAR + FORM_REMOVE_COMMANDS, definition, label)
+        assert_equal(1, run["exit_code"], f"{label}: exit code")
+        assert_true(message in run["stdout"] + run["stderr"], f"{label}: message {run['stderr'][-300:]!r}")
+        assert_equal(FORM_HEAD + FORM_REMOVE_BAR + FORM_REMOVE_COMMANDS + "</Form>\n", _read_form(form),
+                     f"{label}: the form was changed")
+
+
 @case("auto-validation: cf-edit, interface-edit and subsystem-* run their sibling validator")
 def _(work):
     """Each port calls the validator that sits next to it. The upstream .ps1 path

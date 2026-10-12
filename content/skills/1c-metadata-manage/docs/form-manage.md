@@ -307,6 +307,23 @@ For borrowed forms (with `<BaseForm>`) extension mode activates automatically: I
 
 All extension sections are optional — without them the tool works on regular forms as usual.
 
+#### Removing Elements and Commands
+
+```json
+{ "removeElements": ["FormSync"], "removeCommands": ["Sync"] }
+```
+
+| Key | Description |
+|---|---|
+| `removeElements` | Names of form elements (fields, groups, buttons — in the form or a command bar); each goes with its nested elements and companions |
+| `removeCommands` | Names of form commands |
+
+Removal runs before any addition of the same JSON. The whole plan is checked first: an
+unknown name, a command still named by an element left in the form, or an element still
+referred to elsewhere (an `AdditionSource` item, an `Items.<name>.` data path) stops the run
+with nothing written. A `ChildItems` or `Commands` section left empty is dropped. Event and
+command handlers stay in `Module.bsl` — the run lists them; delete them separately.
+
 #### Element Positioning
 
 | Key | Default | Description |
