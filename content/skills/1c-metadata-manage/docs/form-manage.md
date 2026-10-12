@@ -309,6 +309,8 @@ All extension sections are optional — without them the tool works on regular f
 
 #### Removing Elements and Commands
 
+Python only: `form-edit.py` (Linux / macOS). `form-edit.ps1` has no removal.
+
 ```json
 { "removeElements": ["FormSync"], "removeCommands": ["Sync"] }
 ```

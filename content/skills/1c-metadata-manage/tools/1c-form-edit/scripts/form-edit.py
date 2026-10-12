@@ -10,8 +10,8 @@
 # picture-and-text Representation is TextPicture (form-edit.ps1 does the same) -
 # the earlier order and value were refused with an XDTO exception on load.
 # Local: removeElements / removeCommands remove form elements and commands by name
-# (form-edit.ps1 the same); a new element Events section goes before the element's
-# ChildItems, as form-edit.ps1 puts it.
+# (Python only; form-edit.ps1 has no removal); a new element Events section goes
+# before the element's ChildItems, as form-edit.ps1 puts it.
 import argparse
 import json
 import os

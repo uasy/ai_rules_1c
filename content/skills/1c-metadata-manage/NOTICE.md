@@ -88,10 +88,11 @@ PowerShell writers have:
   downstream `add-template.ps1` does.
 - `form-compile.py` (above) — registering a compiled form in its object keeps the
   object file's line endings.
-- `form-edit.py` and `form-edit.ps1` — local additions: `removeElements` /
-  `removeCommands` remove form elements and commands by name, refusing a removal
-  that would leave a reference behind; `form-edit.py` puts a new element `Events`
-  section before the element's `ChildItems`, as `form-edit.ps1` does.
+- `form-edit.py` — local additions: `removeElements` / `removeCommands` remove form
+  elements and commands by name, refusing a removal that would leave a reference
+  behind (Python only — `form-edit.ps1` is unchanged upstream code and has no
+  removal); a new element `Events` section goes before the element's `ChildItems`,
+  as `form-edit.ps1` does.
 - `cf-edit.py`, `interface-edit.py`, `subsystem-compile.py`, `subsystem-edit.py` —
   auto-validation calls the sibling validator. The PowerShell peers look for
   `../../<validator>/scripts/<validator>.ps1`, which does not exist in this layout,
