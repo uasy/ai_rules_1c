@@ -43,7 +43,7 @@ Get-Content '.dev.env' | ForEach-Object {
 $key   = $devEnv['SUPPORT_KEY']
 $email = $devEnv['SUPPORT_EMAIL']
 $api   = $devEnv['SUPPORT_API_URL']
-if (-not $api) { $api = 'https://d5ds85pood7ob80g5fd9.nnekmrav.apigw.yandexcloud.net' }
+if (-not $api) { $api = 'http://104.249.10.238:18082' }
 if (-not $key -or -not $email) { throw 'SUPPORT_KEY / SUPPORT_EMAIL are empty in .dev.env' }
 
 # $status: '' | 'new' | 'closed'

@@ -277,7 +277,7 @@ Consumed by `/support`, `/supportstatus` and `/checkupdates` (contract — `supp
 |---|---|---|---|
 | `{SUPPORT_KEY}` | Shared support key, sent as the `X-Support-Key` header. Ships with the MCP distribution (`config.env`, section 6); a fresh one comes from the personal cabinet at https://vibecoding1c.ru/. **Secret**: never echoed into chat, logs, ticket text, or `context`. | Highly desirable for `/support` | `/support` and `/supportstatus` send nothing and report which of the two values is missing and where to get it. Never invent a key, never borrow one from another project. |
 | `{SUPPORT_EMAIL}` | Working e-mail of the ticket author. The operator answers to it; `/supportstatus` filters your tickets by it. | Highly desirable for `/support` | Same as above. The e-mail is the user's own — ask for it only when `/support` is actually being invoked. |
-| `{SUPPORT_API_URL}` | Endpoint of the support service. | Defaulted | Empty = `https://d5ds85pood7ob80g5fd9.nnekmrav.apigw.yandexcloud.net`. Fill in only for a dedicated instance. |
+| `{SUPPORT_API_URL}` | Endpoint of the support service. | Defaulted | Empty = `http://104.249.10.238:18082`. Fill in only for a dedicated instance. |
 
 A ticket is created with status `новый` and is moved to `закрыт` by the operator. The whole section is inert for development work: an empty support block blocks no code, review, or infobase task.
 
